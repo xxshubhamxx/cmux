@@ -10079,8 +10079,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] note in
-            guard let self, let window = note.object as? NSWindow else { return }
-            self.setActiveMainWindow(window)
+            guard let window = note.object as? NSWindow else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.setActiveMainWindow(window)
+            }
         }
     }
 
@@ -10094,19 +10097,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self,
-                  let webView = notification.object as? WKWebView,
-                  let window = webView.window,
-                  let context = self.contextForMainTerminalWindow(window),
-                  let focusedBrowser = context.tabManager.focusedBrowserPanel,
-                  focusedBrowser.webView === webView else {
+            guard let webView = notification.object as? WKWebView else {
                 return
             }
-            self.browserFirstResponderWindow = window
-            if self.tabManager !== context.tabManager
-                || self.sidebarState !== context.sidebarState
-                || self.sidebarSelectionState !== context.sidebarSelectionState {
-                self.setActiveMainWindow(window)
+            Task { @MainActor [weak self] in
+                guard let self,
+                      let window = webView.window,
+                      let context = self.contextForMainTerminalWindow(window),
+                      let focusedBrowser = context.tabManager.focusedBrowserPanel,
+                      focusedBrowser.webView === webView else {
+                    return
+                }
+                self.browserFirstResponderWindow = window
+                if self.tabManager !== context.tabManager
+                    || self.sidebarState !== context.sidebarState
+                    || self.sidebarSelectionState !== context.sidebarSelectionState {
+                    self.setActiveMainWindow(window)
+                }
             }
         }
 
