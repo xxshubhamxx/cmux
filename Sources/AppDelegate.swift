@@ -4802,29 +4802,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            isMainTerminalWindow(overrideWindow) {
             return overrideWindow
         }
-        guard let context = contextForFocusedBrowserSurfaceWindow() else {
-            return nil
+        if let context = preferredBrowserSurfaceShortcutContext() {
+            return context.window ?? windowForMainWindowId(context.windowId)
         }
-        return context.window ?? windowForMainWindowId(context.windowId)
+        return nil
     }
 
     private func preferredBrowserSurfaceShortcutContext() -> MainWindowContext? {
-        if let context = contextForMainWindow(browserSurfaceShortcutTargetWindow) {
+        if let overrideWindow = browserSurfaceShortcutTargetWindow,
+           let context = contextForMainTerminalWindow(overrideWindow) {
             return context
         }
-        return contextForFocusedBrowserSurfaceWindow()
+        if let context = contextForFocusedBrowserSurfaceWindow() {
+            return context
+        }
+        return liveBrowserSurfaceShortcutContext()
     }
 
     private func contextForFocusedBrowserSurfaceWindow() -> MainWindowContext? {
         guard let window = browserFirstResponderWindow,
-              isMainTerminalWindow(window),
-              let context = contextForMainTerminalWindow(window),
-              let focusedBrowser = context.tabManager.focusedBrowserPanel,
-              responderChainContains(window.firstResponder, target: focusedBrowser.webView) else {
+              window === NSApp.keyWindow || window.isKeyWindow,
+              let context = browserSurfaceShortcutContext(
+                  for: window,
+                  allowSelectedBrowserFallback: true
+              ) else {
             browserFirstResponderWindow = nil
             return nil
         }
         return context
+    }
+
+    private func browserSurfaceShortcutContext(
+        for window: NSWindow?,
+        allowSelectedBrowserFallback: Bool = false
+    ) -> MainWindowContext? {
+        guard let window,
+              isMainTerminalWindow(window),
+              let context = contextForMainTerminalWindow(window),
+              let focusedBrowser = context.tabManager.focusedBrowserPanel else {
+            return nil
+        }
+        if responderChainContains(window.firstResponder, target: focusedBrowser.webView) {
+            return context
+        }
+        if allowSelectedBrowserFallback,
+           window === NSApp.keyWindow || window === NSApp.mainWindow || window.isKeyWindow || window.isMainWindow {
+            return context
+        }
+        return nil
+    }
+
+    private func liveBrowserSurfaceShortcutContext() -> MainWindowContext? {
+        if let context = browserSurfaceShortcutContext(
+            for: NSApp.keyWindow,
+            allowSelectedBrowserFallback: true
+        ) {
+            browserFirstResponderWindow = context.window ?? windowForMainWindowId(context.windowId)
+            return context
+        }
+        if let context = browserSurfaceShortcutContext(
+            for: NSApp.mainWindow,
+            allowSelectedBrowserFallback: true
+        ) {
+            browserFirstResponderWindow = context.window ?? windowForMainWindowId(context.windowId)
+            return context
+        }
+        for window in NSApp.orderedWindows where isMainTerminalWindow(window) {
+            if let context = browserSurfaceShortcutContext(for: window) {
+                browserFirstResponderWindow = window
+                return context
+            }
+        }
+        for context in mainWindowContexts.values {
+            guard let window = context.window ?? windowForMainWindowId(context.windowId),
+                  let liveContext = browserSurfaceShortcutContext(for: window) else {
+                continue
+            }
+            browserFirstResponderWindow = window
+            return liveContext
+        }
+        return nil
     }
 
     private func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
@@ -5157,21 +5214,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return context
         }
 
-        if event == nil,
-           let activeManager = tabManager,
-           let context = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
-#if DEBUG
-            logWorkspaceCreationRouting(
-                phase: "choose",
-                source: debugSource,
-                reason: "active_manager_no_event",
-                event: event,
-                chosenContext: context
-            )
-#endif
-            return context
-        }
-
         // If a keyboard event identifies a specific window but that context
         // can't be resolved, do not fall back to another window.
         if shortcutEventHasAddressableWindow(event) {
@@ -5228,6 +5270,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 #endif
                 return context
             }
+        }
+
+        if event == nil,
+           let activeManager = tabManager,
+           let context = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+#if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "choose",
+                source: debugSource,
+                reason: "active_manager_no_event",
+                event: event,
+                chosenContext: context
+            )
+#endif
+            return context
         }
 
         let fallback = mainWindowContexts.values.first
