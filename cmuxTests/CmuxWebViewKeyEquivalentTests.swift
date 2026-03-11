@@ -2865,6 +2865,21 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         }
 
         visibleHosting.removeFromSuperview()
+        contentView.layoutSubtreeIfNeeded()
+        replacementHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let replacementSlotWhileOffWindow = findWindowBrowserSlotView(in: replacementHosting) else {
+            XCTFail("Expected off-window replacement slot")
+            return
+        }
+
+        XCTAssertNil(replacementHosting.window)
+        XCTAssertTrue(
+            panel.webView.superview !== replacementSlotWhileOffWindow,
+            "A replacement local host must not steal the DevTools-hosted web view until that host actually joins a window"
+        )
+
         replacementHosting.removeFromSuperview()
         replacementHosting.frame = contentView.bounds
         replacementHosting.autoresizingMask = [.width, .height]
@@ -9315,7 +9330,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
     private final class ReattachProbeWebView: WKWebView {
         private(set) var firedSelectors: [String] = []
 
-        @objc func viewDidUnhide() {
+        override func viewDidUnhide() {
             firedSelectors.append("viewDidUnhide")
         }
 
@@ -9797,6 +9812,16 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
 #if compiler(>=6.2)
 @MainActor
 final class InternalTabDragConfigurationTests: XCTestCase {
+    private func dragOperationValue<T>(_ operations: T, labels: [String]) -> Bool? {
+        let mirror = Mirror(reflecting: operations)
+        for label in labels {
+            if let value = mirror.children.first(where: { $0.label == label })?.value as? Bool {
+                return value
+            }
+        }
+        return nil
+    }
+
     func testDisablesExternalOperationsForInternalTabDrags() throws {
         guard #available(macOS 26.0, *) else {
             throw XCTSkip("Requires macOS 26 drag configuration APIs")
@@ -9804,15 +9829,15 @@ final class InternalTabDragConfigurationTests: XCTestCase {
 
         let configuration = InternalTabDragConfigurationProvider.value
 
-        XCTAssertFalse(configuration.operationsWithinApp.allowCopy)
-        XCTAssertTrue(configuration.operationsWithinApp.allowMove)
-        XCTAssertFalse(configuration.operationsWithinApp.allowDelete)
-        XCTAssertFalse(configuration.operationsWithinApp.allowAlias)
+        XCTAssertEqual(dragOperationValue(configuration.operationsWithinApp, labels: ["allowCopy"]), false)
+        XCTAssertEqual(dragOperationValue(configuration.operationsWithinApp, labels: ["allowMove"]), true)
+        XCTAssertEqual(dragOperationValue(configuration.operationsWithinApp, labels: ["allowDelete", "_allowDelete"]), false)
+        XCTAssertEqual(dragOperationValue(configuration.operationsWithinApp, labels: ["allowAlias", "_allowAlias"]), false)
 
-        XCTAssertFalse(configuration.operationsOutsideApp.allowCopy)
-        XCTAssertFalse(configuration.operationsOutsideApp.allowMove)
-        XCTAssertFalse(configuration.operationsOutsideApp.allowDelete)
-        XCTAssertFalse(configuration.operationsOutsideApp.allowAlias)
+        XCTAssertEqual(dragOperationValue(configuration.operationsOutsideApp, labels: ["allowCopy"]), false)
+        XCTAssertEqual(dragOperationValue(configuration.operationsOutsideApp, labels: ["allowMove"]), false)
+        XCTAssertEqual(dragOperationValue(configuration.operationsOutsideApp, labels: ["allowDelete", "_allowDelete"]), false)
+        XCTAssertEqual(dragOperationValue(configuration.operationsOutsideApp, labels: ["allowAlias", "_allowAlias"]), false)
     }
 }
 #endif
