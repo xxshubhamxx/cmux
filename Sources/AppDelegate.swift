@@ -1716,16 +1716,39 @@ func terminalFindShortcutAction(
     }
 
     let normalizedChars = chars.lowercased()
-    switch (normalizedChars, normalizedFlags.contains(.shift), keyCode) {
-    case ("f", false, _), (_, false, 3):
+    let charsAreControlSequence = !normalizedChars.isEmpty
+        && normalizedChars.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
+
+    let shortcutCharacter: String? = {
+        if let translated = layoutCharacterProvider(keyCode, normalizedFlags),
+           !translated.isEmpty {
+            return translated.lowercased()
+        }
+        if !normalizedChars.isEmpty && !charsAreControlSequence {
+            return normalizedChars
+        }
+        switch keyCode {
+        case 3:
+            return "f"
+        case 5:
+            return "g"
+        case 14:
+            return "e"
+        default:
+            return nil
+        }
+    }()
+
+    switch (shortcutCharacter, normalizedFlags.contains(.shift)) {
+    case ("f"?, false):
         return .start
-    case ("g", false, _), (_, false, 5):
+    case ("g"?, false):
         return .next
-    case ("g", true, _), (_, true, 5):
+    case ("g"?, true):
         return .previous
-    case ("f", true, _), (_, true, 3):
+    case ("f"?, true):
         return .hide
-    case ("e", false, _), (_, false, 14):
+    case ("e"?, false):
         return .selection
     default:
         return nil
