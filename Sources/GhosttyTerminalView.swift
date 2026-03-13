@@ -1033,17 +1033,21 @@ class GhosttyApp {
         ghostty_config_finalize(config)
     }
 
-    /// When the user has not configured `font-codepoint-map` for CJK ranges,
-    /// Ghostty's `CTFontCollection` scoring may pick an inappropriate fallback
-    /// font for Hiragana, Katakana, and CJK symbols. The scoring prioritizes
-    /// monospace fonts, so decorative fonts with monospace attributes (e.g.
-    /// AB_appare from Adobe CC, or LingWai) can be selected depending on what
-    /// is installed. This injects a sensible default based on the system's
-    /// preferred languages.
+    /// When the user has not configured `font-codepoint-map` for CJK ranges
+    /// and has not already provided an explicit multi-entry `font-family`
+    /// fallback chain, Ghostty's `CTFontCollection` scoring may pick an
+    /// inappropriate fallback font for Hiragana, Katakana, and CJK symbols.
+    /// The scoring prioritizes monospace fonts, so decorative fonts with
+    /// monospace attributes (e.g. AB_appare from Adobe CC, or LingWai) can be
+    /// selected depending on what is installed. This injects a sensible
+    /// default based on the system's preferred languages without overriding
+    /// user-managed fallback chains.
     ///
     /// See: https://github.com/manaflow-ai/cmux/pull/1017
     private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
-        if Self.userConfigContainsCJKCodepointMap() { return }
+        let userFontConfig = Self.userFontConfigSummary()
+        if userFontConfig.containsCodepointMap { return }
+        if userFontConfig.hasExplicitFontFamilyFallbackChain { return }
 
         guard let mappings = Self.cjkFontMappings() else { return }
 
@@ -1086,6 +1090,23 @@ class GhosttyApp {
         "U+AC00-U+D7AF",  // Hangul Syllables
         "U+1100-U+11FF",  // Hangul Jamo
     ]
+
+    private struct UserFontConfigSummary {
+        var containsCodepointMap = false
+        var effectiveFontFamilyCount = 0
+
+        var hasExplicitFontFamilyFallbackChain: Bool {
+            effectiveFontFamilyCount > 1
+        }
+
+        mutating func recordFontFamily(_ value: String) {
+            if value.isEmpty {
+                effectiveFontFamilyCount = 0
+            } else {
+                effectiveFontFamilyCount += 1
+            }
+        }
+    }
 
     /// Returns (range, font) pairs for CJK font fallback based on the system's
     /// preferred languages, or nil if no CJK language is detected. Each language
@@ -1135,89 +1156,134 @@ class GhosttyApp {
     /// a `font-codepoint-map` entry covering CJK ranges. Also checks
     /// application-support config paths that cmux may load at runtime.
     static func userConfigContainsCJKCodepointMap(
-        configPaths: [String] = defaultCJKScanPaths()
+        configPaths: [String] = loadedCJKScanPaths()
     ) -> Bool {
-        var visited = Set<String>()
-        for rawPath in configPaths {
-            let path = NSString(string: rawPath).expandingTildeInPath
-            if Self.configFileContainsCodepointMap(atPath: path, visited: &visited) {
-                return true
-            }
-        }
-        return false
+        userFontConfigSummary(configPaths: configPaths).containsCodepointMap
     }
 
-    /// Returns the default set of config paths to scan for existing
-    /// `font-codepoint-map` entries. Includes both the standard Ghostty
-    /// config locations and any app-support paths that cmux may load.
-    private static func defaultCJKScanPaths() -> [String] {
+    static func userConfigHasExplicitFontFamilyFallbackChain(
+        configPaths: [String] = loadedCJKScanPaths()
+    ) -> Bool {
+        userFontConfigSummary(configPaths: configPaths).hasExplicitFontFamilyFallbackChain
+    }
+
+    static func shouldInjectCJKFontFallback(
+        preferredLanguages: [String] = Locale.preferredLanguages,
+        configPaths: [String] = loadedCJKScanPaths()
+    ) -> Bool {
+        guard cjkFontMappings(preferredLanguages: preferredLanguages) != nil else { return false }
+        let summary = userFontConfigSummary(configPaths: configPaths)
+        return !summary.containsCodepointMap && !summary.hasExplicitFontFamilyFallbackChain
+    }
+
+    private static func userFontConfigSummary(
+        configPaths: [String] = loadedCJKScanPaths()
+    ) -> UserFontConfigSummary {
+        var summary = UserFontConfigSummary()
+        var visited = Set<String>()
+        var pendingPaths = configPaths.map { NSString(string: $0).expandingTildeInPath }
+        var index = 0
+
+        while index < pendingPaths.count {
+            let includePaths = scanFontConfigFile(
+                atPath: pendingPaths[index],
+                visited: &visited,
+                summary: &summary
+            )
+            pendingPaths.append(contentsOf: includePaths)
+            index += 1
+        }
+
+        return summary
+    }
+
+    /// Returns the top-level config paths that cmux will actually load before
+    /// recursive `config-file` processing.
+    static func loadedCJKScanPaths(
+        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
+    ) -> [String] {
         var paths = [
             "~/.config/ghostty/config",
             "~/.config/ghostty/config.ghostty",
             "~/Library/Application Support/com.mitchellh.ghostty/config",
             "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
         ]
-        if let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first {
-            let releaseDir = appSupport.appendingPathComponent(releaseBundleIdentifier)
+
+        if let appSupportDirectory {
+            let releaseDir = appSupportDirectory.appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
             paths.append(releaseDir.appendingPathComponent("config").path)
             paths.append(releaseDir.appendingPathComponent("config.ghostty").path)
 
-            if let bundleId = Bundle.main.bundleIdentifier, bundleId != releaseBundleIdentifier {
-                let currentDir = appSupport.appendingPathComponent(bundleId)
+            if let bundleId = currentBundleIdentifier, bundleId != releaseBundleIdentifier {
+                let currentDir = appSupportDirectory.appendingPathComponent(bundleId, isDirectory: true)
                 paths.append(currentDir.appendingPathComponent("config").path)
                 paths.append(currentDir.appendingPathComponent("config.ghostty").path)
             }
         }
+
         return paths
     }
 
     /// Scans a single config file (and any files it includes) for
-    /// `font-codepoint-map` entries. Tracks visited paths to prevent
-    /// infinite recursion on cyclic includes.
-    private static func configFileContainsCodepointMap(
+    /// font settings relevant to cmux's injected CJK fallback. Tracks visited
+    /// paths to prevent infinite recursion on cyclic includes.
+    private static func scanFontConfigFile(
         atPath path: String,
-        visited: inout Set<String>
-    ) -> Bool {
+        visited: inout Set<String>,
+        summary: inout UserFontConfigSummary
+    ) -> [String] {
         let resolved = (path as NSString).standardizingPath
-        guard !visited.contains(resolved) else { return false }
+        guard !visited.contains(resolved) else { return [] }
         visited.insert(resolved)
 
         guard let contents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
-            return false
+            return []
         }
         let parentDir = (resolved as NSString).deletingLastPathComponent
+        var includePaths: [String] = []
 
         for line in contents.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("#") { continue }
+            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
             if trimmed.hasPrefix("font-codepoint-map") {
-                return true
+                summary.containsCodepointMap = true
             }
-            if trimmed.hasPrefix("config-file") {
-                let parts = trimmed.split(separator: "=", maxSplits: 1)
-                if parts.count == 2 {
-                    var includePath = parts[1]
-                        .trimmingCharacters(in: .whitespaces)
-                    // Ghostty supports optional includes with a trailing '?'
-                    if includePath.hasSuffix("?") {
-                        includePath.removeLast()
-                    }
-                    includePath = includePath
-                        .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                    let expanded = NSString(string: includePath).expandingTildeInPath
-                    let absolute = (expanded as NSString).isAbsolutePath
-                        ? expanded
-                        : (parentDir as NSString).appendingPathComponent(expanded)
-                    if configFileContainsCodepointMap(atPath: absolute, visited: &visited) {
-                        return true
-                    }
-                }
+            if let fontFamily = configValue(for: "font-family", in: trimmed) {
+                summary.recordFontFamily(fontFamily)
+            }
+            if let includePath = configIncludePath(from: trimmed, parentDir: parentDir) {
+                includePaths.append(includePath)
             }
         }
-        return false
+
+        return includePaths
+    }
+
+    private static func configValue(for key: String, in line: String) -> String? {
+        let parts = line.split(separator: "=", maxSplits: 1)
+        guard parts.count == 2 else { return nil }
+
+        let parsedKey = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard parsedKey == key else { return nil }
+
+        return parts[1]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+    }
+
+    private static func configIncludePath(from line: String, parentDir: String) -> String? {
+        guard var includePath = configValue(for: "config-file", in: line) else { return nil }
+        if includePath.hasSuffix("?") {
+            includePath.removeLast()
+        }
+        let expanded = NSString(string: includePath).expandingTildeInPath
+        return (expanded as NSString).isAbsolutePath
+            ? expanded
+            : (parentDir as NSString).appendingPathComponent(expanded)
     }
 
     static func shouldLoadLegacyGhosttyConfig(
