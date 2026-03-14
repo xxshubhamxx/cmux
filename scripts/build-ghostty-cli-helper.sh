@@ -3,10 +3,12 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/build-ghostty-cli-helper.sh [--universal] --output <path>
+Usage: ./scripts/build-ghostty-cli-helper.sh [--universal | --target <zig-target>] --output <path>
 
 Options:
   --universal      Build a universal macOS helper (arm64 + x86_64).
+  --target <triple>
+                   Build a single target, e.g. `aarch64-macos` or `x86_64-macos`.
   --output <path>  Destination path for the built helper.
 EOF
 }
@@ -16,6 +18,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GHOSTTY_DIR="$REPO_ROOT/ghostty"
 
 OUTPUT_PATH=""
+TARGET_TRIPLE=""
 UNIVERSAL="false"
 
 while [[ $# -gt 0 ]]; do
@@ -23,6 +26,10 @@ while [[ $# -gt 0 ]]; do
     --universal)
       UNIVERSAL="true"
       shift
+      ;;
+    --target)
+      TARGET_TRIPLE="${2:-}"
+      shift 2
       ;;
     --output)
       OUTPUT_PATH="${2:-}"
@@ -44,6 +51,23 @@ if [[ -z "$OUTPUT_PATH" ]]; then
   echo "Missing required --output path" >&2
   usage >&2
   exit 1
+fi
+
+if [[ "$UNIVERSAL" == "true" && -n "$TARGET_TRIPLE" ]]; then
+  echo "--universal and --target are mutually exclusive" >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ -n "$TARGET_TRIPLE" ]]; then
+  case "$TARGET_TRIPLE" in
+    aarch64-macos|x86_64-macos)
+      ;;
+    *)
+      echo "Unsupported --target value: $TARGET_TRIPLE" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 if ! command -v zig >/dev/null 2>&1; then
@@ -95,9 +119,9 @@ if [[ "$UNIVERSAL" == "true" ]]; then
     "$X86_PREFIX/bin/ghostty" \
     -output "$OUTPUT_PATH"
 else
-  HOST_PREFIX="$TMP_DIR/host"
-  build_helper "$HOST_PREFIX"
-  install -m 755 "$HOST_PREFIX/bin/ghostty" "$OUTPUT_PATH"
+  SINGLE_PREFIX="$TMP_DIR/single"
+  build_helper "$SINGLE_PREFIX" "$TARGET_TRIPLE"
+  install -m 755 "$SINGLE_PREFIX/bin/ghostty" "$OUTPUT_PATH"
 fi
 
 chmod +x "$OUTPUT_PATH"

@@ -93,7 +93,6 @@ echo "Sparkle keys injected"
 # --- Codesign ---
 echo "Codesigning..."
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
 if [ -f "$CLI_PATH" ]; then
   /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
 fi
