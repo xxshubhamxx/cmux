@@ -50,7 +50,9 @@ targets:
     platform: iOS
     sources:
       - ../Sources/Shared
-      - Sources
+      - path: Sources
+        excludes:
+          - Config/LocalConfig.plist
       - Resources
       - Assets.xcassets
     dependencies:
