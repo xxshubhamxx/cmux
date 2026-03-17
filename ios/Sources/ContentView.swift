@@ -60,10 +60,17 @@ struct ContentView: View {
             } else if authManager.isRestoringSession {
                 SessionRestoreView()
             } else if authManager.isAuthenticated {
-                ConversationListView(
-                    terminalStore: terminalStore,
-                    routeStore: notificationRouteStore
-                )
+                if UITestConfig.mockDataEnabled {
+                    ConversationListView(
+                        terminalStore: terminalStore,
+                        routeStore: notificationRouteStore
+                    )
+                } else {
+                    TerminalSidebarRootView(
+                        store: terminalStore,
+                        routeStore: notificationRouteStore
+                    )
+                }
             } else {
                 SignInView()
             }

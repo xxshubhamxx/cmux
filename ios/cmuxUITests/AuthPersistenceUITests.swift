@@ -56,11 +56,11 @@ final class AuthPersistenceUITests: XCTestCase {
     }
 
     private func waitForSignedInHome(app: XCUIApplication) {
-        let tasksNavBar = app.navigationBars["Tasks"]
-        XCTAssertTrue(tasksNavBar.waitForExistence(timeout: 10), "Expected signed-in launch to reach the inbox")
+        let terminalsNavBar = app.navigationBars["Terminals"]
+        XCTAssertTrue(terminalsNavBar.waitForExistence(timeout: 10), "Expected signed-in launch to reach the terminal home")
 
-        let moreButton = app.buttons["conversation.menu"]
-        XCTAssertTrue(moreButton.waitForExistence(timeout: 4), "Expected inbox actions to be visible")
+        let addWorkspaceButton = app.buttons["terminal.server.add"]
+        XCTAssertTrue(addWorkspaceButton.waitForExistence(timeout: 4), "Expected machine and workspace controls to be visible")
     }
 
     private func assertNoSignInFlash(app: XCUIApplication, duration: TimeInterval = 2.5) {

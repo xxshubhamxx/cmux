@@ -2,15 +2,23 @@ import SwiftUI
 
 struct TerminalSidebarRootView: View {
     @StateObject private var store: TerminalSidebarStore
+    @ObservedObject private var routeStore: NotificationRouteStore
     @State private var navigationPath = NavigationPath()
     @State private var searchText = ""
     @State private var editorDraft: TerminalHostEditorDraft?
     @State private var pendingStartHostID: TerminalHost.ID?
+    private let inboxCacheRepository: InboxCacheRepository?
 
-    init(store: TerminalSidebarStore? = nil) {
+    init(
+        store: TerminalSidebarStore? = nil,
+        routeStore: NotificationRouteStore? = nil,
+        inboxCacheRepository: InboxCacheRepository? = nil
+    ) {
         _store = StateObject(
             wrappedValue: store ?? Self.makeLiveStore()
         )
+        _routeStore = ObservedObject(wrappedValue: routeStore ?? NotificationRouteStore.shared)
+        self.inboxCacheRepository = inboxCacheRepository ?? Self.makeDefaultInboxCacheRepository()
     }
 
     @MainActor
@@ -34,6 +42,17 @@ struct TerminalSidebarRootView: View {
             print("Failed to initialize SQLite terminal cache: \(error)")
             #endif
             return TerminalSnapshotStore()
+        }
+    }
+
+    private static func makeDefaultInboxCacheRepository() -> InboxCacheRepository? {
+        do {
+            return InboxCacheRepository(database: try AppDatabase.live())
+        } catch {
+            #if DEBUG
+            print("Failed to initialize SQLite inbox cache: \(error)")
+            #endif
+            return nil
         }
     }
 
@@ -218,6 +237,50 @@ struct TerminalSidebarRootView: View {
                 pendingStartHostID = nil
                 editorDraft = nil
             }
+        }
+        .onAppear {
+            handlePendingRouteIfPossible()
+        }
+        .onChange(of: routeStore.pendingRoute) { _, _ in
+            handlePendingRouteIfPossible()
+        }
+    }
+
+    private func handlePendingRouteIfPossible() {
+        guard let route = routeStore.pendingRoute else { return }
+        guard route.kind == .workspace else {
+            routeStore.consume()
+            return
+        }
+
+        if let cachedItem = cachedWorkspaceItem(for: route),
+           let workspaceID = store.openInboxWorkspace(cachedItem) {
+            routeStore.consume()
+            navigationPath.append(workspaceID)
+            return
+        }
+
+        guard let workspace = store.workspaces.first(where: { $0.remoteWorkspaceID == route.workspaceID }) else {
+            return
+        }
+
+        routeStore.consume()
+        navigationPath.append(store.openWorkspace(workspace))
+    }
+
+    private func cachedWorkspaceItem(for route: NotificationRoute) -> UnifiedInboxItem? {
+        guard let inboxCacheRepository,
+              let items = try? inboxCacheRepository.load() else {
+            return nil
+        }
+
+        return items.first { item in
+            guard item.kind == .workspace else { return false }
+            guard item.workspaceID == route.workspaceID else { return false }
+            if let machineID = route.machineID {
+                return item.machineID == machineID
+            }
+            return true
         }
     }
 }
