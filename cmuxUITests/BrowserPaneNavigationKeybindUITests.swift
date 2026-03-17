@@ -1076,16 +1076,45 @@ final class TerminalFontZoomShortcutUITests: XCTestCase {
     }
 
     private func resolveSocketPath(timeout: TimeInterval) -> String? {
-        let candidates = [socketPath, taggedDebugSocketPath()]
+        let candidates = expectedSocketCandidates()
         var resolvedPath: String?
         let matched = waitForCondition(timeout: timeout) {
             for candidate in candidates where FileManager.default.fileExists(atPath: candidate) {
+                guard self.socketRespondsToPing(at: candidate) else { continue }
                 resolvedPath = candidate
                 return true
             }
             return false
         }
         return matched ? resolvedPath : resolvedPath
+    }
+
+    private func expectedSocketCandidates() -> [String] {
+        var candidates = [socketPath, taggedDebugSocketPath(), "/tmp/cmux-debug.sock"]
+        candidates.append(contentsOf: discoverTmpSocketCandidates(limit: 12))
+
+        var unique: [String] = []
+        var seen = Set<String>()
+        for candidate in candidates where seen.insert(candidate).inserted {
+            unique.append(candidate)
+        }
+        return unique
+    }
+
+    private func discoverTmpSocketCandidates(limit: Int) -> [String] {
+        let tmpPath = "/tmp"
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: tmpPath) else {
+            return []
+        }
+        return entries
+            .filter { $0.hasPrefix("cmux") && $0.hasSuffix(".sock") }
+            .sorted()
+            .prefix(limit)
+            .map { (tmpPath as NSString).appendingPathComponent($0) }
+    }
+
+    private func socketRespondsToPing(at path: String) -> Bool {
+        ControlSocketClient(path: path, responseTimeout: 1.0).sendLine("ping") == "PONG"
     }
 
     private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
