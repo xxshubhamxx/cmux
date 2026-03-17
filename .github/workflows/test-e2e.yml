@@ -204,6 +204,7 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           ONLY_TESTING="-only-testing:cmuxUITests/$TEST_FILTER"
+          DISPLAY_ENV_PREFIX=()
 
           # Start recording right before the test (after build/resolve)
           if [ "$RECORD_VIDEO" = "true" ]; then
@@ -232,8 +233,52 @@ jobs:
             fi
           fi
 
+          if [ "$TEST_FILTER" = "DisplayResolutionRegressionUITests" ]; then
+            PREFIX="/tmp/cmux-display-churn-${{ github.run_id }}-${{ github.run_attempt }}"
+            READY_PATH="${PREFIX}.ready"
+            DISPLAY_ID_PATH="${PREFIX}.id"
+            START_PATH="${PREFIX}.start"
+            DONE_PATH="${PREFIX}.done"
+            LOG_PATH="${PREFIX}.log"
+
+            rm -f "$READY_PATH" "$DISPLAY_ID_PATH" "$START_PATH" "$DONE_PATH" "$LOG_PATH"
+
+            clang -framework Foundation -framework CoreGraphics \
+              -o /tmp/create-virtual-display scripts/create-virtual-display.m
+
+            /tmp/create-virtual-display \
+              --modes 1920x1080,1728x1117,1600x900,1440x810 \
+              --ready-path "$READY_PATH" \
+              --display-id-path "$DISPLAY_ID_PATH" \
+              --start-path "$START_PATH" \
+              --done-path "$DONE_PATH" \
+              --iterations 40 \
+              --interval-ms 40 \
+              >"$LOG_PATH" 2>&1 &
+            DISPLAY_VDISPLAY_PID=$!
+            trap 'kill "${DISPLAY_VDISPLAY_PID:-}" >/dev/null 2>&1 || true' EXIT
+
+            for _ in {1..120}; do
+              [ -f "$READY_PATH" ] && break
+              sleep 0.25
+            done
+            [ -f "$READY_PATH" ] || {
+              echo "Display harness failed to start" >&2
+              cat "$LOG_PATH" >&2 || true
+              exit 1
+            }
+
+            DISPLAY_ENV_PREFIX=(
+              CMUX_UI_TEST_DISPLAY_READY_PATH="$READY_PATH"
+              CMUX_UI_TEST_DISPLAY_ID_PATH="$DISPLAY_ID_PATH"
+              CMUX_UI_TEST_DISPLAY_START_PATH="$START_PATH"
+              CMUX_UI_TEST_DISPLAY_DONE_PATH="$DONE_PATH"
+              CMUX_UI_TEST_DISPLAY_LOG_PATH="$LOG_PATH"
+            )
+          fi
+
           set +e
-          OUTPUT=$(xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+          OUTPUT=$(env "${DISPLAY_ENV_PREFIX[@]}" xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
