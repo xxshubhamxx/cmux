@@ -44,6 +44,11 @@ final class PaneStripUITests: XCTestCase {
         assertPassingPaneStripPayload(payload, scenario: "open_pane_right")
     }
 
+    func testBrowserFocusRevealRightKeepsBrowserAlignedWithPaneMotion() {
+        let payload = runPaneStripScenario("browser_focus_reveal_right")
+        assertPassingPaneStripPayload(payload, scenario: "browser_focus_reveal_right")
+    }
+
     @discardableResult
     private func runPaneStripScenario(_ scenario: String, frameCount: Int = 24) -> [String: String] {
         let app = XCUIApplication()
@@ -73,7 +78,26 @@ final class PaneStripUITests: XCTestCase {
             return [:]
         }
 
+        attachScreenshot(named: "pane-strip-\(scenario)")
+        attachPayload(payload, named: "pane-strip-\(scenario)-payload")
         return payload
+    }
+
+    private func attachScreenshot(named name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func attachPayload(_ payload: [String: String], named name: String) {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) else {
+            return
+        }
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func assertPassingPaneStripPayload(_ payload: [String: String], scenario: String) {

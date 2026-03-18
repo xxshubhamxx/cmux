@@ -58,6 +58,14 @@ def resolve_cmux_binary() -> Path:
     raise RuntimeError(f"Unable to resolve app binary inside {bundle}")
 
 
+def resolve_cmux_bundle_for_binary(binary: Path) -> Path:
+    current = binary.resolve()
+    for parent in current.parents:
+        if parent.suffix == ".app":
+            return parent
+    return resolve_cmux_app()
+
+
 def load_json(path: Path) -> dict[str, str] | None:
     try:
         return json.loads(path.read_text())
@@ -103,8 +111,19 @@ def terminate_process(proc: subprocess.Popen[str]) -> None:
         pass
 
 
+def activate_app_bundle(bundle: Path) -> None:
+    subprocess.run(
+        ["/usr/bin/open", "-a", str(bundle)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        text=True,
+    )
+
+
 def run_scenario(binary: Path, scenario: str, frame_count: int) -> tuple[bool, str]:
     persisted_output = output_path_for(scenario)
+    bundle = resolve_cmux_bundle_for_binary(binary)
     kill_existing_binary_processes(binary)
     with tempfile.TemporaryDirectory(prefix="cmux-pane-strip-motion-") as temp_dir:
         data_path = Path(temp_dir) / f"{scenario}.json"
@@ -127,9 +146,14 @@ def run_scenario(binary: Path, scenario: str, frame_count: int) -> tuple[bool, s
         )
 
         deadline = time.time() + 35.0
+        next_activation_at = 0.0
         payload: dict[str, str] | None = None
         try:
             while time.time() < deadline:
+                now = time.time()
+                if now >= next_activation_at:
+                    activate_app_bundle(bundle)
+                    next_activation_at = now + 0.5
                 payload = load_json(data_path)
                 if payload and payload.get("done") == "1":
                     break
@@ -211,7 +235,7 @@ def main() -> int:
     frame_count = int(os.environ.get("CMUX_PANE_STRIP_MOTION_FRAMES", "36"))
     scenarios = os.environ.get(
         "CMUX_PANE_STRIP_MOTION_SCENARIOS",
-        "initial_terminal_visible,focus_reveal_right,pan_viewport_right,open_pane_right",
+        "initial_terminal_visible,focus_reveal_right,pan_viewport_right,open_pane_right,browser_focus_reveal_right",
     ).split(",")
     scenarios = [s.strip() for s in scenarios if s.strip()]
 

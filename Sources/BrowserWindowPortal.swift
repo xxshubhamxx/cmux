@@ -19,6 +19,12 @@ private func browserPortalDebugToken(_ view: NSView?) -> String {
 private func browserPortalDebugFrame(_ rect: NSRect) -> String {
     String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
 }
+
+private func browserPortalDebugFrameInWindow(_ view: NSView?) -> String {
+    guard let view else { return "nil" }
+    guard view.window != nil else { return "no-window" }
+    return browserPortalDebugFrame(view.convert(view.bounds, to: nil))
+}
 #endif
 
 private extension NSObject {
@@ -2274,15 +2280,72 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
+    private func presentationFrameInWindow(for view: NSView) -> NSRect {
+        let fallback = view.convert(view.bounds, to: nil)
+        guard let window = view.window else { return fallback }
+
+        func rootLayerTarget() -> (view: NSView, layer: CALayer)? {
+            if let contentView = window.contentView,
+               let contentLayer = contentView.layer {
+                return (contentView, contentLayer.presentation() ?? contentLayer)
+            }
+
+            if let themeFrame = window.contentView?.superview,
+               let themeLayer = themeFrame.layer {
+                return (themeFrame, themeLayer.presentation() ?? themeLayer)
+            }
+
+            return nil
+        }
+
+        guard let (rootView, rootLayer) = rootLayerTarget() else {
+            return fallback
+        }
+
+        var current: NSView? = view
+        while let currentView = current {
+            if let currentLayer = currentView.layer {
+                let rectInLayerHost = currentView.convert(view.bounds, from: view)
+                let activeLayer = currentLayer.presentation() ?? currentLayer
+                let rectInRoot = activeLayer.convert(rectInLayerHost, to: rootLayer)
+                let rootOrigin = rootView.convert(NSPoint.zero, to: nil)
+                let candidate = rectInRoot.offsetBy(dx: rootOrigin.x, dy: rootOrigin.y)
+                let hasFiniteCandidate =
+                    candidate.origin.x.isFinite &&
+                    candidate.origin.y.isFinite &&
+                    candidate.size.width.isFinite &&
+                    candidate.size.height.isFinite
+                guard hasFiniteCandidate else { return fallback }
+
+                let verticalIntersection = min(candidate.maxY, fallback.maxY) - max(candidate.minY, fallback.minY)
+                let verticalOverlap = max(0, verticalIntersection)
+                let minimumComparableHeight = max(1, min(candidate.height, fallback.height))
+                if verticalOverlap >= minimumComparableHeight * 0.5 {
+                    return candidate
+                }
+
+                return NSRect(
+                    x: candidate.origin.x,
+                    y: fallback.origin.y,
+                    width: candidate.width,
+                    height: fallback.height
+                )
+            }
+            current = currentView.superview
+        }
+
+        return fallback
+    }
+
     /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
     /// SwiftUI/AppKit hosting layers can briefly report an anchor bounds rect larger than the
     /// visible split pane during rearrangement; intersecting through ancestor bounds keeps the
     /// portal locked to the pane the user can actually see.
     private func effectiveAnchorFrameInWindow(for anchorView: NSView) -> NSRect {
-        var frameInWindow = anchorView.convert(anchorView.bounds, to: nil)
+        var frameInWindow = presentationFrameInWindow(for: anchorView)
         var current = anchorView.superview
         while let ancestor = current {
-            let ancestorBoundsInWindow = ancestor.convert(ancestor.bounds, to: nil)
+            let ancestorBoundsInWindow = presentationFrameInWindow(for: ancestor)
             let finiteAncestorBounds =
                 ancestorBoundsInWindow.origin.x.isFinite &&
                 ancestorBoundsInWindow.origin.y.isFinite &&
@@ -3503,20 +3566,66 @@ final class WindowBrowserPortal: NSObject {
     func debugHostedSubviewCount() -> Int {
         hostView.subviews.count
     }
-#endif
+
+    private func debugPresentationFrameInWindow(for view: NSView) -> NSRect {
+        presentationFrameInWindow(for: view)
+    }
+
+    private func debugEffectivePresentationFrameInWindow(for view: NSView) -> NSRect {
+        var frameInWindow = debugPresentationFrameInWindow(for: view)
+        var current = view.superview
+
+        while let ancestor = current {
+            let ancestorFrameInWindow = debugPresentationFrameInWindow(for: ancestor)
+            let finiteAncestorFrame =
+                ancestorFrameInWindow.origin.x.isFinite &&
+                ancestorFrameInWindow.origin.y.isFinite &&
+                ancestorFrameInWindow.size.width.isFinite &&
+                ancestorFrameInWindow.size.height.isFinite
+            if finiteAncestorFrame {
+                frameInWindow = frameInWindow.intersection(ancestorFrameInWindow)
+                if frameInWindow.isNull { return .zero }
+            }
+            if ancestor === installedReferenceView { break }
+            current = ancestor.superview
+        }
+
+        return frameInWindow
+    }
+
+    private func debugVisibleContainerPresentationFrameInWindow(for containerView: NSView) -> NSRect {
+        let containerFrameInWindow = debugPresentationFrameInWindow(for: containerView)
+        let hostFrameInWindow = debugPresentationFrameInWindow(for: hostView)
+        let clippedFrame = containerFrameInWindow.intersection(hostFrameInWindow)
+        return clippedFrame.isNull ? .zero : clippedFrame
+    }
 
     func debugSnapshot(forWebViewId webViewId: ObjectIdentifier) -> BrowserWindowPortalRegistry.DebugSnapshot? {
-        guard let entry = entriesByWebViewId[webViewId] else { return nil }
-        let frameInWindow: CGRect = {
-            guard let container = entry.containerView, container.window != nil else { return .zero }
-            return container.convert(container.bounds, to: nil)
-        }()
+        guard let entry = entriesByWebViewId[webViewId],
+              let anchorView = entry.anchorView,
+              let containerView = entry.containerView else { return nil }
         return BrowserWindowPortalRegistry.DebugSnapshot(
             visibleInUI: entry.visibleInUI,
-            containerHidden: entry.containerView?.isHidden ?? true,
-            frameInWindow: frameInWindow
+            anchorHidden: Self.isHiddenOrAncestorHidden(anchorView),
+            containerHidden: containerView.isHidden,
+            anchorFrameInWindow: debugEffectivePresentationFrameInWindow(for: anchorView),
+            frameInWindow: debugVisibleContainerPresentationFrameInWindow(for: containerView)
         )
     }
+
+    func debugMotionSample(forWebViewId webViewId: ObjectIdentifier) -> DebugTerminalPortalMotionSample? {
+        guard let entry = entriesByWebViewId[webViewId],
+              let anchorView = entry.anchorView,
+              let containerView = entry.containerView else { return nil }
+        return DebugTerminalPortalMotionSample(
+            anchorFrameInWindow: debugEffectivePresentationFrameInWindow(for: anchorView).integral,
+            hostedFrameInWindow: debugVisibleContainerPresentationFrameInWindow(for: containerView).integral,
+            anchorHidden: Self.isHiddenOrAncestorHidden(anchorView),
+            hostedHidden: containerView.isHidden,
+            surfaceSample: nil
+        )
+    }
+#endif
 
     func webViewAtWindowPoint(_ windowPoint: NSPoint) -> WKWebView? {
         guard ensureInstalled() else { return nil }
@@ -3537,11 +3646,15 @@ final class WindowBrowserPortal: NSObject {
 
 @MainActor
 enum BrowserWindowPortalRegistry {
+#if DEBUG
     struct DebugSnapshot {
         let visibleInUI: Bool
+        let anchorHidden: Bool
         let containerHidden: Bool
+        let anchorFrameInWindow: CGRect
         let frameInWindow: CGRect
     }
+#endif
 
     private static var portalsByWindowId: [ObjectIdentifier: WindowBrowserPortal] = [:]
     private static var webViewToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
@@ -3719,6 +3832,7 @@ enum BrowserWindowPortalRegistry {
         portal.forceRefreshWebView(withId: webViewId, reason: reason)
     }
 
+#if DEBUG
     static func debugSnapshot(for webView: WKWebView) -> DebugSnapshot? {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
@@ -3726,7 +3840,13 @@ enum BrowserWindowPortalRegistry {
         return portal.debugSnapshot(forWebViewId: webViewId)
     }
 
-#if DEBUG
+    static func debugMotionSample(for webView: WKWebView) -> DebugTerminalPortalMotionSample? {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.debugMotionSample(forWebViewId: webViewId)
+    }
+
     static func debugPortalCount() -> Int {
         portalsByWindowId.count
     }

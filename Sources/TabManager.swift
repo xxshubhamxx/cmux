@@ -651,6 +651,8 @@ fileprivate final class PaneStripMotionTimelineState {
         let bootstrapGraceFrames: Int
         let minimumEvaluationFrame: Int
         let referenceMode: ReferenceMode
+        let requiresRenderableSurface: Bool
+        let renderSurfaceFromWindowCapture: Bool
 
         init(
             label: String,
@@ -658,7 +660,9 @@ fileprivate final class PaneStripMotionTimelineState {
             expectedPanelId: @escaping () -> UUID?,
             bootstrapGraceFrames: Int = 0,
             minimumEvaluationFrame: Int = 0,
-            referenceMode: ReferenceMode = .beforeAction
+            referenceMode: ReferenceMode = .beforeAction,
+            requiresRenderableSurface: Bool = true,
+            renderSurfaceFromWindowCapture: Bool = false
         ) {
             self.label = label
             self.sample = sample
@@ -666,6 +670,8 @@ fileprivate final class PaneStripMotionTimelineState {
             self.bootstrapGraceFrames = bootstrapGraceFrames
             self.minimumEvaluationFrame = minimumEvaluationFrame
             self.referenceMode = referenceMode
+            self.requiresRenderableSurface = requiresRenderableSurface
+            self.renderSurfaceFromWindowCapture = renderSurfaceFromWindowCapture
         }
     }
 
@@ -680,7 +686,7 @@ fileprivate final class PaneStripMotionTimelineState {
     var scheduledActions: [(frame: Int, action: () -> Void)] = []
     var nextActionIndex: Int = 0
     var targets: [Target] = []
-    var hitTestTerminalIdAtWindowPoint: ((CGPoint) -> UUID?)?
+    var hitTestPanelIdAtWindowPoint: ((CGPoint) -> UUID?)?
 
     var firstAlignmentFailure: (label: String, frame: Int, positionError: Int, sizeError: Int)?
     var firstVisibilityFailure: (label: String, frame: Int, reason: String)?
@@ -765,6 +771,132 @@ fileprivate func paneStripMotionProbePoints(in rect: CGRect) -> [CGPoint] {
 }
 
 @MainActor
+fileprivate func paneStripDebugFrameSample(
+    from cgImage: CGImage,
+    expectedWidthPx: Int,
+    expectedHeightPx: Int,
+    layerClass: String,
+    layerContentsGravity: String,
+    layerContentsKey: String
+) -> GhosttySurfaceScrollView.DebugFrameSample? {
+    let width = cgImage.width
+    let height = cgImage.height
+    guard width > 0, height > 0 else { return nil }
+
+    let bytesPerPixel = 4
+    let bytesPerRow = width * bytesPerPixel
+    var rgba = Data(count: bytesPerRow * height)
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+
+    let drew: Bool = rgba.withUnsafeMutableBytes { rawBuffer in
+        guard let baseAddress = rawBuffer.baseAddress else { return false }
+        guard let context = CGContext(
+            data: baseAddress,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else {
+            return false
+        }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return true
+    }
+
+    guard drew else { return nil }
+
+    let step = 6
+    var histogram = [UInt16: Int]()
+    histogram.reserveCapacity(256)
+    var lumas = [Double]()
+    lumas.reserveCapacity(((width / step) + 1) * ((height / step) + 1))
+    var count = 0
+    var fnv: UInt64 = 1469598103934665603
+
+    rgba.withUnsafeBytes { rawBuffer in
+        guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+        for y in stride(from: 0, to: height, by: step) {
+            let row = baseAddress.advanced(by: y * bytesPerRow)
+            for x in stride(from: 0, to: width, by: step) {
+                let pixel = row.advanced(by: x * bytesPerPixel)
+                let r = Double(pixel[0])
+                let g = Double(pixel[1])
+                let b = Double(pixel[2])
+                let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                lumas.append(luma)
+
+                let rq = UInt16(UInt8(r) >> 4)
+                let gq = UInt16(UInt8(g) >> 4)
+                let bq = UInt16(UInt8(b) >> 4)
+                let key = (rq << 8) | (gq << 4) | bq
+                histogram[key, default: 0] += 1
+                count += 1
+
+                let lq = UInt8(max(0, min(63, Int(luma / 4.0))))
+                fnv ^= UInt64(lq)
+                fnv &*= 1099511628211
+            }
+        }
+    }
+
+    guard count > 0 else { return nil }
+
+    let mean = lumas.reduce(0.0, +) / Double(lumas.count)
+    let variance = lumas.reduce(0.0) { $0 + ($1 - mean) * ($1 - mean) } / Double(lumas.count)
+    let stddev = sqrt(variance)
+    let modeCount = histogram.values.max() ?? 0
+    let modeFraction = Double(modeCount) / Double(count)
+
+    return GhosttySurfaceScrollView.DebugFrameSample(
+        sampleCount: count,
+        uniqueQuantized: histogram.count,
+        lumaStdDev: stddev,
+        modeFraction: modeFraction,
+        fingerprint: fnv,
+        iosurfaceWidthPx: width,
+        iosurfaceHeightPx: height,
+        expectedWidthPx: expectedWidthPx,
+        expectedHeightPx: expectedHeightPx,
+        layerClass: layerClass,
+        layerContentsGravity: layerContentsGravity,
+        layerContentsKey: layerContentsKey
+    )
+}
+
+@MainActor
+fileprivate func paneStripWindowCaptureSample(
+    window: NSWindow,
+    frameInWindow: CGRect
+) -> GhosttySurfaceScrollView.DebugFrameSample? {
+    let clippedFrame = frameInWindow.integral
+    guard clippedFrame.width > 1, clippedFrame.height > 1 else { return nil }
+
+    let screenRect = window.convertToScreen(clippedFrame)
+
+    guard let windowCrop = CGWindowListCreateImage(
+        screenRect,
+        .optionIncludingWindow,
+        CGWindowID(window.windowNumber),
+        [.nominalResolution]
+    ) else {
+        return nil
+    }
+
+    return paneStripDebugFrameSample(
+        from: windowCrop,
+        expectedWidthPx: windowCrop.width,
+        expectedHeightPx: windowCrop.height,
+        layerClass: "CGWindowCapture",
+        layerContentsGravity: "windowCapture",
+        layerContentsKey: "windowCapture"
+    )
+}
+
+@MainActor
 fileprivate func capturePaneStripMotionFrame(_ st: PaneStripMotionTimelineState) {
     guard st.framesWritten < st.frameCount else { return }
 
@@ -775,7 +907,13 @@ fileprivate func capturePaneStripMotionFrame(_ st: PaneStripMotionTimelineState)
         next.action()
     }
 
-    var collectedSamples: [(label: String, sample: DebugTerminalPortalMotionSample, evaluationStartFrame: Int)] = []
+    var collectedSamples: [(
+        label: String,
+        sample: DebugTerminalPortalMotionSample,
+        evaluationStartFrame: Int,
+        requiresRenderableSurface: Bool,
+        renderSurfaceFromWindowCapture: Bool
+    )] = []
 
     for target in st.targets {
         guard let sample = target.sample() else {
@@ -790,7 +928,13 @@ fileprivate func capturePaneStripMotionFrame(_ st: PaneStripMotionTimelineState)
             target.minimumEvaluationFrame,
             st.actionFrame + target.bootstrapGraceFrames
         )
-        collectedSamples.append((target.label, sample, evaluationStartFrame))
+        collectedSamples.append((
+            target.label,
+            sample,
+            evaluationStartFrame,
+            target.requiresRenderableSurface,
+            target.renderSurfaceFromWindowCapture
+        ))
 
         if target.referenceMode == .beforeAction {
             if st.framesWritten < st.actionFrame {
@@ -834,6 +978,17 @@ fileprivate func capturePaneStripMotionFrame(_ st: PaneStripMotionTimelineState)
             sample.anchorFrameInWindow.width >= 48 &&
             sample.anchorFrameInWindow.height >= 18
         let hasPassedBootstrapGrace = st.framesWritten >= evaluationStartFrame
+        let requiresRenderableSurface = target.requiresRenderableSurface
+        let resolvedSurfaceSample: GhosttySurfaceScrollView.DebugFrameSample? = {
+            guard target.renderSurfaceFromWindowCapture else { return sample.surfaceSample }
+            guard let captureWindow = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first else {
+                return nil
+            }
+            return paneStripWindowCaptureSample(
+                window: captureWindow,
+                frameInWindow: sample.hostedFrameInWindow
+            )
+        }()
         let hostedVisibilityFailure =
             hasPassedBootstrapGrace &&
             anchorShouldBeVisible &&
@@ -866,16 +1021,16 @@ fileprivate func capturePaneStripMotionFrame(_ st: PaneStripMotionTimelineState)
         st.maxPositionErrorPx = max(st.maxPositionErrorPx, positionError)
         st.maxSizeErrorPx = max(st.maxSizeErrorPx, sizeError)
 
-        let iosWidth = sample.surfaceSample?.iosurfaceWidthPx ?? 0
-        let iosHeight = sample.surfaceSample?.iosurfaceHeightPx ?? 0
-        let expectedWidth = sample.surfaceSample?.expectedWidthPx ?? 0
-        let expectedHeight = sample.surfaceSample?.expectedHeightPx ?? 0
-        let gravity = sample.surfaceSample?.layerContentsGravity ?? ""
-        let isBlank = sample.surfaceSample?.isProbablyBlank ?? false
+        let iosWidth = resolvedSurfaceSample?.iosurfaceWidthPx ?? 0
+        let iosHeight = resolvedSurfaceSample?.iosurfaceHeightPx ?? 0
+        let expectedWidth = resolvedSurfaceSample?.expectedWidthPx ?? 0
+        let expectedHeight = resolvedSurfaceSample?.expectedHeightPx ?? 0
+        let gravity = resolvedSurfaceSample?.layerContentsGravity ?? ""
+        let isBlank = resolvedSurfaceSample?.isProbablyBlank ?? false
         let hasDimensions = iosWidth > 0 && iosHeight > 0 && expectedWidth > 0 && expectedHeight > 0
         let hasSizeMismatch = hasDimensions && (abs(iosWidth - expectedWidth) > 2 || abs(iosHeight - expectedHeight) > 2)
         let stretchRisk = gravity == CALayerContentsGravity.resize.rawValue
-        if !isBlank {
+        if requiresRenderableSurface, !isBlank {
             st.nonBlankSampleCounts[target.label, default: 0] += 1
             if st.firstNonBlankFrameByLabel[target.label] == nil {
                 st.firstNonBlankFrameByLabel[target.label] = st.framesWritten
@@ -885,8 +1040,10 @@ fileprivate func capturePaneStripMotionFrame(_ st: PaneStripMotionTimelineState)
             guard hasPassedBootstrapGrace, anchorShouldShowTerminalContent else { return nil }
             if sample.hostedHidden { return "hidden" }
             if !hostedHasVisibleArea { return "noVisibleArea" }
-            if sample.surfaceSample == nil { return "missingSurfaceSample" }
-            if isBlank { return "blank" }
+            if requiresRenderableSurface {
+                if resolvedSurfaceSample == nil { return "missingSurfaceSample" }
+                if isBlank { return "blank" }
+            }
             return nil
         }()
 
@@ -909,11 +1066,15 @@ fileprivate func capturePaneStripMotionFrame(_ st: PaneStripMotionTimelineState)
             )
         }
 
-        if st.firstBlank == nil, hasPassedBootstrapGrace, isBlank {
+        if st.firstBlank == nil,
+           requiresRenderableSurface,
+           hasPassedBootstrapGrace,
+           isBlank {
             st.firstBlank = (label: target.label, frame: st.framesWritten)
         }
 
         if st.firstSizeMismatch == nil,
+           requiresRenderableSurface,
            hasPassedBootstrapGrace,
            stretchRisk,
            hasSizeMismatch {
@@ -928,15 +1089,19 @@ fileprivate func capturePaneStripMotionFrame(_ st: PaneStripMotionTimelineState)
         if hasPassedBootstrapGrace,
            !sample.anchorHidden,
            !sample.hostedHidden,
-           let surfaceSample = sample.surfaceSample,
-           !surfaceSample.isProbablyBlank,
            let expectedPanelId = target.expectedPanelId(),
-           let hitTestTerminalIdAtWindowPoint = st.hitTestTerminalIdAtWindowPoint {
+           let hitTestPanelIdAtWindowPoint = st.hitTestPanelIdAtWindowPoint {
+            if requiresRenderableSurface {
+                guard let surfaceSample = resolvedSurfaceSample,
+                      !surfaceSample.isProbablyBlank else {
+                    continue
+                }
+            }
             let points = paneStripMotionProbePoints(in: sample.anchorFrameInWindow)
             var wrongHitCount = 0
 
             for point in points {
-                let observedPanelId = hitTestTerminalIdAtWindowPoint(point)
+                let observedPanelId = hitTestPanelIdAtWindowPoint(point)
                 if observedPanelId != expectedPanelId {
                     wrongHitCount += 1
                     if st.firstOcclusionFailure == nil {
@@ -971,6 +1136,27 @@ fileprivate func capturePaneStripMotionFrame(_ st: PaneStripMotionTimelineState)
         }
     }
 
+    let captureWindow: NSWindow? = collectedSamples.contains(where: { $0.renderSurfaceFromWindowCapture })
+        ? (NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first)
+        : nil
+
+    func resolvedSurfaceSample(
+        for target: (
+            label: String,
+            sample: DebugTerminalPortalMotionSample,
+            evaluationStartFrame: Int,
+            requiresRenderableSurface: Bool,
+            renderSurfaceFromWindowCapture: Bool
+        )
+    ) -> GhosttySurfaceScrollView.DebugFrameSample? {
+        guard target.renderSurfaceFromWindowCapture else { return target.sample.surfaceSample }
+        guard let captureWindow else { return nil }
+        return paneStripWindowCaptureSample(
+            window: captureWindow,
+            frameInWindow: target.sample.hostedFrameInWindow
+        )
+    }
+
     if collectedSamples.count >= 2 {
         for lhsIndex in 0..<(collectedSamples.count - 1) {
             for rhsIndex in (lhsIndex + 1)..<collectedSamples.count {
@@ -980,10 +1166,14 @@ fileprivate func capturePaneStripMotionFrame(_ st: PaneStripMotionTimelineState)
                 let rhsPassedBootstrapGrace = st.framesWritten >= rhs.evaluationStartFrame
                 guard lhsPassedBootstrapGrace, rhsPassedBootstrapGrace else { continue }
                 guard !lhs.sample.hostedHidden, !rhs.sample.hostedHidden else { continue }
-                guard let lhsSurface = lhs.sample.surfaceSample,
-                      let rhsSurface = rhs.sample.surfaceSample,
-                      !lhsSurface.isProbablyBlank,
-                      !rhsSurface.isProbablyBlank else { continue }
+                if lhs.requiresRenderableSurface {
+                    guard let lhsSurface = resolvedSurfaceSample(for: lhs),
+                          !lhsSurface.isProbablyBlank else { continue }
+                }
+                if rhs.requiresRenderableSurface {
+                    guard let rhsSurface = resolvedSurfaceSample(for: rhs),
+                          !rhsSurface.isProbablyBlank else { continue }
+                }
 
                 let anchorOverlap = paneStripMotionOverlapWidthPx(lhs.sample.anchorFrameInWindow, rhs.sample.anchorFrameInWindow)
                 let hostedOverlap = paneStripMotionOverlapWidthPx(lhs.sample.hostedFrameInWindow, rhs.sample.hostedFrameInWindow)
@@ -3336,6 +3526,17 @@ class TabManager: ObservableObject {
             if attached, hasSurface {
                 return (attached, hasSurface, firstResponder)
             }
+
+            if let window {
+                NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                NSApp.activate(ignoringOtherApps: true)
+                window.orderFrontRegardless()
+                window.makeKeyAndOrderFront(nil)
+                window.layoutIfNeeded()
+                window.displayIfNeeded()
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.contentView?.displayIfNeeded()
+            }
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
 
@@ -3945,13 +4146,21 @@ class TabManager: ObservableObject {
         let deadline = Date().addingTimeInterval(timeoutSeconds)
         while Date() < deadline {
             let hasWindowAndWorkspace = window != nil && selectedWorkspace != nil
-            if hasWindowAndWorkspace && (!requireForegroundActivation || NSApp.isActive) {
+            if let window, hasWindowAndWorkspace {
+                NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                NSApp.activate(ignoringOtherApps: true)
+                window.orderFrontRegardless()
+                window.makeKeyAndOrderFront(nil)
+            }
+            let windowIsReady = window?.isKeyWindow == true
+            if hasWindowAndWorkspace && (!requireForegroundActivation || (NSApp.isActive && windowIsReady)) {
                 return true
             }
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
         let hasWindowAndWorkspace = window != nil && selectedWorkspace != nil
-        return hasWindowAndWorkspace && (!requireForegroundActivation || NSApp.isActive)
+        let windowIsReady = window?.isKeyWindow == true
+        return hasWindowAndWorkspace && (!requireForegroundActivation || (NSApp.isActive && windowIsReady))
     }
 
     @MainActor
@@ -3998,15 +4207,6 @@ class TabManager: ObservableObject {
             finish(payload)
         }
 
-        guard let tab = selectedWorkspace else {
-            fail("Missing selected workspace")
-            return
-        }
-        guard let sourcePanelId = tab.focusedPanelId else {
-            fail("Missing initial focused panel")
-            return
-        }
-
         writePaneStripMotionTestData([
             "status": "running",
             "scenario": scenario,
@@ -4017,6 +4217,8 @@ class TabManager: ObservableObject {
         @MainActor
         func reassertPaneStripMotionTestWindow() {
             guard let window else { return }
+            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            window.makeMain()
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)
@@ -4031,6 +4233,14 @@ class TabManager: ObservableObject {
             frame.size = CGSize(width: 1440, height: 900)
             window.setFrame(frame, display: true, animate: false)
             reassertPaneStripMotionTestWindow()
+        }
+
+        let tab = addWorkspace(select: true, eagerLoadTerminal: true, autoWelcomeIfNeeded: false)
+        reassertPaneStripMotionTestWindow()
+
+        guard let sourcePanelId = tab.focusedPanelId else {
+            fail("Missing initial focused panel")
+            return
         }
 
         try? await Task.sleep(nanoseconds: 200_000_000)
@@ -4056,6 +4266,10 @@ class TabManager: ObservableObject {
             return readiness.attached && readiness.hasSurface
         }
 
+        let browserDataURL = URL(
+            string: "data:text/html,%3Chtml%3E%3Cbody%20style%3D%22margin%3A0%3Bfont-family%3A%20system-ui%3Bbackground%3A%23f3f4f6%3Bcolor%3A%23111827%3B%22%3E%3Cdiv%20style%3D%22padding%3A48px%3Bfont-size%3A42px%3Bfont-weight%3A700%3B%22%3ECMUX%20PANE%20STRIP%20BROWSER%3C/div%3E%3C/body%3E%3C/html%3E"
+        )!
+
         func motionSample(for panelId: UUID?) -> DebugTerminalPortalMotionSample? {
             guard let panelId,
                   let terminal = tab.terminalPanel(for: panelId) else {
@@ -4068,6 +4282,14 @@ class TabManager: ObservableObject {
                 return portalSample
             }
             return terminal.surface.hostedView.debugInlineMotionSample(normalizedCrop: crop)
+        }
+
+        func browserMotionSample(for panelId: UUID?) -> DebugTerminalPortalMotionSample? {
+            guard let panelId,
+                  let browser = tab.browserPanel(for: panelId) else {
+                return nil
+            }
+            return BrowserWindowPortalRegistry.debugMotionSample(for: browser.webView)
         }
 
         func primeTerminalContent(_ panelId: UUID, label: String) {
@@ -4140,12 +4362,50 @@ class TabManager: ObservableObject {
             ]
         }
 
-        let hitTestTerminalIdAtWindowPoint: (CGPoint) -> UUID? = { [weak window] point in
-            guard let window,
-                  let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(point, in: window) else {
-                return nil
+        func browserVisibilityDebugInfo(for panelId: UUID) -> [String: String] {
+            guard let browser = tab.browserPanel(for: panelId) else {
+                return ["browserPanelMissing": "1"]
             }
-            return terminalView.terminalSurface?.id
+
+            let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browser.webView)
+            return [
+                "browserPortalSnapshot": snapshot.map { debugJSONString([
+                    "visibleInUI": $0.visibleInUI,
+                    "anchorHidden": $0.anchorHidden,
+                    "containerHidden": $0.containerHidden,
+                    "anchorFrame": NSStringFromRect($0.anchorFrameInWindow),
+                    "containerFrame": NSStringFromRect($0.frameInWindow),
+                ]) } ?? "",
+            ]
+        }
+
+        func waitForBrowserPanelPortalReady(_ panelId: UUID, timeoutSeconds: TimeInterval = 4.0) async -> Bool {
+            let deadline = Date().addingTimeInterval(timeoutSeconds)
+            while Date() < deadline {
+                if let sample = browserMotionSample(for: panelId),
+                   !sample.anchorHidden,
+                   !sample.hostedHidden,
+                   sample.anchorFrameInWindow.width > 24,
+                   sample.hostedFrameInWindow.width > 24,
+                   sample.anchorFrameInWindow.height > 24,
+                   sample.hostedFrameInWindow.height > 24 {
+                    return true
+                }
+                reassertPaneStripMotionTestWindow()
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            return false
+        }
+
+        let hitTestPanelIdAtWindowPoint: (CGPoint) -> UUID? = { [weak window] point in
+            guard let window else { return nil }
+            if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(point, in: window) {
+                return terminalView.terminalSurface?.id
+            }
+            if let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(point, in: window) {
+                return tab.panels.values.compactMap { $0 as? BrowserPanel }.first(where: { $0.webView === webView })?.id
+            }
+            return nil
         }
 
         let result: (
@@ -4173,7 +4433,7 @@ class TabManager: ObservableObject {
                 targets: [
                     .init(label: "T", sample: { @MainActor in motionSample(for: sourcePanelId) }, expectedPanelId: { sourcePanelId }),
                 ],
-                hitTestTerminalIdAtWindowPoint: hitTestTerminalIdAtWindowPoint
+                hitTestPanelIdAtWindowPoint: hitTestPanelIdAtWindowPoint
             )
 
             if result.sampleCounts["T", default: 0] == 0 {
@@ -4235,7 +4495,7 @@ class TabManager: ObservableObject {
                         referenceMode: .firstMeasuredSample
                     ),
                 ],
-                hitTestTerminalIdAtWindowPoint: hitTestTerminalIdAtWindowPoint,
+                hitTestPanelIdAtWindowPoint: hitTestPanelIdAtWindowPoint,
                 actions: [
                     (frame: actionFrame, action: {
                         tab.moveFocus(direction: .right)
@@ -4275,7 +4535,7 @@ class TabManager: ObservableObject {
                         referenceMode: .firstMeasuredSample
                     ),
                 ],
-                hitTestTerminalIdAtWindowPoint: hitTestTerminalIdAtWindowPoint,
+                hitTestPanelIdAtWindowPoint: hitTestPanelIdAtWindowPoint,
                 actions: [
                     (frame: actionFrame, action: {
                         _ = tab.bonsplitController.panPaperCanvasViewport(by: CGSize(width: 520, height: 0), notify: true)
@@ -4315,7 +4575,7 @@ class TabManager: ObservableObject {
                         referenceMode: .firstMeasuredSample
                     ),
                 ],
-                hitTestTerminalIdAtWindowPoint: hitTestTerminalIdAtWindowPoint,
+                hitTestPanelIdAtWindowPoint: hitTestPanelIdAtWindowPoint,
                 actions: [
                     (frame: actionFrame, action: {
                         createdPanelId = tab.openTerminalPaneRight(from: sourcePanelId)?.id
@@ -4351,6 +4611,61 @@ class TabManager: ObservableObject {
                 )
                 return
             }
+
+        case "browser_focus_reveal_right":
+            guard let rightPanel = tab.newBrowserSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                url: browserDataURL,
+                focus: false
+            ),
+            await waitForBrowserPanelPortalReady(rightPanel.id) else {
+                fail("Failed to create right browser pane for focus reveal")
+                return
+            }
+            reassertPaneStripMotionTestWindow()
+            tab.moveFocus(direction: .right)
+            reassertPaneStripMotionTestWindow()
+            guard await waitForBrowserPanelPortalReady(rightPanel.id) else {
+                fail(
+                    "Right browser pane did not become portal-visible before focus-reveal capture",
+                    extra: browserVisibilityDebugInfo(for: rightPanel.id)
+                )
+                return
+            }
+            tab.moveFocus(direction: .left)
+            reassertPaneStripMotionTestWindow()
+            guard await waitForTerminalPanelPainted(sourcePanelId) else {
+                fail(
+                    "Left pane did not repaint visible content after browser focus reset",
+                    extra: terminalVisibilityDebugInfo(for: sourcePanelId)
+                )
+                return
+            }
+
+            result = await capturePaneStripMotionTimeline(
+                frameCount: frameCount,
+                actionFrame: actionFrame,
+                targets: [
+                    .init(label: "L", sample: { @MainActor in motionSample(for: sourcePanelId) }, expectedPanelId: { sourcePanelId }),
+                    .init(
+                        label: "B",
+                        sample: { @MainActor in browserMotionSample(for: rightPanel.id) },
+                        expectedPanelId: { rightPanel.id },
+                        bootstrapGraceFrames: newlyVisiblePaneBootstrapGraceFrames,
+                        minimumEvaluationFrame: actionFrame,
+                        referenceMode: .firstMeasuredSample,
+                        requiresRenderableSurface: true,
+                        renderSurfaceFromWindowCapture: true
+                    ),
+                ],
+                hitTestPanelIdAtWindowPoint: hitTestPanelIdAtWindowPoint,
+                actions: [
+                    (frame: actionFrame, action: {
+                        tab.moveFocus(direction: .right)
+                    }),
+                ]
+            )
 
         default:
             fail("Unsupported motion scenario: \(scenario)")
@@ -4434,7 +4749,7 @@ class TabManager: ObservableObject {
         frameCount: Int,
         actionFrame: Int,
         targets: [PaneStripMotionTimelineState.Target],
-        hitTestTerminalIdAtWindowPoint: ((CGPoint) -> UUID?)? = nil,
+        hitTestPanelIdAtWindowPoint: ((CGPoint) -> UUID?)? = nil,
         actions: [(frame: Int, action: () -> Void)] = []
     ) async -> (
         alignment: (label: String, frame: Int, positionError: Int, sizeError: Int)?,
@@ -4460,7 +4775,7 @@ class TabManager: ObservableObject {
         st.scheduledActions = actions.sorted(by: { $0.frame < $1.frame })
         st.nextActionIndex = 0
         st.targets = targets
-        st.hitTestTerminalIdAtWindowPoint = hitTestTerminalIdAtWindowPoint
+        st.hitTestPanelIdAtWindowPoint = hitTestPanelIdAtWindowPoint
 
         for frameIndex in 0..<frameCount {
             capturePaneStripMotionFrame(st)
