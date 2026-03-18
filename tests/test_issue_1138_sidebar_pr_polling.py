@@ -287,10 +287,10 @@ def _read_lines(path: Path) -> list[str]:
     return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _report_line(number: int) -> str:
+def _report_line(number: int, *, branch: str = "feature/issue-1138") -> str:
     return (
         f"report_pr {number} https://github.com/manaflow-ai/cmux/pull/{number} "
-        "--state=open --tab=00000000-0000-0000-0000-000000000001 "
+        f'--state=open --branch="{branch}" --tab=00000000-0000-0000-0000-000000000001 '
         "--panel=00000000-0000-0000-0000-000000000002"
     )
 
@@ -318,7 +318,7 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
 
     bindir.mkdir(parents=True, exist_ok=True)
     repo_git.mkdir(parents=True, exist_ok=True)
-    initial_branch = "feature/old" if scenario == "branch_switch_clear" else "feature/issue-1138"
+    initial_branch = "feature/old" if scenario in {"branch_switch_clear", "idle_branch_switch_clear"} else "feature/issue-1138"
     head_file.write_text(f"ref: refs/heads/{initial_branch}\n", encoding="utf-8")
     _write_executable(bindir / "git", _git_stub())
     _write_executable(bindir / "gh", _gh_stub())
@@ -377,7 +377,7 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
         return (0, f"{shell}/{scenario}: ok")
 
     if scenario == "branch_switch_clear":
-        old_report = _report_line(111)
+        old_report = _report_line(111, branch="feature/old")
         if old_report not in send_lines:
             return (1, f"{shell}/{scenario}: missing old-branch report\n" + "\n".join(send_lines))
         try:
@@ -392,7 +392,7 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
         return (0, f"{shell}/{scenario}: ok")
 
     if scenario == "idle_branch_switch_clear":
-        old_report = _report_line(111)
+        old_report = _report_line(111, branch="feature/old")
         if old_report not in send_lines:
             return (1, f"{shell}/{scenario}: missing old-branch report\n" + "\n".join(send_lines))
         try:
