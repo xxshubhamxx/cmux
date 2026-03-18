@@ -45144,13 +45144,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show favicon.png, favicon.ico, or .cmux-icon.png from the workspace directory as the workspace icon."
+            "value": "Detect favicon, app icon, or logo from the workspace directory and show it in the sidebar."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースディレクトリのfavicon.pngやfavicon.ico、.cmux-icon.pngをワークスペースアイコンとして表示します。"
+            "value": "ワークスペースディレクトリからfavicon、アプリアイコン、ロゴを検出してサイドバーに表示します。"
           }
         }
       }

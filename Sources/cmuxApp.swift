@@ -4439,7 +4439,7 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             String(localized: "settings.app.autoDetectFavicon", defaultValue: "Auto-detect Workspace Icon"),
-                            subtitle: String(localized: "settings.app.autoDetectFavicon.subtitle", defaultValue: "Show favicon.png, favicon.ico, or .cmux-icon.png from the workspace directory as the workspace icon.")
+                            subtitle: String(localized: "settings.app.autoDetectFavicon.subtitle", defaultValue: "Detect favicon, app icon, or logo from the workspace directory and show it in the sidebar.")
                         ) {
                             Toggle("", isOn: $sidebarAutoDetectFavicon)
                                 .labelsHidden()

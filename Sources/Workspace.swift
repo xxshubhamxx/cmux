@@ -5651,17 +5651,13 @@ final class Workspace: Identifiable, ObservableObject {
     // MARK: - Favicon Detection
 
     /// File names to look for as workspace icons, checked in order.
-    /// Covers web projects (favicon), cmux-specific (.cmux-icon), app icons,
-    /// and common branding files.
     private static let faviconFilenames = [
-        ".cmux-icon.png", ".cmux-icon.svg", ".cmux-icon.jpg", ".cmux-icon.ico",
         "favicon.png", "favicon.ico", "favicon.svg",
         "icon.png", "icon.svg",
         "logo.png", "logo.svg",
     ]
 
-    /// Subdirectories to check (shallow, max 2 levels deep).
-    /// Covers web projects, iOS/macOS apps, and common asset locations.
+    /// Subdirectories to check for favicon filenames.
     private static let faviconSubdirs = [
         "",                          // root
         "public",                    // web: Next.js, Vite, CRA
@@ -5670,6 +5666,8 @@ final class Workspace: Identifiable, ObservableObject {
         "assets",                    // generic
         "images",                    // generic
         "Resources",                 // Xcode / Swift
+        ".github",                   // GitHub repo branding
+        "docs",                      // documentation sites
     ]
 
     func detectFavicon(in directory: String) {
@@ -5678,12 +5676,7 @@ final class Workspace: Identifiable, ObservableObject {
             let fm = FileManager.default
             var found: String? = nil
 
-            // Also check for iOS/macOS AppIcon in asset catalog
-            let appIconCandidates = [
-                "Assets.xcassets/AppIcon.appiconset",
-                "Resources/Assets.xcassets/AppIcon.appiconset",
-            ]
-
+            // 1. Check standard favicon filenames across known subdirs
             outer: for subdir in Self.faviconSubdirs {
                 let base = subdir.isEmpty ? dir : (dir as NSString).appendingPathComponent(subdir)
                 for filename in Self.faviconFilenames {
@@ -5695,17 +5688,53 @@ final class Workspace: Identifiable, ObservableObject {
                 }
             }
 
-            // Fallback: check for AppIcon asset catalog (pick largest PNG inside)
+            // 2. Xcode AppIcon asset catalog (iOS/macOS)
             if found == nil {
+                let appIconCandidates = [
+                    "Assets.xcassets/AppIcon.appiconset",
+                    "Resources/Assets.xcassets/AppIcon.appiconset",
+                ]
                 for candidate in appIconCandidates {
                     let iconsetPath = (dir as NSString).appendingPathComponent(candidate)
                     if let contents = try? fm.contentsOfDirectory(atPath: iconsetPath) {
-                        // Pick the largest PNG by filename (typically "AppIcon-1024.png" or similar)
                         let pngs = contents.filter { $0.hasSuffix(".png") }.sorted().reversed()
                         if let largest = pngs.first {
                             found = (iconsetPath as NSString).appendingPathComponent(largest)
                             break
                         }
+                    }
+                }
+            }
+
+            // 3. Android launcher icon
+            if found == nil {
+                let androidPaths = [
+                    "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+                    "android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+                    "app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+                    "app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+                ]
+                for candidate in androidPaths {
+                    let path = (dir as NSString).appendingPathComponent(candidate)
+                    if fm.fileExists(atPath: path) {
+                        found = path
+                        break
+                    }
+                }
+            }
+
+            // 4. Electron/desktop app icons
+            if found == nil {
+                let electronPaths = [
+                    "build/icon.png",
+                    "build/icons/icon.png",
+                    "resources/icon.png",
+                ]
+                for candidate in electronPaths {
+                    let path = (dir as NSString).appendingPathComponent(candidate)
+                    if fm.fileExists(atPath: path) {
+                        found = path
+                        break
                     }
                 }
             }
