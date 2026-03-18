@@ -91,6 +91,43 @@ final class ConversationsViewModelTests: XCTestCase {
         XCTAssertEqual(cachedWorkspace.unreadCount, 0)
         XCTAssertEqual(cachedWorkspace.lastReadEventSeq, 4)
     }
+
+    func testCachedBootTracksAnalyticsWithWorkspaceCounts() throws {
+        let database = try AppDatabase.inMemory()
+        let inboxCache = InboxCacheRepository(database: database)
+        try inboxCache.save([
+            UnifiedInboxItem(
+                kind: .workspace,
+                workspaceID: "workspace_123",
+                machineID: "machine_123",
+                teamID: "team_123",
+                title: "orb / cmux",
+                preview: "preview 1",
+                unreadCount: 3,
+                sortDate: Date(),
+                accessoryLabel: "Mac Mini",
+                symbolName: "terminal",
+                tmuxSessionName: "cmux-nightly",
+                latestEventSeq: 5,
+                lastReadEventSeq: 2,
+                tailscaleHostname: "cmux-macmini.tail",
+                tailscaleIPs: ["100.64.0.10"]
+            )
+        ])
+        let analyticsTracker = StubConversationsAnalyticsTracker()
+
+        _ = ConversationsViewModel(
+            autoLoad: false,
+            inboxCacheRepository: inboxCache,
+            analyticsTracker: analyticsTracker
+        )
+
+        XCTAssertEqual(analyticsTracker.events.count, 1)
+        XCTAssertEqual(analyticsTracker.events.first?.event, .iosGRDBBootCompleted)
+        XCTAssertEqual(analyticsTracker.events.first?.properties.source, "cache_boot")
+        XCTAssertEqual(analyticsTracker.events.first?.properties.workspaceCount, 1)
+        XCTAssertEqual(analyticsTracker.events.first?.properties.unreadCount, 3)
+    }
 }
 
 @MainActor
@@ -105,6 +142,15 @@ private final class StubWorkspaceSyncService: UnifiedInboxWorkspaceSyncing {
 
     func send(_ items: [UnifiedInboxItem]) {
         subject.send(items)
+    }
+}
+
+@MainActor
+private final class StubConversationsAnalyticsTracker: MobileAnalyticsTracking {
+    private(set) var events: [(event: MobileAnalyticsEventName, properties: MobileAnalyticsProperties)] = []
+
+    func capture(event: MobileAnalyticsEventName, properties: MobileAnalyticsProperties) {
+        events.append((event, properties))
     }
 }
 

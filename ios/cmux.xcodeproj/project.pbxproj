@@ -106,6 +106,7 @@
 		C7D1BFF48FD30657271F28AE /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = F8A885851E1A86504D3A59DE /* NIOSSH */; };
 		C9E3B69A93DD87E682311505 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88ED9D7168B6FC097B490637 /* SignInView.swift */; };
 		CA480C6041256D98676F5C8D /* TerminalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44C786211D181C6EAC4FBAAB /* TerminalModels.swift */; };
+		CA6F6ABC4E3B9B86CD565B47 /* MobileAnalyticsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE24191EFBF29D7297EFFEA /* MobileAnalyticsClient.swift */; };
 		CC62BB48ED0957484E001EFB /* ConversationE2ETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D3B3CB64500DDB27D7C781 /* ConversationE2ETests.swift */; };
 		CEADBC899865019DA2333129 /* TerminalReconnectUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B04A72C0E65996D39B749EC4 /* TerminalReconnectUITests.swift */; };
 		D12CB21CF8D9D02825E54E32 /* ConvexMobileDogfoodModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1938E19E2CCF0A40A4EF27C3 /* ConvexMobileDogfoodModels.swift */; };
@@ -184,6 +185,7 @@
 		38A50394379F40101C8A95FC /* ChatFix1_ContentInsetNever.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFix1_ContentInsetNever.swift; sourceTree = "<group>"; };
 		3A9ADF5829DEF82D33C5EB45 /* cmuxd-remote */ = {isa = PBXFileReference; path = "cmuxd-remote"; sourceTree = "<group>"; };
 		3F0D6D7E549075AEEF31EB2C /* TerminalDirectDaemonClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDirectDaemonClient.swift; sourceTree = "<group>"; };
+		3FE24191EFBF29D7297EFFEA /* MobileAnalyticsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAnalyticsClient.swift; sourceTree = "<group>"; };
 		4038813C413C3E58E29EA99C /* UnifiedInboxItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedInboxItem.swift; sourceTree = "<group>"; };
 		4296ACD1C15CC2E35AE162CC /* ChatFix1MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFix1MainView.swift; sourceTree = "<group>"; };
 		44C786211D181C6EAC4FBAAB /* TerminalModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalModels.swift; sourceTree = "<group>"; };
@@ -543,6 +545,7 @@
 			isa = PBXGroup;
 			children = (
 				9774A2FB02CE54197BE7433D /* ConvexWorkspaceLiveSync.swift */,
+				3FE24191EFBF29D7297EFFEA /* MobileAnalyticsClient.swift */,
 				2AC726D3FC8D35E5F9D5ACD2 /* MobileContractModels.swift */,
 			);
 			path = Mobile;
@@ -827,6 +830,7 @@
 				926513A46F037E74CC8BA9B6 /* InboxCacheRepository.swift in Sources */,
 				B6A62131AD984521B5A6B183 /* InputStrategyLabView.swift in Sources */,
 				65E76B2DE8870BF62C89A260 /* MarkdownDebugView.swift in Sources */,
+				CA6F6ABC4E3B9B86CD565B47 /* MobileAnalyticsClient.swift in Sources */,
 				701B64FEFB47C1D82F44CDBE /* MobileContractModels.swift in Sources */,
 				361B05C412BFA1E44BDCAD39 /* Models.swift in Sources */,
 				93FED7D20FA11DDB6B9201CA /* NotificationManager.swift in Sources */,

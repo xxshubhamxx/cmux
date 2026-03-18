@@ -256,7 +256,7 @@ struct TerminalSidebarRootView: View {
         }
 
         if let cachedItem = cachedWorkspaceItem(for: route),
-           let workspaceID = store.openInboxWorkspace(cachedItem) {
+           let workspaceID = store.openInboxWorkspace(cachedItem, source: .push) {
             routeStore.consume()
             navigationPath.append(workspaceID)
             return
@@ -267,7 +267,7 @@ struct TerminalSidebarRootView: View {
         }
 
         routeStore.consume()
-        navigationPath.append(store.openWorkspace(workspace))
+        navigationPath.append(store.openWorkspace(workspace, source: .push))
     }
 
     private func cachedWorkspaceItem(for route: NotificationRoute) -> UnifiedInboxItem? {

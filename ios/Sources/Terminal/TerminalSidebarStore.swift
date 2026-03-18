@@ -13,6 +13,12 @@ enum TerminalSessionUpdate {
     case remoteDaemonResumeState(TerminalRemoteDaemonResumeState?)
 }
 
+enum TerminalWorkspaceOpenSource: String, Sendable {
+    case terminals
+    case inbox
+    case push
+}
+
 struct TerminalNetworkPathState: Equatable, Sendable {
     var isReachable: Bool
     var signature: String
@@ -151,6 +157,7 @@ final class TerminalSidebarStore: ObservableObject {
     private let serverDiscovery: TerminalServerDiscovering?
     private let networkPathMonitor: TerminalNetworkPathMonitoring?
     private let remoteWorkspaceReadMarker: TerminalRemoteWorkspaceReadMarking?
+    private let analyticsTracker: MobileAnalyticsTracking?
     private let eagerlyRestoreSessions: Bool
     private let controllerFactory: TerminalSessionControllerFactory
 
@@ -160,6 +167,8 @@ final class TerminalSidebarStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var notificationObservers: [NSObjectProtocol] = []
     private var lastNetworkPathState: TerminalNetworkPathState?
+    private var attachAttemptStartedAt: [TerminalWorkspace.ID: Date] = [:]
+    private var reportedAttachResults: [TerminalWorkspace.ID: String] = [:]
 
     init(
         snapshotStore: TerminalSnapshotPersisting = TerminalSnapshotStore(),
@@ -170,6 +179,7 @@ final class TerminalSidebarStore: ObservableObject {
         serverDiscovery: TerminalServerDiscovering? = nil,
         networkPathMonitor: TerminalNetworkPathMonitoring? = TerminalNetworkPathMonitor(),
         remoteWorkspaceReadMarker: TerminalRemoteWorkspaceReadMarking? = nil,
+        analyticsTracker: MobileAnalyticsTracking? = nil,
         eagerlyRestoreSessions: Bool = true,
         controllerFactory: TerminalSessionControllerFactory? = nil
     ) {
@@ -181,6 +191,7 @@ final class TerminalSidebarStore: ObservableObject {
         self.serverDiscovery = serverDiscovery
         self.networkPathMonitor = networkPathMonitor
         self.remoteWorkspaceReadMarker = remoteWorkspaceReadMarker ?? LiveTerminalRemoteWorkspaceReadMarker()
+        self.analyticsTracker = analyticsTracker ?? MobileAnalyticsClient()
         self.eagerlyRestoreSessions = eagerlyRestoreSessions
         self.controllerFactory = controllerFactory ?? { workspace, host, credentialsStore, transportFactory in
             TerminalSessionController(
@@ -235,18 +246,26 @@ final class TerminalSidebarStore: ObservableObject {
     }
 
     @discardableResult
-    func openWorkspace(_ workspace: TerminalWorkspace) -> TerminalWorkspace.ID {
+    func openWorkspace(
+        _ workspace: TerminalWorkspace,
+        source: TerminalWorkspaceOpenSource = .terminals,
+        unreadCount: Int? = nil
+    ) -> TerminalWorkspace.ID {
         selectedWorkspaceID = workspace.id
         setUnread(false, for: workspace.id)
         syncSelectedControllerLifecycle()
         persist()
         ensureBackendIdentityIfNeeded(for: workspace.id)
         startWorkspaceMetadataObservationIfNeeded(for: workspace.id)
+        trackWorkspaceOpened(workspaceID: workspace.id, source: source, unreadCount: unreadCount)
         return workspace.id
     }
 
     @discardableResult
-    func openInboxWorkspace(_ item: UnifiedInboxItem) -> TerminalWorkspace.ID? {
+    func openInboxWorkspace(
+        _ item: UnifiedInboxItem,
+        source: TerminalWorkspaceOpenSource = .inbox
+    ) -> TerminalWorkspace.ID? {
         guard item.kind == .workspace,
               let machineID = item.machineID,
               let tmuxSessionName = item.tmuxSessionName else {
@@ -301,7 +320,7 @@ final class TerminalSidebarStore: ObservableObject {
         guard let workspace = self.workspace(with: workspaceID) else {
             return nil
         }
-        return openWorkspace(workspace)
+        return openWorkspace(workspace, source: source, unreadCount: item.unreadCount)
     }
 
     @discardableResult
@@ -567,6 +586,7 @@ final class TerminalSidebarStore: ObservableObject {
             workspaces[index].phase = phase
             workspaces[index].lastError = error
             workspaces[index].lastActivity = .now
+            trackAttachTransition(for: workspaces[index], phase: phase, error: error)
         case .preview(let preview, let date):
             workspaces[index].preview = preview
             workspaces[index].lastActivity = date
@@ -594,6 +614,101 @@ final class TerminalSidebarStore: ObservableObject {
             workspaces[index].remoteDaemonResumeState = state
         }
         persist()
+    }
+
+    private func trackWorkspaceOpened(
+        workspaceID: TerminalWorkspace.ID,
+        source: TerminalWorkspaceOpenSource,
+        unreadCount: Int?
+    ) {
+        guard let workspace = workspace(with: workspaceID),
+              workspace.isRemoteWorkspace,
+              let host = server(for: workspace.hostID),
+              let remoteWorkspaceID = workspace.remoteWorkspaceID,
+              let machineID = analyticsMachineID(for: host) else {
+            return
+        }
+
+        analyticsTracker?.capture(
+            event: .mobileWorkspaceOpened,
+            properties: MobileAnalyticsProperties(
+                teamId: host.teamID,
+                machineId: machineID,
+                workspaceId: remoteWorkspaceID,
+                source: source.rawValue,
+                unreadCount: unreadCount
+            )
+        )
+    }
+
+    private func trackAttachTransition(
+        for workspace: TerminalWorkspace,
+        phase: TerminalConnectionPhase,
+        error: String?
+    ) {
+        guard workspace.isRemoteWorkspace,
+              let host = server(for: workspace.hostID),
+              let remoteWorkspaceID = workspace.remoteWorkspaceID,
+              let machineID = analyticsMachineID(for: host) else {
+            attachAttemptStartedAt.removeValue(forKey: workspace.id)
+            reportedAttachResults.removeValue(forKey: workspace.id)
+            return
+        }
+
+        switch phase {
+        case .connecting, .reconnecting:
+            attachAttemptStartedAt[workspace.id] = Date()
+            reportedAttachResults.removeValue(forKey: workspace.id)
+        case .connected:
+            guard reportedAttachResults[workspace.id] != "success" else { return }
+            analyticsTracker?.capture(
+                event: .mobileDaemonAttachResult,
+                properties: MobileAnalyticsProperties(
+                    teamId: host.teamID,
+                    machineId: machineID,
+                    workspaceId: remoteWorkspaceID,
+                    source: "direct_daemon",
+                    result: "success",
+                    latencyMs: attachLatencyMs(for: workspace.id)
+                )
+            )
+            reportedAttachResults[workspace.id] = "success"
+            attachAttemptStartedAt.removeValue(forKey: workspace.id)
+        case .failed:
+            guard reportedAttachResults[workspace.id] != "failure" else { return }
+            analyticsTracker?.capture(
+                event: .mobileDaemonAttachResult,
+                properties: MobileAnalyticsProperties(
+                    teamId: host.teamID,
+                    machineId: machineID,
+                    workspaceId: remoteWorkspaceID,
+                    source: "direct_daemon",
+                    result: "failure",
+                    errorCode: error?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    latencyMs: attachLatencyMs(for: workspace.id)
+                )
+            )
+            reportedAttachResults[workspace.id] = "failure"
+            attachAttemptStartedAt.removeValue(forKey: workspace.id)
+        case .needsConfiguration, .idle, .disconnected:
+            attachAttemptStartedAt.removeValue(forKey: workspace.id)
+        }
+    }
+
+    private func attachLatencyMs(for workspaceID: TerminalWorkspace.ID) -> Int? {
+        guard let startedAt = attachAttemptStartedAt[workspaceID] else {
+            return nil
+        }
+        return max(0, Int(Date().timeIntervalSince(startedAt) * 1000))
+    }
+
+    private func analyticsMachineID(for host: TerminalHost) -> String? {
+        let stableID = host.stableID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !stableID.isEmpty {
+            return stableID
+        }
+        let serverID = host.serverID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return serverID.isEmpty ? nil : serverID
     }
 
     private func setUnread(_ unread: Bool, for workspaceID: TerminalWorkspace.ID) {

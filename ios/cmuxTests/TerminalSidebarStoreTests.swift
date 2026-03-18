@@ -442,6 +442,42 @@ final class TerminalSidebarStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testOpenInboxWorkspaceTracksWorkspaceOpenedAnalytics() {
+        let analyticsTracker = StubTerminalAnalyticsTracker()
+        let fixture = makeStore(
+            snapshot: TerminalStoreSnapshot(hosts: [], workspaces: [], selectedWorkspaceID: nil),
+            analyticsTracker: analyticsTracker
+        )
+        let item = UnifiedInboxItem(
+            kind: .workspace,
+            workspaceID: "workspace_123",
+            machineID: "machine_123",
+            teamID: "team_123",
+            title: "orb / cmux",
+            preview: "feature/dogfood-inbox",
+            unreadCount: 2,
+            sortDate: Date(timeIntervalSince1970: 20),
+            accessoryLabel: "Mac Mini",
+            symbolName: "terminal",
+            tmuxSessionName: "cmux-nightly",
+            latestEventSeq: 4,
+            lastReadEventSeq: 2,
+            tailscaleHostname: "cmux-macmini.tail",
+            tailscaleIPs: ["100.64.0.10"]
+        )
+
+        _ = fixture.store.openInboxWorkspace(item)
+
+        XCTAssertEqual(analyticsTracker.events.count, 1)
+        XCTAssertEqual(analyticsTracker.events.first?.event, .mobileWorkspaceOpened)
+        XCTAssertEqual(analyticsTracker.events.first?.properties.teamId, "team_123")
+        XCTAssertEqual(analyticsTracker.events.first?.properties.machineId, "machine_123")
+        XCTAssertEqual(analyticsTracker.events.first?.properties.workspaceId, "workspace_123")
+        XCTAssertEqual(analyticsTracker.events.first?.properties.source, "inbox")
+        XCTAssertEqual(analyticsTracker.events.first?.properties.unreadCount, 2)
+    }
+
+    @MainActor
     func testBellUpdatesSelectedWorkspaceActivityWithoutMarkingUnread() async throws {
         let host = TerminalHost(
             name: "Mac Mini",
@@ -1351,6 +1387,7 @@ final class TerminalSidebarStoreTests: XCTestCase {
         workspaceIdentityService: StubTerminalWorkspaceIdentityService? = nil,
         workspaceMetadataService: StubTerminalWorkspaceMetadataService? = nil,
         remoteWorkspaceReadMarker: TerminalRemoteWorkspaceReadMarking? = nil,
+        analyticsTracker: MobileAnalyticsTracking? = nil,
         networkPathMonitor: TerminalNetworkPathMonitoring? = nil,
         eagerlyRestoreSessions: Bool = false,
         controllerFactory: TerminalSessionControllerFactory? = nil
@@ -1381,6 +1418,7 @@ final class TerminalSidebarStoreTests: XCTestCase {
             serverDiscovery: nil,
             networkPathMonitor: networkPathMonitor,
             remoteWorkspaceReadMarker: remoteWorkspaceReadMarker,
+            analyticsTracker: analyticsTracker,
             eagerlyRestoreSessions: eagerlyRestoreSessions,
             controllerFactory: resolvedControllerFactory
         )
@@ -1471,5 +1509,14 @@ private final class StubTerminalRemoteWorkspaceReadMarker: TerminalRemoteWorkspa
 
     func markRead(item: UnifiedInboxItem) async throws {
         items.append(item)
+    }
+}
+
+@MainActor
+private final class StubTerminalAnalyticsTracker: MobileAnalyticsTracking {
+    private(set) var events: [(event: MobileAnalyticsEventName, properties: MobileAnalyticsProperties)] = []
+
+    func capture(event: MobileAnalyticsEventName, properties: MobileAnalyticsProperties) {
+        events.append((event, properties))
     }
 }

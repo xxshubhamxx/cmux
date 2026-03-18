@@ -19,6 +19,7 @@ class ConversationsViewModel: ObservableObject {
     private let convex = ConvexClientManager.shared
     private let inboxCacheRepository: InboxCacheRepository?
     private let workspaceSyncService: UnifiedInboxWorkspaceSyncing?
+    private let analyticsTracker: MobileAnalyticsTracking?
     private var lastPrewarmAt: Date?
     private var firstPage: [ConvexConversation] = []
     private var extraConversations: [ConvexConversation] = []
@@ -42,12 +43,14 @@ class ConversationsViewModel: ObservableObject {
     init(
         autoLoad: Bool = true,
         inboxCacheRepository: InboxCacheRepository? = ConversationsViewModel.makeDefaultInboxCacheRepository(),
-        workspaceSyncService: UnifiedInboxWorkspaceSyncing? = nil
+        workspaceSyncService: UnifiedInboxWorkspaceSyncing? = nil,
+        analyticsTracker: MobileAnalyticsTracking? = nil
     ) {
         self.inboxCacheRepository = inboxCacheRepository
         self.workspaceSyncService = workspaceSyncService ?? UnifiedInboxSyncService(
             inboxCacheRepository: inboxCacheRepository
         )
+        self.analyticsTracker = analyticsTracker ?? MobileAnalyticsClient()
         loadCachedState()
         observeWorkspaceSync()
 
@@ -588,6 +591,16 @@ class ConversationsViewModel: ObservableObject {
             if !inboxItems.isEmpty {
                 isLoading = false
             }
+
+            analyticsTracker?.capture(
+                event: .iosGRDBBootCompleted,
+                properties: MobileAnalyticsProperties(
+                    source: "cache_boot",
+                    cacheAgeMs: Self.cacheAgeMs(for: cachedItems),
+                    workspaceCount: workspaceInboxItems.count,
+                    unreadCount: workspaceInboxItems.reduce(0) { $0 + $1.unreadCount }
+                )
+            )
         } catch {
             NSLog("📱 ConversationsViewModel: Failed to load inbox cache: \(error)")
         }
@@ -666,6 +679,13 @@ class ConversationsViewModel: ObservableObject {
             NSLog("📱 ConversationsViewModel: Failed to open default inbox cache: \(error)")
             return nil
         }
+    }
+
+    nonisolated private static func cacheAgeMs(for items: [UnifiedInboxItem]) -> Int {
+        guard let newestDate = items.map(\.sortDate).max() else {
+            return 0
+        }
+        return max(0, Int(Date().timeIntervalSince(newestDate) * 1000))
     }
 }
 

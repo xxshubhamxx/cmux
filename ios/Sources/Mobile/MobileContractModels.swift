@@ -32,8 +32,12 @@ struct MobileMarkReadRequest: Encodable, Equatable, Sendable {
     let latestEventSeq: Int?
 }
 
-private struct MobileOKResponse: Decodable, Equatable, Sendable {
+struct MobileOKResponse: Decodable, Equatable, Sendable {
     let ok: Bool
+}
+
+struct MobileAcceptedResponse: Decodable, Equatable, Sendable {
+    let accepted: Bool
 }
 
 enum MobileRouteClientError: Error {
@@ -42,7 +46,7 @@ enum MobileRouteClientError: Error {
 }
 
 @MainActor
-private final class MobileAuthenticatedRouteTransport {
+final class MobileAuthenticatedRouteTransport {
     private let baseURL: URL
     private let session: URLSession
     private let authManager: AuthManager

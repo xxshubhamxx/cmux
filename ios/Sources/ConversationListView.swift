@@ -297,8 +297,8 @@ struct ConversationListView: View {
             }
         }
     }
-    private func openWorkspace(_ item: UnifiedInboxItem) {
-        guard let workspaceID = terminalStore.openInboxWorkspace(item) else {
+    private func openWorkspace(_ item: UnifiedInboxItem, source: TerminalWorkspaceOpenSource = .inbox) {
+        guard let workspaceID = terminalStore.openInboxWorkspace(item, source: source) else {
             return
         }
         if let remoteWorkspaceID = item.workspaceID {
@@ -317,7 +317,7 @@ struct ConversationListView: View {
             return
         }
         routeStore.consume()
-        openWorkspace(item)
+        openWorkspace(item, source: .push)
     }
 }
 
