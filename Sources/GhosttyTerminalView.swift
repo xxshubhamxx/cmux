@@ -6469,6 +6469,9 @@ final class GhosttySurfaceScrollView: NSView {
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: bounds)
         }
+        // NSScrollView can defer clip-view/content-size updates until its own layout pass,
+        // which makes interactive width changes arrive a queue turn late on Sequoia.
+        scrollView.layoutSubtreeIfNeeded()
         updateNotificationRingPath()
         updateFlashPath(style: .standardFocus)
         synchronizeScrollView()

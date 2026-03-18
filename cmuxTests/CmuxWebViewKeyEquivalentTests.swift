@@ -65,19 +65,6 @@ private func drainMainQueue() {
     XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
-private let ghosttySizeLogPath = "/tmp/cmux-ghostty-size.log"
-
-private func resetGhosttySizeLog() {
-    try? FileManager.default.removeItem(atPath: ghosttySizeLogPath)
-}
-
-private func ghosttySizeLogLines() -> [String] {
-    guard let contents = try? String(contentsOfFile: ghosttySizeLogPath, encoding: .utf8) else {
-        return []
-    }
-    return contents.split(whereSeparator: \.isNewline).map(String.init)
-}
-
 final class SplitShortcutTransientFocusGuardTests: XCTestCase {
     func testSuppressesWhenFirstResponderFallsBackAndHostedViewIsTiny() {
         XCTAssertTrue(
@@ -13295,7 +13282,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
         )
 
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
         DispatchQueue.main.async {
             shiftedContainer.frame.origin.x += 72
             contentView.layoutSubtreeIfNeeded()
@@ -13418,18 +13405,6 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testDragDrivenSidebarResizeDoesNotScheduleLateSecondTerminalResize() {
-        let previousSizeLogFlag = getenv("CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_VISUAL").map { String(cString: $0) }
-        setenv("CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_VISUAL", "1", 1)
-        resetGhosttySizeLog()
-        defer {
-            resetGhosttySizeLog()
-            if let previousSizeLogFlag {
-                setenv("CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_VISUAL", previousSizeLogFlag, 1)
-            } else {
-                unsetenv("CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_VISUAL")
-            }
-        }
-
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 420),
             styleMask: [.titled, .closable],
@@ -13468,8 +13443,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
         TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
         realizeWindowLayout(window)
-
-        resetGhosttySizeLog()
+        let originalHostedFrame = hosted.frame
 
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
         defer {
@@ -13480,27 +13454,35 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         shiftedContainer.frame.size.width -= 72
         contentView.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
 
         drainMainQueue()
 
-        let surfaceToken = String(surface.id.uuidString.prefix(8))
-        let firstPassResizeEvents = ghosttySizeLogLines().filter {
-            $0.contains("updateSize surface=\(surfaceToken)")
-        }
-        XCTAssertFalse(
-            firstPassResizeEvents.isEmpty,
-            "The sidebar drag should resize the hosted terminal at least once"
+        let firstPassHostedFrame = hosted.frame
+        XCTAssertGreaterThan(
+            firstPassHostedFrame.minX,
+            originalHostedFrame.minX + 1,
+            "The sidebar drag should shift the hosted terminal on the first window-scoped sync pass"
+        )
+        XCTAssertLessThan(
+            firstPassHostedFrame.width,
+            originalHostedFrame.width - 1,
+            "The sidebar drag should resize the hosted terminal on the first window-scoped sync pass"
         )
 
         drainMainQueue()
 
-        let secondPassResizeEvents = ghosttySizeLogLines().filter {
-            $0.contains("updateSize surface=\(surfaceToken)")
-        }
+        let secondPassHostedFrame = hosted.frame
         XCTAssertEqual(
-            secondPassResizeEvents.count,
-            firstPassResizeEvents.count,
+            secondPassHostedFrame.minX,
+            firstPassHostedFrame.minX,
+            accuracy: 0.5,
+            "Interactive sidebar resizes should not land a second delayed horizontal terminal shift on the next queue turn"
+        )
+        XCTAssertEqual(
+            secondPassHostedFrame.width,
+            firstPassHostedFrame.width,
+            accuracy: 0.5,
             "Interactive sidebar resizes should not land a second delayed terminal resize on the next queue turn"
         )
     }

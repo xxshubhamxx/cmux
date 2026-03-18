@@ -1431,22 +1431,23 @@ final class WindowTerminalPortal: NSObject {
 #endif
         }
 
-        if hasFiniteFrame && !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            hostedView.frame = targetFrame
-            CATransaction.commit()
-            hostedView.reconcileGeometryNow()
-            hostedView.refreshSurfaceNow(reason: "portal.frameChange")
-        }
-
         if hasFiniteFrame {
             let expectedBounds = NSRect(origin: .zero, size: targetFrame.size)
+            var geometryChanged = false
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
+                hostedView.frame = targetFrame
+                geometryChanged = true
+            }
             if !Self.rectApproximatelyEqual(hostedView.bounds, expectedBounds) {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
                 hostedView.bounds = expectedBounds
-                CATransaction.commit()
+                geometryChanged = true
+            }
+            CATransaction.commit()
+            if geometryChanged {
+                hostedView.reconcileGeometryNow()
+                hostedView.refreshSurfaceNow(reason: "portal.frameChange")
             }
         }
 

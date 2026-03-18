@@ -1922,9 +1922,6 @@ struct ContentView: View {
                             TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
                             isResizerDragging = true
                             sidebarDragStartWidth = sidebarWidth
-                            #if DEBUG
-                            dlog("sidebar.resizeDragStart")
-                            #endif
                         }
 
                         activateSidebarResizerCursor()
