@@ -144,21 +144,22 @@ final class PaneStripUITests: XCTestCase {
         return object
     }
 
-    private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
+    private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 12.0) {
         app.launch()
-        let activated = paneStripPollUntil(timeout: activateTimeout) {
-            guard app.state != .runningForeground else {
-                return true
-            }
-            app.activate()
-            return app.state == .runningForeground
-        }
-        if !activated {
-            app.activate()
-        }
         XCTAssertTrue(
-            paneStripPollUntil(timeout: 2.0) { app.state == .runningForeground || app.state == .notRunning },
-            "App did not reach runningForeground before pane-strip capture"
+            ensureForegroundAfterLaunch(app, timeout: activateTimeout),
+            "App did not reach runningForeground before pane-strip capture. state=\(app.state.rawValue)"
         )
+    }
+
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        if app.state == .runningBackground {
+            app.activate()
+            return app.wait(for: .runningForeground, timeout: 6.0)
+        }
+        return false
     }
 }
