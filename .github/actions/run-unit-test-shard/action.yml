@@ -11,6 +11,13 @@ inputs:
     description: Skip zig install and set CMUX_SKIP_ZIG_BUILD.
     required: false
     default: "0"
+outputs:
+  test_started:
+    description: Whether the shard reached xcodebuild test execution.
+    value: ${{ steps.test-start.outputs.value }}
+  passed:
+    description: Whether the shard passed after expected-failure handling.
+    value: ${{ steps.run-tests.outputs.passed }}
 runs:
   using: composite
   steps:
@@ -92,7 +99,13 @@ runs:
           sleep $((attempt * 5))
         done
 
+    - name: Mark test start
+      id: test-start
+      shell: bash
+      run: echo "value=true" >> "$GITHUB_OUTPUT"
+
     - name: Run unit test shard
+      id: run-tests
       shell: bash
       env:
         CMUX_SKIP_ZIG_BUILD: ${{ inputs.skip_zig }}
@@ -153,3 +166,5 @@ runs:
             exit 1
           fi
         fi
+
+        echo "passed=true" >> "$GITHUB_OUTPUT"

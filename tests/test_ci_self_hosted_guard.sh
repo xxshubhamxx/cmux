@@ -4,183 +4,113 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
-
+CI_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+BUILD_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 EXPECTED_IF="if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"
 
-if ! grep -Fq "$EXPECTED_IF" "$WORKFLOW_FILE"; then
-  echo "FAIL: Missing fork pull_request guard in $WORKFLOW_FILE"
-  echo "Expected line:"
-  echo "  $EXPECTED_IF"
-  exit 1
-fi
+assert_workflow_guard() {
+  local workflow_file="$1"
+  if ! grep -Fq "$EXPECTED_IF" "$workflow_file"; then
+    echo "FAIL: Missing fork pull_request guard in $workflow_file"
+    echo "Expected line:"
+    echo "  $EXPECTED_IF"
+    exit 1
+  fi
+}
 
-# tests-shard-1: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  tests-shard-1:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests-shard-1 block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
+assert_job_runner_guard() {
+  local workflow_file="$1"
+  local job_name="$2"
+  local runner_label="$3"
+  local failure_message="$4"
 
-# tests-shard-2: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  tests-shard-2:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests-shard-2 block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
+  if ! awk -v job_header="  ${job_name}:" -v runner_line="runs-on: ${runner_label}" -v guard_text="github.event.pull_request.head.repo.full_name == github.repository" '
+    $0 == job_header { in_job=1; next }
+    in_job && /^  [^[:space:]]/ { in_job=0 }
+    in_job && index($0, runner_line) { saw_runner=1 }
+    in_job && index($0, guard_text) { saw_guard=1 }
+    END { exit !(saw_runner && saw_guard) }
+  ' "$workflow_file"; then
+    echo "FAIL: $failure_message"
+    exit 1
+  fi
+}
 
-# tests-shard-3: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  tests-shard-3:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests-shard-3 block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
+assert_workflow_guard "$CI_WORKFLOW_FILE"
+assert_workflow_guard "$BUILD_WORKFLOW_FILE"
 
-# tests-shard-4: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  tests-shard-4:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests-shard-4 block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
+warp_ci_jobs=(
+  tests-shard-1-attempt-1
+  tests-shard-1-attempt-2
+  tests-shard-2-attempt-1
+  tests-shard-2-attempt-2
+  tests-shard-3-attempt-1
+  tests-shard-3-attempt-2
+  tests-shard-4-attempt-1
+  tests-shard-4-attempt-2
+  tests-shard-5-attempt-1
+  tests-shard-5-attempt-2
+  tests-shard-6-attempt-1
+  tests-shard-6-attempt-2
+  tests-build-and-lag-attempt-1
+  tests-build-and-lag-attempt-2
+  ui-display-resolution-regression-attempt-1
+  ui-display-resolution-regression-attempt-2
+)
 
-# tests-shard-5: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  tests-shard-5:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests-shard-5 block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
+hosted_ci_jobs=(
+  tests-shard-1
+  tests-shard-2
+  tests-shard-3
+  tests-shard-4
+  tests-shard-5
+  tests-shard-6
+  tests
+  tests-build-and-lag
+  ui-display-resolution-regression
+)
 
-# tests-shard-6: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  tests-shard-6:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests-shard-6 block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
+warp_build_jobs=(
+  build-ghosttykit-attempt-1
+  build-ghosttykit-attempt-2
+)
 
-# tests wrapper: should stay on hosted Linux because it only aggregates shard outputs.
-if ! awk '
-  /^  tests:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: ubuntu-latest/ { saw_hosted=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_hosted && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests wrapper must keep both ubuntu-latest runner and fork guard"
-  exit 1
-fi
+hosted_build_jobs=(
+  build-ghosttykit
+)
 
-# tests-build-and-lag-attempt-1: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  tests-build-and-lag-attempt-1:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests-build-and-lag-attempt-1 block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
+for job_name in "${warp_ci_jobs[@]}"; do
+  assert_job_runner_guard \
+    "$CI_WORKFLOW_FILE" \
+    "$job_name" \
+    "warp-macos-15-arm64-6x" \
+    "$job_name block must keep both warp-macos-15-arm64-6x runner and fork guard"
+  echo "PASS: $job_name WarpBuild runner fork guard is present"
+done
 
-# tests-build-and-lag-attempt-2: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  tests-build-and-lag-attempt-2:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests-build-and-lag-attempt-2 block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
+for job_name in "${hosted_ci_jobs[@]}"; do
+  assert_job_runner_guard \
+    "$CI_WORKFLOW_FILE" \
+    "$job_name" \
+    "ubuntu-latest" \
+    "$job_name block must keep both ubuntu-latest runner and fork guard"
+  echo "PASS: $job_name hosted runner guard is present"
+done
 
-# tests-build-and-lag wrapper: should stay on hosted Linux because it only aggregates attempt outputs.
-if ! awk '
-  /^  tests-build-and-lag:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: ubuntu-latest/ { saw_hosted=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_hosted && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests-build-and-lag wrapper must keep both ubuntu-latest runner and fork guard"
-  exit 1
-fi
+for job_name in "${warp_build_jobs[@]}"; do
+  assert_job_runner_guard \
+    "$BUILD_WORKFLOW_FILE" \
+    "$job_name" \
+    "warp-macos-15-arm64-6x" \
+    "$job_name block must keep both warp-macos-15-arm64-6x runner and fork guard"
+  echo "PASS: $job_name WarpBuild runner fork guard is present"
+done
 
-# ui-display-resolution-regression-attempt-1: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  ui-display-resolution-regression-attempt-1:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: ui-display-resolution-regression-attempt-1 block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
-
-# ui-display-resolution-regression-attempt-2: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  ui-display-resolution-regression-attempt-2:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: ui-display-resolution-regression-attempt-2 block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
-
-# ui-display-resolution-regression wrapper: should stay on hosted Linux because it only aggregates attempt outputs.
-if ! awk '
-  /^  ui-display-resolution-regression:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: ubuntu-latest/ { saw_hosted=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_hosted && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: ui-display-resolution-regression wrapper must keep both ubuntu-latest runner and fork guard"
-  exit 1
-fi
-
-echo "PASS: tests-shard-1 WarpBuild runner fork guard is present"
-echo "PASS: tests-shard-2 WarpBuild runner fork guard is present"
-echo "PASS: tests-shard-3 WarpBuild runner fork guard is present"
-echo "PASS: tests-shard-4 WarpBuild runner fork guard is present"
-echo "PASS: tests-shard-5 WarpBuild runner fork guard is present"
-echo "PASS: tests-shard-6 WarpBuild runner fork guard is present"
-echo "PASS: tests wrapper hosted runner guard is present"
-echo "PASS: tests-build-and-lag attempt-1 WarpBuild runner fork guard is present"
-echo "PASS: tests-build-and-lag attempt-2 WarpBuild runner fork guard is present"
-echo "PASS: tests-build-and-lag wrapper hosted runner guard is present"
-echo "PASS: ui-display-resolution-regression attempt-1 WarpBuild runner fork guard is present"
-echo "PASS: ui-display-resolution-regression attempt-2 WarpBuild runner fork guard is present"
-echo "PASS: ui-display-resolution-regression wrapper hosted runner guard is present"
+for job_name in "${hosted_build_jobs[@]}"; do
+  assert_job_runner_guard \
+    "$BUILD_WORKFLOW_FILE" \
+    "$job_name" \
+    "ubuntu-latest" \
+    "$job_name block must keep both ubuntu-latest runner and fork guard"
+  echo "PASS: $job_name hosted runner guard is present"
+done
