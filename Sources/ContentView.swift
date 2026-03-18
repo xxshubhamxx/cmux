@@ -1348,7 +1348,7 @@ enum MountedWorkspacePresentationPolicy {
 
         return MountedWorkspacePresentation(
             isRenderedVisible: isRenderedVisible,
-            isPanelVisible: isRenderedVisible || shouldPrimeInBackground,
+            isPanelVisible: isRenderedVisible,
             renderOpacity: renderOpacity
         )
     }
