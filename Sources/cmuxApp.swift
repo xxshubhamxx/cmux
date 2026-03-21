@@ -3777,7 +3777,8 @@ struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
     private let terminalFontControlWidth: CGFloat = 286
-    private let terminalFontSizeRange: ClosedRange<Double> = 6...72
+    private let terminalFontSizeMinimum: Double = 1
+    private let terminalFontSizeStep: Double = 0.5
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -4923,13 +4924,12 @@ struct SettingsView: View {
                                     Text(terminalFontSizeLabel)
                                         .font(.system(size: 12, weight: .medium, design: .monospaced))
                                         .foregroundStyle(.secondary)
-                                        .frame(width: 34, alignment: .trailing)
+                                        .frame(minWidth: 34, alignment: .trailing)
 
                                     Stepper(
                                         "",
                                         value: terminalFontSizeSelection,
-                                        in: terminalFontSizeRange,
-                                        step: 0.5
+                                        step: terminalFontSizeStep
                                     )
                                     .labelsHidden()
                                     .accessibilityLabel(
@@ -5724,7 +5724,7 @@ struct SettingsView: View {
     }
 
     private func syncTerminalFontSettingsFromGhosttyConfig() {
-        let settings = GhosttyConfig.currentTerminalFontSettings(useCache: false)
+        let settings = GhosttyConfig.currentTerminalFontSettings()
         let normalizedFamily = settings.fontFamily.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedFamily.isEmpty, terminalFontFamily != normalizedFamily {
             terminalFontFamily = normalizedFamily
@@ -5743,7 +5743,7 @@ struct SettingsView: View {
             return
         }
 
-        let clampedSize = min(max(fontSize, terminalFontSizeRange.lowerBound), terminalFontSizeRange.upperBound)
+        let clampedSize = max(fontSize, terminalFontSizeMinimum)
         let didChangeFamily = normalizedFamily != terminalFontFamily
         let didChangeSize = abs(clampedSize - terminalFontSize) > 0.001
         guard didChangeFamily || didChangeSize else { return }

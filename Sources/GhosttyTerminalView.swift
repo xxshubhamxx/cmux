@@ -1212,6 +1212,7 @@ class GhosttyApp {
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         loadCJKFontFallbackIfNeeded(config)
+        loadPrimaryUserTerminalFontOverrideIfNeeded(config)
         ghostty_config_finalize(config)
     }
 
@@ -1541,6 +1542,28 @@ class GhosttyApp {
         Self.initLog("loaded legacy ghostty config because config.ghostty was empty: \(configLegacy.path)")
         #endif
         #endif
+    }
+
+    private func loadPrimaryUserTerminalFontOverrideIfNeeded(_ config: ghostty_config_t) {
+        // Keep terminal font behavior aligned with the Settings UI write target.
+        guard let overrideContents = GhosttyConfig.primaryUserTerminalFontSettingsOverride()?.configContents else {
+            return
+        }
+
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-terminal-font-override-\(UUID().uuidString).conf")
+
+        do {
+            try overrideContents.write(to: tmpURL, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: tmpURL) }
+            tmpURL.path.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+        } catch {
+            #if DEBUG
+            Self.initLog("failed to write terminal font override config: \(error)")
+            #endif
+        }
     }
 
     func tick() {

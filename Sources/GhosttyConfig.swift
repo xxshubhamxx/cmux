@@ -23,6 +23,34 @@ struct GhosttyConfig {
         var fontSize: CGFloat
     }
 
+    struct TerminalFontSettingsOverride {
+        var fontFamily: String?
+        var fontSize: CGFloat?
+
+        var isEmpty: Bool {
+            fontFamily == nil && fontSize == nil
+        }
+
+        func applying(to settings: TerminalFontSettings) -> TerminalFontSettings {
+            .init(
+                fontFamily: fontFamily ?? settings.fontFamily,
+                fontSize: fontSize ?? settings.fontSize
+            )
+        }
+
+        var configContents: String? {
+            var lines: [String] = []
+            if let fontFamily, !fontFamily.isEmpty {
+                lines.append("font-family = \(fontFamily)")
+            }
+            if let fontSize {
+                lines.append("font-size = \(GhosttyConfig.formattedConfigFontSize(fontSize))")
+            }
+            guard !lines.isEmpty else { return nil }
+            return lines.joined(separator: "\n") + "\n"
+        }
+    }
+
     private static let cmuxReleaseBundleIdentifier = "com.cmuxterm.app"
     static let defaultFontFamily = "Menlo"
     static let defaultFontSize: CGFloat = 12
@@ -102,8 +130,29 @@ struct GhosttyConfig {
         loadCacheLock.unlock()
     }
 
-    static func currentTerminalFontSettings(useCache: Bool = false) -> TerminalFontSettings {
-        load(useCache: useCache).terminalFontSettings
+    static func currentTerminalFontSettings(
+        useCache: Bool = false,
+        fileManager: FileManager = .default
+    ) -> TerminalFontSettings {
+        let effectiveSettings = load(useCache: useCache).terminalFontSettings
+        // Settings writes font changes to ~/.config/ghostty/config, so explicit
+        // keys there remain authoritative even if later Ghostty config files exist.
+        guard let override = primaryUserTerminalFontSettingsOverride(fileManager: fileManager) else {
+            return effectiveSettings
+        }
+        return override.applying(to: effectiveSettings)
+    }
+
+    static func primaryUserTerminalFontSettingsOverride(
+        fileManager: FileManager = .default
+    ) -> TerminalFontSettingsOverride? {
+        let configURL = primaryUserConfigURL(fileManager: fileManager)
+        guard let contents = readConfigFile(at: configURL.path) else {
+            return nil
+        }
+
+        let override = terminalFontSettingsOverride(from: contents)
+        return override.isEmpty ? nil : override
     }
 
     static func primaryUserConfigURL(fileManager: FileManager = .default) -> URL {
@@ -239,6 +288,39 @@ struct GhosttyConfig {
         }
 
         return updatedLines.joined(separator: "\n") + "\n"
+    }
+
+    private static func terminalFontSettingsOverride(from contents: String) -> TerminalFontSettingsOverride {
+        var override = TerminalFontSettingsOverride()
+
+        for line in contents.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") {
+                continue
+            }
+
+            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+
+            let key = parts[0].trimmingCharacters(in: .whitespaces)
+            let value = parts[1]
+                .trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+
+            switch key {
+            case "font-family":
+                guard !value.isEmpty else { continue }
+                override.fontFamily = value
+            case "font-size":
+                if let size = Double(value) {
+                    override.fontSize = CGFloat(size)
+                }
+            default:
+                continue
+            }
+        }
+
+        return override
     }
 
     private static func configAssignmentKey(in line: String) -> String? {
