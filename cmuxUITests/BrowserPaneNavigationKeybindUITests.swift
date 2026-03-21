@@ -361,15 +361,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                     "webInputFocusElementId",
                     "webInputFocusSecondaryElementId",
                     "webInputFocusSecondaryClickOffsetX",
-                    "webInputFocusSecondaryClickOffsetY",
-                    "browserArrowInstalled",
-                    "browserArrowDownCount",
-                    "browserArrowUpCount",
-                    "browserArrowActiveElementId"
+                    "webInputFocusSecondaryClickOffsetY"
                 ],
-                timeout: 15.0
+                timeout: 20.0
             ),
-            "Expected browser arrow setup data to be written"
+            "Expected focused page input setup data to be written. data=\(String(describing: loadData()))"
         )
 
         guard let setup = loadData() else {
@@ -403,7 +399,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window before arrow-key regression check")
 
         guard let initialArrowSnapshot = waitForDataSnapshot(
-            timeout: 5.0,
+            timeout: 8.0,
             predicate: { data in
                 data["browserArrowInstalled"] == "true" &&
                     data["browserArrowActiveElementId"] == primaryInputId &&

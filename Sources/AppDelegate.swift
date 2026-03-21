@@ -2091,6 +2091,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupBonsplitTabDragUITest = false
     private var bonsplitTabDragUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestArrowRecorder: DispatchSourceTimer?
+    private var gotoSplitUITestInputSetupGeneration = 0
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
     private var didSetupDisplayResolutionUITestDiagnostics = false
@@ -7603,6 +7604,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             };
           };
           const seed = () => {
+            if (!document.body) {
+              return snapshot();
+            }
             const ensureInput = (id, value) => {
               const existing = document.getElementById(id);
               const input = (existing && existing.tagName && existing.tagName.toLowerCase() === "input")
@@ -7728,114 +7732,119 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               selectionEnd: arrowState.selectionEnd
             };
           };
-          const ready = () =>
+          const ready =
             window.__cmuxAddressBarFocusTrackerInstalled === true &&
-            String(document.readyState || "") === "complete";
+            String(document.readyState || "") === "complete" &&
+            !!document.body;
 
-          if (ready()) {
-            try {
-              return seed();
-            } catch (_) {
-              return snapshot();
-            }
+          if (!ready) {
+            return snapshot();
           }
 
-          return new Promise((resolve) => {
-            let finished = false;
-            let observer = null;
-            const cleanups = [];
-            const finish = (value) => {
-              if (finished) return;
-              finished = true;
-              if (observer) observer.disconnect();
-              for (const cleanup of cleanups) {
-                try { cleanup(); } catch (_) {}
-              }
-              resolve(value);
-            };
-            const maybeFinish = () => {
-              if (!ready()) return;
-              try {
-                finish(seed());
-              } catch (_) {
-                finish(snapshot());
-              }
-            };
-            const addListener = (target, eventName, options) => {
-              if (!target || typeof target.addEventListener !== "function") return;
-              const handler = () => maybeFinish();
-              target.addEventListener(eventName, handler, options);
-              cleanups.push(() => target.removeEventListener(eventName, handler, options));
-            };
-            try {
-              observer = new MutationObserver(() => maybeFinish());
-              observer.observe(document.documentElement || document, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                characterData: true
-              });
-            } catch (_) {}
-            addListener(document, "readystatechange", true);
-            addListener(window, "load", true);
-            const timeoutId = window.setTimeout(() => finish(snapshot()), 4000);
-            cleanups.push(() => window.clearTimeout(timeoutId));
-            maybeFinish();
-          });
+          try {
+            return seed();
+          } catch (_) {
+            return snapshot();
+          }
         })();
         """
 
-        panel.webView.evaluateJavaScript(script) { [weak self] result, _ in
-            guard let self else { return }
-            let payload = result as? [String: Any]
-            let focused = (payload?["focused"] as? Bool) ?? false
-            let inputId = (payload?["id"] as? String) ?? ""
-            let secondaryInputId = (payload?["secondaryId"] as? String) ?? ""
-            let secondaryCenterX = (payload?["secondaryCenterX"] as? NSNumber)?.doubleValue ?? -1
-            let secondaryCenterY = (payload?["secondaryCenterY"] as? NSNumber)?.doubleValue ?? -1
-            let activeId = (payload?["activeId"] as? String) ?? ""
-            let trackerInstalled = (payload?["trackerInstalled"] as? Bool) ?? false
-            let trackedStateId = (payload?["trackedStateId"] as? String) ?? ""
-            let readyState = (payload?["readyState"] as? String) ?? ""
-            let arrowDown = (payload?["arrowDown"] as? NSNumber)?.intValue ?? 0
-            let arrowUp = (payload?["arrowUp"] as? NSNumber)?.intValue ?? 0
-            let selectionStart = (payload?["selectionStart"] as? NSNumber)?.intValue
-            let selectionEnd = (payload?["selectionEnd"] as? NSNumber)?.intValue
-            var secondaryClickOffsetX = -1.0
-            var secondaryClickOffsetY = -1.0
-            if let window = panel.webView.window {
-                let webFrame = panel.webView.convert(panel.webView.bounds, to: nil)
-                let contentHeight = Double(window.contentView?.bounds.height ?? 0)
-                if webFrame.width > 1,
-                   webFrame.height > 1,
-                   contentHeight > 1,
+        gotoSplitUITestInputSetupGeneration += 1
+        let generation = gotoSplitUITestInputSetupGeneration
+        let deadline = Date().addingTimeInterval(8.0)
+
+        func attempt() {
+            guard gotoSplitUITestInputSetupGeneration == generation else { return }
+
+            panel.webView.evaluateJavaScript(script) { [weak self, weak panel] result, _ in
+                guard let self,
+                      self.gotoSplitUITestInputSetupGeneration == generation,
+                      let panel else { return }
+
+                let payload = result as? [String: Any]
+                let focused = (payload?["focused"] as? Bool) ?? false
+                let inputId = (payload?["id"] as? String) ?? ""
+                let secondaryInputId = (payload?["secondaryId"] as? String) ?? ""
+                let secondaryCenterX = (payload?["secondaryCenterX"] as? NSNumber)?.doubleValue ?? -1
+                let secondaryCenterY = (payload?["secondaryCenterY"] as? NSNumber)?.doubleValue ?? -1
+                let activeId = (payload?["activeId"] as? String) ?? ""
+                let trackerInstalled = (payload?["trackerInstalled"] as? Bool) ?? false
+                let trackedStateId = (payload?["trackedStateId"] as? String) ?? ""
+                let readyState = (payload?["readyState"] as? String) ?? ""
+                let arrowDown = (payload?["arrowDown"] as? NSNumber)?.intValue ?? 0
+                let arrowUp = (payload?["arrowUp"] as? NSNumber)?.intValue ?? 0
+                let selectionStart = (payload?["selectionStart"] as? NSNumber)?.intValue
+                let selectionEnd = (payload?["selectionEnd"] as? NSNumber)?.intValue
+                var secondaryClickOffsetX = -1.0
+                var secondaryClickOffsetY = -1.0
+                let windowAvailable = panel.webView.window != nil
+
+                if let window = panel.webView.window {
+                    let webFrame = panel.webView.convert(panel.webView.bounds, to: nil)
+                    let contentHeight = Double(window.contentView?.bounds.height ?? 0)
+                    if webFrame.width > 1,
+                       webFrame.height > 1,
+                       contentHeight > 1,
+                       secondaryCenterX > 0,
+                       secondaryCenterX < 1,
+                       secondaryCenterY > 0,
+                       secondaryCenterY < 1 {
+                        let xInContent = Double(webFrame.minX) + (secondaryCenterX * Double(webFrame.width))
+                        let yFromTopInWeb = secondaryCenterY * Double(webFrame.height)
+                        let yInContent = Double(webFrame.maxY) - yFromTopInWeb
+                        let yFromTopInContent = contentHeight - yInContent
+                        let titlebarHeight = max(0, Double(window.frame.height) - contentHeight)
+                        secondaryClickOffsetX = xInContent
+                        secondaryClickOffsetY = titlebarHeight + yFromTopInContent
+                    }
+                }
+
+                if focused,
+                   !inputId.isEmpty,
+                   !secondaryInputId.isEmpty,
+                   inputId == activeId,
+                   trackerInstalled,
+                   !trackedStateId.isEmpty,
                    secondaryCenterX > 0,
                    secondaryCenterX < 1,
                    secondaryCenterY > 0,
-                   secondaryCenterY < 1 {
-                    let xInContent = Double(webFrame.minX) + (secondaryCenterX * Double(webFrame.width))
-                    let yFromTopInWeb = secondaryCenterY * Double(webFrame.height)
-                    let yInContent = Double(webFrame.maxY) - yFromTopInWeb
-                    let yFromTopInContent = contentHeight - yInContent
-                    let titlebarHeight = max(0, Double(window.frame.height) - contentHeight)
-                    secondaryClickOffsetX = xInContent
-                    secondaryClickOffsetY = titlebarHeight + yFromTopInContent
+                   secondaryCenterY < 1,
+                   secondaryClickOffsetX > 0,
+                   secondaryClickOffsetY > 0 {
+                    self.writeGotoSplitTestData([
+                        "webInputFocusSeeded": "true",
+                        "webInputFocusElementId": inputId,
+                        "webInputFocusSecondaryElementId": secondaryInputId,
+                        "webInputFocusSecondaryCenterX": "\(secondaryCenterX)",
+                        "webInputFocusSecondaryCenterY": "\(secondaryCenterY)",
+                        "webInputFocusSecondaryClickOffsetX": "\(secondaryClickOffsetX)",
+                        "webInputFocusSecondaryClickOffsetY": "\(secondaryClickOffsetY)",
+                        "webInputFocusActiveElementId": activeId,
+                        "webInputFocusTrackerInstalled": trackerInstalled ? "true" : "false",
+                        "webInputFocusTrackedStateId": trackedStateId,
+                        "webInputFocusReadyState": readyState,
+                        "webInputFocusArrowDownCount": "\(arrowDown)",
+                        "webInputFocusArrowUpCount": "\(arrowUp)",
+                        "webInputFocusSelectionStart": selectionStart.map(String.init) ?? "",
+                        "webInputFocusSelectionEnd": selectionEnd.map(String.init) ?? ""
+                    ])
+                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_GOTO_SPLIT_ARROW_SETUP"] == "1" {
+                        self.startGotoSplitUITestArrowRecorder(panelId: panel.id)
+                    }
+                    return
                 }
-            }
-            if focused,
-               !inputId.isEmpty,
-               !secondaryInputId.isEmpty,
-               inputId == activeId,
-               trackerInstalled,
-               !trackedStateId.isEmpty,
-               secondaryCenterX > 0,
-               secondaryCenterX < 1,
-               secondaryCenterY > 0,
-               secondaryCenterY < 1,
-               secondaryClickOffsetX > 0,
-               secondaryClickOffsetY > 0 {
+
+                if Date() < deadline {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                        guard let self,
+                              self.gotoSplitUITestInputSetupGeneration == generation else { return }
+                        attempt()
+                    }
+                    return
+                }
+
                 self.writeGotoSplitTestData([
-                    "webInputFocusSeeded": "true",
+                    "webInputFocusSeeded": "false",
                     "webInputFocusElementId": inputId,
                     "webInputFocusSecondaryElementId": secondaryInputId,
                     "webInputFocusSecondaryCenterX": "\(secondaryCenterX)",
@@ -7849,18 +7858,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "webInputFocusArrowDownCount": "\(arrowDown)",
                     "webInputFocusArrowUpCount": "\(arrowUp)",
                     "webInputFocusSelectionStart": selectionStart.map(String.init) ?? "",
-                    "webInputFocusSelectionEnd": selectionEnd.map(String.init) ?? ""
+                    "webInputFocusSelectionEnd": selectionEnd.map(String.init) ?? "",
+                    "setupError":
+                        "Timed out focusing page input for omnibar restore test " +
+                        "focused=\(focused) inputId=\(inputId) secondaryInputId=\(secondaryInputId) " +
+                        "activeId=\(activeId) trackerInstalled=\(trackerInstalled) trackedStateId=\(trackedStateId) " +
+                        "readyState=\(readyState) windowAvailable=\(windowAvailable) " +
+                        "secondaryCenterX=\(secondaryCenterX) secondaryCenterY=\(secondaryCenterY) " +
+                        "secondaryClickOffsetX=\(secondaryClickOffsetX) secondaryClickOffsetY=\(secondaryClickOffsetY)"
                 ])
-                if ProcessInfo.processInfo.environment["CMUX_UI_TEST_GOTO_SPLIT_ARROW_SETUP"] == "1" {
-                    self.startGotoSplitUITestArrowRecorder(panelId: panel.id)
-                }
-                return
             }
-            self.writeGotoSplitTestData([
-                "webInputFocusSeeded": "false",
-                "setupError": "Timed out focusing page input for omnibar restore test"
-            ])
         }
+
+        attempt()
     }
 
     private func startGotoSplitUITestArrowRecorder(panelId: UUID) {
