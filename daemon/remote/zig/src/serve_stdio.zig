@@ -1,5 +1,6 @@
 const std = @import("std");
 const json_rpc = @import("json_rpc.zig");
+const proxy_streams = @import("proxy_streams.zig");
 const pty_host = @import("pty_host.zig");
 const session_registry = @import("session_registry.zig");
 const terminal_session = @import("terminal_session.zig");
@@ -89,12 +90,14 @@ const RuntimeSession = struct {
 
 const State = struct {
     alloc: std.mem.Allocator,
+    proxies: proxy_streams.Manager,
     registry: session_registry.Registry,
     runtimes: std.StringHashMap(*RuntimeSession),
 
     fn init(alloc: std.mem.Allocator) State {
         return .{
             .alloc = alloc,
+            .proxies = proxy_streams.Manager.init(alloc),
             .registry = session_registry.Registry.init(alloc),
             .runtimes = std.StringHashMap(*RuntimeSession).init(alloc),
         };
@@ -107,6 +110,7 @@ const State = struct {
             self.alloc.destroy(runtime.*);
         }
         self.runtimes.deinit();
+        self.proxies.deinit();
         self.registry.deinit();
     }
 };
@@ -194,7 +198,12 @@ fn dispatch(state: *State, req: *const json_rpc.Request) ![]u8 {
             .result = .{ .pong = true },
         });
     }
+    if (std.mem.eql(u8, req.method, "proxy.open")) return handleProxyOpen(state, req);
+    if (std.mem.eql(u8, req.method, "proxy.close")) return handleProxyClose(state, req);
+    if (std.mem.eql(u8, req.method, "proxy.write")) return handleProxyWrite(state, req);
+    if (std.mem.eql(u8, req.method, "proxy.read")) return handleProxyRead(state, req);
     if (std.mem.eql(u8, req.method, "session.open")) return handleSessionOpen(state, req);
+    if (std.mem.eql(u8, req.method, "session.close")) return handleSessionClose(state, req);
     if (std.mem.eql(u8, req.method, "session.attach")) return handleSessionAttach(state, req);
     if (std.mem.eql(u8, req.method, "session.resize")) return handleSessionResize(state, req);
     if (std.mem.eql(u8, req.method, "session.detach")) return handleSessionDetach(state, req);
@@ -213,6 +222,93 @@ fn dispatch(state: *State, req: *const json_rpc.Request) ![]u8 {
     });
 }
 
+fn handleProxyOpen(state: *State, req: *const json_rpc.Request) ![]u8 {
+    const params = getParamsObject(req) orelse return invalidParams(state.alloc, req.id, "proxy.open requires params");
+    const host = getRequiredStringParam(params, "host", "proxy.open requires host") catch |err| return paramError(state.alloc, req.id, err);
+    const port = getRequiredPositiveU16Param(params, "port", "proxy.open requires port in range 1-65535") catch |err| return paramError(state.alloc, req.id, err);
+
+    const stream_id = state.proxies.open(host, port) catch |err| {
+        return errorResponse(state.alloc, req.id, "open_failed", @errorName(err));
+    };
+
+    return try json_rpc.encodeResponse(state.alloc, .{
+        .id = req.id,
+        .ok = true,
+        .result = .{
+            .stream_id = stream_id,
+        },
+    });
+}
+
+fn handleProxyClose(state: *State, req: *const json_rpc.Request) ![]u8 {
+    const params = getParamsObject(req) orelse return invalidParams(state.alloc, req.id, "proxy.close requires params");
+    const stream_id = getRequiredStringParam(params, "stream_id", "proxy.close requires stream_id") catch |err| return paramError(state.alloc, req.id, err);
+
+    state.proxies.close(stream_id) catch {
+        return errorResponse(state.alloc, req.id, "not_found", "stream not found");
+    };
+    return try json_rpc.encodeResponse(state.alloc, .{
+        .id = req.id,
+        .ok = true,
+        .result = .{ .closed = true },
+    });
+}
+
+fn handleProxyWrite(state: *State, req: *const json_rpc.Request) ![]u8 {
+    const params = getParamsObject(req) orelse return invalidParams(state.alloc, req.id, "proxy.write requires params");
+    const stream_id = getRequiredStringParam(params, "stream_id", "proxy.write requires stream_id") catch |err| return paramError(state.alloc, req.id, err);
+    const encoded = getRequiredStringParam(params, "data_base64", "proxy.write requires data_base64") catch |err| return paramError(state.alloc, req.id, err);
+
+    const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(encoded) catch {
+        return invalidParams(state.alloc, req.id, "data_base64 must be valid base64");
+    };
+    const decoded = try state.alloc.alloc(u8, decoded_len);
+    defer state.alloc.free(decoded);
+    std.base64.standard.Decoder.decode(decoded, encoded) catch {
+        return invalidParams(state.alloc, req.id, "data_base64 must be valid base64");
+    };
+
+    const written = state.proxies.write(stream_id, decoded) catch |err| switch (err) {
+        error.StreamNotFound => return errorResponse(state.alloc, req.id, "not_found", "stream not found"),
+        else => return errorResponse(state.alloc, req.id, "stream_error", @errorName(err)),
+    };
+    return try json_rpc.encodeResponse(state.alloc, .{
+        .id = req.id,
+        .ok = true,
+        .result = .{ .written = written },
+    });
+}
+
+fn handleProxyRead(state: *State, req: *const json_rpc.Request) ![]u8 {
+    const params = getParamsObject(req) orelse return invalidParams(state.alloc, req.id, "proxy.read requires params");
+    const stream_id = getRequiredStringParam(params, "stream_id", "proxy.read requires stream_id") catch |err| return paramError(state.alloc, req.id, err);
+    const max_bytes = getOptionalPositiveIntParam(params, "max_bytes") orelse 32_768;
+    if (max_bytes > 262_144) {
+        return invalidParams(state.alloc, req.id, "max_bytes must be in range 1-262144");
+    }
+    const timeout_ms = if (getOptionalNonNegativeIntParam(params, "timeout_ms")) |value| @as(i32, @intCast(value)) else 50;
+
+    const read = state.proxies.read(state.alloc, stream_id, @intCast(max_bytes), timeout_ms) catch |err| switch (err) {
+        error.StreamNotFound => return errorResponse(state.alloc, req.id, "not_found", "stream not found"),
+        else => return errorResponse(state.alloc, req.id, "stream_error", @errorName(err)),
+    };
+    defer state.alloc.free(read.data);
+
+    const encoded_len = std.base64.standard.Encoder.calcSize(read.data.len);
+    const encoded = try state.alloc.alloc(u8, encoded_len);
+    defer state.alloc.free(encoded);
+    _ = std.base64.standard.Encoder.encode(encoded, read.data);
+
+    return try json_rpc.encodeResponse(state.alloc, .{
+        .id = req.id,
+        .ok = true,
+        .result = .{
+            .data_base64 = encoded,
+            .eof = read.eof,
+        },
+    });
+}
+
 fn handleSessionOpen(state: *State, req: *const json_rpc.Request) ![]u8 {
     const alloc = state.alloc;
     const params = getParamsObject(req);
@@ -222,6 +318,22 @@ fn handleSessionOpen(state: *State, req: *const json_rpc.Request) ![]u8 {
     defer status.deinit(alloc);
 
     return encodeStatusResponse(alloc, req.id, status, null, null);
+}
+
+fn handleSessionClose(state: *State, req: *const json_rpc.Request) ![]u8 {
+    const params = getParamsObject(req) orelse return invalidParams(state.alloc, req.id, "session.close requires params");
+    const session_id = getRequiredStringParam(params, "session_id", "session.close requires session_id") catch |err| return paramError(state.alloc, req.id, err);
+
+    state.registry.close(session_id) catch |err| return sessionErrorResponse(state.alloc, req.id, err);
+    removeRuntime(state, session_id);
+    return try json_rpc.encodeResponse(state.alloc, .{
+        .id = req.id,
+        .ok = true,
+        .result = .{
+            .session_id = session_id,
+            .closed = true,
+        },
+    });
 }
 
 fn handleSessionAttach(state: *State, req: *const json_rpc.Request) ![]u8 {
@@ -281,6 +393,7 @@ fn handleTerminalOpen(state: *State, req: *const json_rpc.Request) ![]u8 {
     errdefer state.alloc.destroy(runtime);
     runtime.* = try RuntimeSession.init(state.alloc, command, status.effective_cols, status.effective_rows);
     errdefer runtime.deinit();
+    errdefer state.registry.close(opened.session_id) catch {};
 
     try state.runtimes.put(opened.session_id, runtime);
     return encodeStatusResponse(state.alloc, req.id, status, opened.attachment_id, 0);
@@ -349,6 +462,12 @@ fn handleTerminalWrite(state: *State, req: *const json_rpc.Request) ![]u8 {
 fn resizeRuntimeIfPresent(state: *State, status: *const session_registry.SessionStatus) !void {
     const runtime = state.runtimes.getPtr(status.session_id) orelse return;
     runtime.*.*.resize(status.effective_cols, status.effective_rows) catch |err| return err;
+}
+
+fn removeRuntime(state: *State, session_id: []const u8) void {
+    const removed = state.runtimes.fetchRemove(session_id) orelse return;
+    removed.value.deinit();
+    state.alloc.destroy(removed.value);
 }
 
 fn encodeStatusResponse(

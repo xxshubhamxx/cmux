@@ -2,15 +2,15 @@ package compat
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"bytes"
-	"encoding/pem"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"math/big"
@@ -63,6 +63,11 @@ func daemonBinary(t *testing.T) string {
 
 func runJSONLFixture(t *testing.T, bin string, args ...string) []map[string]any {
 	t.Helper()
+	return runJSONLFixtureWithVars(t, bin, nil, args...)
+}
+
+func runJSONLFixtureWithVars(t *testing.T, bin string, initialVars map[string]string, args ...string) []map[string]any {
+	t.Helper()
 
 	if len(args) == 0 {
 		t.Fatal("runJSONLFixture requires daemon args and a fixture path")
@@ -90,6 +95,9 @@ func runJSONLFixture(t *testing.T, bin string, args ...string) []map[string]any 
 
 	reader := bufio.NewReader(stdout)
 	vars := map[string]string{}
+	for key, value := range initialVars {
+		vars[key] = value
+	}
 	var responses []map[string]any
 
 	for _, rawLine := range readFixtureLines(t, fixturePath) {

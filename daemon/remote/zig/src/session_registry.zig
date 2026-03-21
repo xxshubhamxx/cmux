@@ -120,6 +120,18 @@ pub const Registry = struct {
         recompute(session);
     }
 
+    pub fn close(self: *Registry, session_id: []const u8) !void {
+        const removed = self.sessions.fetchRemove(session_id) orelse return error.SessionNotFound;
+        var session = removed.value;
+
+        var iter = session.attachments.iterator();
+        while (iter.next()) |entry| {
+            self.alloc.free(entry.key_ptr.*);
+        }
+        session.attachments.deinit();
+        self.alloc.free(removed.key);
+    }
+
     pub fn status(self: *Registry, session_id: []const u8) !SessionStatus {
         const session = self.sessions.getPtr(session_id) orelse return error.SessionNotFound;
 
@@ -239,4 +251,16 @@ test "status attachments are sorted by id" {
     try std.testing.expectEqualStrings("att-1", status.attachments[0].attachment_id);
     try std.testing.expectEqualStrings("att-2", status.attachments[1].attachment_id);
     try std.testing.expectEqualStrings("att-9", status.attachments[2].attachment_id);
+}
+
+test "close removes session from registry" {
+    var registry = Registry.init(std.testing.allocator);
+    defer registry.deinit();
+
+    const opened = try registry.open(120, 40);
+    defer std.testing.allocator.free(opened.session_id);
+    defer std.testing.allocator.free(opened.attachment_id);
+
+    try registry.close(opened.session_id);
+    try std.testing.expectError(error.SessionNotFound, registry.status(opened.session_id));
 }

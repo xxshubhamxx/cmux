@@ -2,6 +2,12 @@ package compat
 
 import (
 	"encoding/base64"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -69,6 +75,64 @@ func TestSessionLifecycleFixtureAgainstBinary(t *testing.T) {
 	}
 }
 
+func TestProxyTCPFixtureAgainstBinary(t *testing.T) {
+	t.Parallel()
+
+	listener, port := startTCPEchoServer(t)
+	defer listener.Close()
+
+	bin := daemonBinary(t)
+	resp := runJSONLFixtureWithVars(t, bin, map[string]string{
+		"port": fmt.Sprintf("%d", port),
+	}, "serve", "--stdio", "testdata/proxy_tcp_echo.jsonl")
+
+	if ok, _ := resp[0]["ok"].(bool); !ok {
+		t.Fatalf("proxy.open should succeed: %+v", resp[0])
+	}
+	if ok, _ := resp[1]["ok"].(bool); !ok {
+		t.Fatalf("proxy.write should succeed: %+v", resp[1])
+	}
+	if got := decodeBase64Field(t, resp[2]["result"].(map[string]any), "data_base64"); string(got) != "hello\n" {
+		t.Fatalf("proxy echo data = %q, want %q", string(got), "hello\n")
+	}
+	if ok, _ := resp[3]["ok"].(bool); !ok {
+		t.Fatalf("proxy.close should succeed: %+v", resp[3])
+	}
+}
+
+func TestCLICompat(t *testing.T) {
+	t.Parallel()
+
+	bin := daemonBinary(t)
+	usage := "Usage: cmux [--socket <path>] [--json] <command> [args...]"
+
+	direct := exec.Command(bin, "cli", "--help")
+	direct.Dir = daemonRemoteRoot()
+	directOutput, err := direct.CombinedOutput()
+	if err != nil {
+		t.Fatalf("cmuxd-remote cli --help failed: %v\n%s", err, string(directOutput))
+	}
+	if !strings.Contains(string(directOutput), usage) {
+		t.Fatalf("cmuxd-remote cli --help output missing usage:\n%s", string(directOutput))
+	}
+
+	linkDir := t.TempDir()
+	linkPath := filepath.Join(linkDir, "cmux")
+	if err := os.Symlink(bin, linkPath); err != nil {
+		t.Fatalf("symlink cmux: %v", err)
+	}
+
+	busybox := exec.Command(linkPath, "--help")
+	busybox.Dir = daemonRemoteRoot()
+	busyboxOutput, err := busybox.CombinedOutput()
+	if err != nil {
+		t.Fatalf("cmux --help failed: %v\n%s", err, string(busyboxOutput))
+	}
+	if !strings.Contains(string(busyboxOutput), usage) {
+		t.Fatalf("cmux --help output missing usage:\n%s", string(busyboxOutput))
+	}
+}
+
 func decodeBase64Field(t *testing.T, payload map[string]any, key string) []byte {
 	t.Helper()
 
@@ -81,4 +145,39 @@ func decodeBase64Field(t *testing.T, payload map[string]any, key string) []byte 
 		t.Fatalf("decode %s: %v", key, err)
 	}
 	return data
+}
+
+func startTCPEchoServer(t *testing.T) (net.Listener, int) {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen echo server: %v", err)
+	}
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				buffer := make([]byte, 32*1024)
+				for {
+					n, readErr := conn.Read(buffer)
+					if n > 0 {
+						if _, writeErr := conn.Write(buffer[:n]); writeErr != nil {
+							return
+						}
+					}
+					if readErr != nil {
+						return
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	return listener, listener.Addr().(*net.TCPAddr).Port
 }
