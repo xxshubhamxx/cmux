@@ -6300,6 +6300,14 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func recordDropOverlayShowAnimation() {
         guard let surfaceId = surfaceView.terminalSurface?.id else { return }
+        let disableActions =
+            (CATransaction.value(forKey: kCATransactionDisableActions) as? NSNumber)?.boolValue ?? false
+        guard !disableActions else {
+#if DEBUG
+            logDropZoneOverlay(event: "showSuppressed", zone: activeDropZone ?? pendingDropZone, frame: nil)
+#endif
+            return
+        }
         Self.dropOverlayShowCounts[surfaceId, default: 0] += 1
     }
 
@@ -6639,10 +6647,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     @discardableResult
     private func synchronizeGeometryAndContent() -> Bool {
+        var deferredDropZoneActivation: DropZone?
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
-
         let previousSurfaceSize = surfaceView.frame.size
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         _ = setFrameIfNeeded(scrollView, to: bounds)
@@ -6673,9 +6680,10 @@ final class GhosttySurfaceScrollView: NSView {
             let frame = dropZoneOverlayFrame(for: pending, in: bounds.size)
             logDropZoneOverlay(event: "flushPending", zone: pending, frame: frame)
 #endif
-            // Reuse the normal show/update path so deferred overlays get the
-            // same initial animation as direct drop-zone activation.
-            setDropZoneOverlay(zone: pending)
+            // Flush the deferred show after this disabled-actions layout transaction finishes.
+            // If we trigger the normal show path inside the transaction, the overlay appears
+            // immediately but its fade/highlight animation is suppressed.
+            deferredDropZoneActivation = pending
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
@@ -6690,6 +6698,13 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollView()
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
+        CATransaction.commit()
+
+        if let pending = deferredDropZoneActivation {
+            // Re-enter the regular show/update path after layout has settled so portal-hosted
+            // terminal panes keep the same animated drag-target affordance as direct activations.
+            setDropZoneOverlay(zone: pending)
+        }
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
     }
 
