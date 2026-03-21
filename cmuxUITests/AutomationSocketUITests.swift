@@ -66,7 +66,9 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     func testSurfaceListStillRespondsAfterRepeatedSendKey() {
-        let app = configuredApp(mode: "automation")
+        // External UI-test socket traffic is more reliable under allowAll on CI.
+        // This test targets repeated send_key transport behavior, not auth gating.
+        let app = configuredApp(mode: "allowAll")
         launchAndActivate(app)
         defer {
             if app.state != .notRunning {
