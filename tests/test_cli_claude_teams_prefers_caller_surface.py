@@ -221,6 +221,12 @@ class FakeCmuxState:
                     "surface_id": TEAM_SURFACE_ID,
                     "pane_id": TEAM_PANE_ID,
                 }
+            if method == "pane.focus":
+                pane_id = str(params.get("pane_id") or "")
+                pane = self._pane_by_id(pane_id)
+                self.current_pane_id = pane["id"]
+                self.current_surface_id = pane["surface_ids"][0]
+                return {"ok": True}
             if method == "surface.send_text":
                 return {"ok": True}
             raise RuntimeError(f"Unsupported fake cmux method: {method}")

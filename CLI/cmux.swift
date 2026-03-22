@@ -9573,6 +9573,16 @@ struct CMUXCLI {
                     "text": text
                 ])
             }
+            if let leaderPaneId = try tmuxClaudeTeamsLeaderPaneId(
+                workspaceId: target.workspaceId,
+                fallbackPaneId: targetPaneId,
+                client: client
+            ) {
+                _ = try client.sendV2(method: "pane.focus", params: [
+                    "workspace_id": target.workspaceId,
+                    "pane_id": leaderPaneId
+                ])
+            }
             if parsed.hasFlag("-P") {
                 let context = try tmuxFormatContext(
                     workspaceId: target.workspaceId,
@@ -9810,6 +9820,7 @@ struct CMUXCLI {
         var hooks: [String: String] = [:]
         var mainVerticalLayouts: [String: TmuxCompatMainVerticalLayout] = [:]
         var lastSplits: [String: TmuxCompatLastSplit] = [:]
+        var rightSplitColumns: [String: [String: String]]?
     }
 
     private struct TmuxCompatMainVerticalLayout: Codable {
@@ -9863,6 +9874,13 @@ struct CMUXCLI {
             createdSurfaceId: createdSurfaceId,
             direction: direction
         )
+        if direction == "right", let targetPaneId {
+            var rightSplitColumns = store.rightSplitColumns ?? [:]
+            var workspaceColumns = rightSplitColumns[workspaceId] ?? [:]
+            workspaceColumns[targetPaneId] = createdPaneId
+            rightSplitColumns[workspaceId] = workspaceColumns
+            store.rightSplitColumns = rightSplitColumns
+        }
         if var layout = store.mainVerticalLayouts[workspaceId] {
             if direction == "down" {
                 layout.stackPaneId = createdPaneId
@@ -9884,6 +9902,9 @@ struct CMUXCLI {
             ?? store.lastSplits[workspaceId]?.targetPaneId
             ?? tmuxFocusedPaneId(workspaceId: workspaceId, client: client)
         var stackPaneId = store.mainVerticalLayouts[workspaceId]?.stackPaneId
+        if stackPaneId == nil {
+            stackPaneId = store.rightSplitColumns?[workspaceId]?[mainPaneId]
+        }
         if let lastSplit = store.lastSplits[workspaceId],
            lastSplit.direction == "right",
            lastSplit.targetPaneId == mainPaneId {
@@ -9913,8 +9934,11 @@ struct CMUXCLI {
             return (targetPaneId, surfaceId, direction)
         }
         let store = loadTmuxCompatStore()
-        guard let layout = store.mainVerticalLayouts[workspaceId],
-              let stackPaneId = layout.stackPaneId,
+        guard let layout = store.mainVerticalLayouts[workspaceId] else {
+            return (targetPaneId, surfaceId, direction)
+        }
+        let stackPaneId = layout.stackPaneId ?? store.rightSplitColumns?[workspaceId]?[layout.mainPaneId]
+        guard let stackPaneId,
               stackPaneId != layout.mainPaneId else {
             return (targetPaneId, surfaceId, direction)
         }
@@ -9929,6 +9953,24 @@ struct CMUXCLI {
             client: client
         )
         return (stackPaneId, stackSurfaceId, "down")
+    }
+
+    private func tmuxClaudeTeamsLeaderPaneId(
+        workspaceId: String,
+        fallbackPaneId: String?,
+        client: SocketClient
+    ) throws -> String? {
+        let store = loadTmuxCompatStore()
+        if let mainPaneId = store.mainVerticalLayouts[workspaceId]?.mainPaneId {
+            return mainPaneId
+        }
+        if let fallbackPaneId {
+            return fallbackPaneId
+        }
+        if let callerPaneId = tmuxCallerCanonicalPaneId(workspaceId: workspaceId, client: client) {
+            return callerPaneId
+        }
+        return try? tmuxFocusedPaneId(workspaceId: workspaceId, client: client)
     }
 
     private func runShellCommand(_ command: String, stdinText: String) throws -> (status: Int32, stdout: String, stderr: String) {

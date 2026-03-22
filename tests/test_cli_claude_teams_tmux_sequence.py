@@ -186,6 +186,12 @@ class FakeCmuxState:
                 surface = self._surface_by_id(self.current_surface_id)
                 self.current_pane_id = surface["pane_id"]
                 return {"ok": True}
+            if method == "pane.focus":
+                pane_id = str(params.get("pane_id") or "")
+                pane = self._pane_by_id(pane_id)
+                self.current_pane_id = pane["id"]
+                self.current_surface_id = pane["surface_ids"][0]
+                return {"ok": True}
             if method == "pane.resize":
                 return {"ok": True}
             if method == "surface.send_text":
