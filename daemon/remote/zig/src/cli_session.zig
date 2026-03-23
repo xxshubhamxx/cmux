@@ -1,8 +1,10 @@
 const std = @import("std");
+const cli_attach = @import("cli_attach.zig");
 const json_rpc = @import("json_rpc.zig");
 const rpc_client = @import("rpc_client.zig");
 
 const Command = enum {
+    attach,
     list,
     status,
     history,
@@ -40,6 +42,7 @@ pub fn run(args: []const []const u8, stderr: anytype, stdout: anytype) !u8 {
 
     var client = rpc_client.Client.init(alloc, socket_path);
     switch (parsed.command) {
+        .attach => return cli_attach.run(alloc, socket_path, parsed.session_name.?, stderr),
         .list => return runList(&client, stdout, stderr),
         .status => return runStatus(&client, stdout, stderr, parsed.session_name.?),
         .history => return runHistory(&client, stdout, stderr, parsed.session_name.?),
@@ -90,6 +93,7 @@ pub fn parseArgs(alloc: std.mem.Allocator, args: []const []const u8) !ParsedArgs
 }
 
 fn switchCommand(raw: []const u8) ?Command {
+    if (std.mem.eql(u8, raw, "attach")) return .attach;
     if (std.mem.eql(u8, raw, "ls")) return .list;
     if (std.mem.eql(u8, raw, "status")) return .status;
     if (std.mem.eql(u8, raw, "history")) return .history;
@@ -125,8 +129,8 @@ fn runStatus(client: *rpc_client.Client, stdout: anytype, stderr: anytype, sessi
     const result = response.value.object.get("result").?.object;
     try stdout.print("{s} {d}x{d}\n", .{
         result.get("session_id").?.string,
-        @as(i64, @intFromFloat(result.get("effective_cols").?.float)),
-        @as(i64, @intFromFloat(result.get("effective_rows").?.float)),
+        try i64FromValue(result.get("effective_cols").?),
+        try i64FromValue(result.get("effective_rows").?),
     });
     try stdout.flush();
     return 0;
@@ -175,13 +179,11 @@ fn runNew(client: *rpc_client.Client, stdout: anytype, stderr: anytype, session_
     defer response.deinit();
 
     const result = response.value.object.get("result").?.object;
-    try stdout.print("{s}\n", .{result.get("session_id").?.string});
-    if (!detached) {
-        try stderr.print("session created, attach support is implemented separately\n", .{});
-        try stderr.flush();
-    }
+    const created_session = result.get("session_id").?.string;
+    try stdout.print("{s}\n", .{created_session});
     try stdout.flush();
-    return 0;
+    if (detached) return 0;
+    return cli_attach.run(client.alloc, client.socket_path, created_session, stderr);
 }
 
 fn call(client: *rpc_client.Client, request: anytype, stderr: anytype) !std.json.Parsed(std.json.Value) {
@@ -206,8 +208,17 @@ fn call(client: *rpc_client.Client, request: anytype, stderr: anytype) !std.json
 }
 
 fn usage(stderr: anytype) !void {
-    try stderr.print("Usage: cmuxd-remote session <ls|status|history|kill|new> [name] --socket <path> [--detached] [-- <command>]\n", .{});
+    try stderr.print("Usage: cmuxd-remote session <attach|ls|status|history|kill|new> [name] --socket <path> [--detached] [-- <command>]\n", .{});
     try stderr.flush();
+}
+
+fn i64FromValue(value: std.json.Value) !i64 {
+    return switch (value) {
+        .integer => |int| int,
+        .float => |float| if (@floor(float) == float) @as(i64, @intFromFloat(float)) else error.InvalidResponse,
+        .number_string => |raw| std.fmt.parseInt(i64, raw, 10) catch error.InvalidResponse,
+        else => error.InvalidResponse,
+    };
 }
 
 test "parse session ls" {

@@ -67,6 +67,7 @@ pub const Registry = struct {
     }
 
     pub fn open(self: *Registry, maybe_session_id: ?[]const u8, cols: u16, rows: u16) !struct { session_id: []const u8, attachment_id: []const u8 } {
+        const size = normalizeSize(cols, rows);
         const session_id = if (maybe_session_id) |requested| blk: {
             if (self.sessions.contains(requested)) return error.SessionAlreadyExists;
             break :blk try self.alloc.dupe(u8, requested);
@@ -82,7 +83,7 @@ pub const Registry = struct {
         };
         const attachment_id = try std.fmt.allocPrint(self.alloc, "att-{d}", .{self.next_attachment_id});
         self.next_attachment_id += 1;
-        try session.attachments.put(attachment_id, .{ .cols = cols, .rows = rows });
+        try session.attachments.put(attachment_id, .{ .cols = size.cols, .rows = size.rows });
         recompute(&session);
         try self.sessions.put(session_id, session);
 
@@ -113,6 +114,7 @@ pub const Registry = struct {
     }
 
     pub fn attach(self: *Registry, session_id: []const u8, attachment_id: []const u8, cols: u16, rows: u16) !void {
+        const size = normalizeSize(cols, rows);
         const session = self.sessions.getPtr(session_id) orelse return error.SessionNotFound;
         const owned_attachment = if (session.attachments.contains(attachment_id))
             null
@@ -120,14 +122,15 @@ pub const Registry = struct {
             try self.alloc.dupe(u8, attachment_id);
         errdefer if (owned_attachment) |value| self.alloc.free(value);
 
-        try session.attachments.put(owned_attachment orelse attachment_id, .{ .cols = cols, .rows = rows });
+        try session.attachments.put(owned_attachment orelse attachment_id, .{ .cols = size.cols, .rows = size.rows });
         recompute(session);
     }
 
     pub fn resize(self: *Registry, session_id: []const u8, attachment_id: []const u8, cols: u16, rows: u16) !void {
+        const size = normalizeSize(cols, rows);
         const session = self.sessions.getPtr(session_id) orelse return error.SessionNotFound;
         const attachment = session.attachments.getPtr(attachment_id) orelse return error.AttachmentNotFound;
-        attachment.* = .{ .cols = cols, .rows = rows };
+        attachment.* = .{ .cols = size.cols, .rows = size.rows };
         recompute(session);
     }
 
@@ -226,6 +229,13 @@ fn recompute(session: *SessionState) void {
     session.last_known_rows = min_rows;
 }
 
+fn normalizeSize(cols: u16, rows: u16) AttachmentState {
+    return .{
+        .cols = if (cols == 0) 0 else @max(@as(u16, 2), cols),
+        .rows = if (rows == 0) 0 else @max(@as(u16, 1), rows),
+    };
+}
+
 test "open allocates session and attachment ids" {
     var registry = Registry.init(std.testing.allocator);
     defer registry.deinit();
@@ -254,6 +264,23 @@ test "attach and resize recompute smallest screen wins" {
 
     try std.testing.expectEqual(@as(u16, 80), status.effective_cols);
     try std.testing.expectEqual(@as(u16, 24), status.effective_rows);
+}
+
+test "tiny attachment widths are clamped for effective dimensions" {
+    var registry = Registry.init(std.testing.allocator);
+    defer registry.deinit();
+
+    const opened = try registry.open("dev", 1, 1);
+    defer std.testing.allocator.free(opened.session_id);
+    defer std.testing.allocator.free(opened.attachment_id);
+
+    var status = try registry.status(opened.session_id);
+    defer status.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(u16, 2), status.effective_cols);
+    try std.testing.expectEqual(@as(u16, 1), status.effective_rows);
+    try std.testing.expectEqual(@as(u16, 2), status.attachments[0].cols);
+    try std.testing.expectEqual(@as(u16, 1), status.attachments[0].rows);
 }
 
 test "detach preserves last known size" {
