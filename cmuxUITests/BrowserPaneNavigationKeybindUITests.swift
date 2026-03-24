@@ -923,7 +923,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             timeout: 5.0,
             predicate: { data in
                 data["browserArrowActiveElementId"] == textareaId &&
-                    data["browserArrowDownCount"] == "\(postCmdLDownCount)" &&
+                    data["browserArrowDownCount"] == "\(postCmdLDownCount + 1)" &&
                     data["browserArrowUpCount"] == "\(postCmdLUpCount)" &&
                     data["browserArrowCommandShiftDownCount"] == "\(baselineCommandShiftDownCount + 1)" &&
                     data["browserArrowCommandShiftUpCount"] == "\(baselineCommandShiftUpCount)"
@@ -932,6 +932,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             XCTFail("Expected Cmd+Shift+Down after Cmd+L to reach the textarea. data=\(String(describing: loadData()))")
             return
         }
+        let postCmdLDownCountAfterCommandShiftDown = Int(postCmdLCommandShiftDownSnapshot["browserArrowDownCount"] ?? "") ?? -1
         let postCmdLCommandShiftDownCount = Int(postCmdLCommandShiftDownSnapshot["browserArrowCommandShiftDownCount"] ?? "") ?? -1
 
         simulateShortcut("cmdShiftUp", app: app)
@@ -939,8 +940,8 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             timeout: 5.0,
             predicate: { data in
                 data["browserArrowActiveElementId"] == textareaId &&
-                    data["browserArrowDownCount"] == "\(postCmdLDownCount)" &&
-                    data["browserArrowUpCount"] == "\(postCmdLUpCount)" &&
+                    data["browserArrowDownCount"] == "\(postCmdLDownCountAfterCommandShiftDown)" &&
+                    data["browserArrowUpCount"] == "\(postCmdLUpCount + 1)" &&
                     data["browserArrowCommandShiftDownCount"] == "\(postCmdLCommandShiftDownCount)" &&
                     data["browserArrowCommandShiftUpCount"] == "\(baselineCommandShiftUpCount + 1)"
             }
@@ -1152,7 +1153,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             timeout: 5.0,
             predicate: { data in
                 data["browserContentEditableActiveElementId"] == editorId &&
-                    data["browserContentEditableDownCount"] == "\(postCmdLDownCount)" &&
+                    data["browserContentEditableDownCount"] == "\(postCmdLDownCount + 1)" &&
                     data["browserContentEditableUpCount"] == "\(postCmdLUpCount)" &&
                     data["browserContentEditableCommandShiftDownCount"] == "\(baselineCommandShiftDownCount + 1)" &&
                     data["browserContentEditableCommandShiftUpCount"] == "\(baselineCommandShiftUpCount)"
@@ -1161,6 +1162,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             XCTFail("Expected Cmd+Shift+Down after Cmd+L to reach the contenteditable fixture. data=\(String(describing: loadData()))")
             return
         }
+        let postCmdLDownCountAfterCommandShiftDown = Int(postCmdLCommandShiftDownSnapshot["browserContentEditableDownCount"] ?? "") ?? -1
         let postCmdLCommandShiftDownCount = Int(postCmdLCommandShiftDownSnapshot["browserContentEditableCommandShiftDownCount"] ?? "") ?? -1
 
         simulateShortcut("cmdShiftUp", app: app)
@@ -1168,8 +1170,8 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             timeout: 5.0,
             predicate: { data in
                 data["browserContentEditableActiveElementId"] == editorId &&
-                    data["browserContentEditableDownCount"] == "\(postCmdLDownCount)" &&
-                    data["browserContentEditableUpCount"] == "\(postCmdLUpCount)" &&
+                    data["browserContentEditableDownCount"] == "\(postCmdLDownCountAfterCommandShiftDown)" &&
+                    data["browserContentEditableUpCount"] == "\(postCmdLUpCount + 1)" &&
                     data["browserContentEditableCommandShiftDownCount"] == "\(postCmdLCommandShiftDownCount)" &&
                     data["browserContentEditableCommandShiftUpCount"] == "\(baselineCommandShiftUpCount + 1)"
             }
