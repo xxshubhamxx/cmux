@@ -13,7 +13,7 @@ import UserNotifications
 @testable import cmux
 #endif
 
-func drainMainQueue() {
+private func drainBrowserPanelMainQueue() {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {
         expectation.fulfill()
@@ -22,7 +22,7 @@ func drainMainQueue() {
 }
 
 @MainActor
-func makeTemporaryBrowserProfile(named prefix: String) throws -> BrowserProfileDefinition {
+private func makeTemporaryBrowserPanelProfile(named prefix: String) throws -> BrowserProfileDefinition {
     try XCTUnwrap(
         BrowserProfileStore.shared.createProfile(
             named: "\(prefix)-\(UUID().uuidString)"
@@ -107,7 +107,7 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
 @MainActor
 final class BrowserPanelProfileIsolationTests: XCTestCase {
     func testStaleDidFinishDoesNotRecordVisitIntoSwitchedProfileHistory() throws {
-        let alternateProfile = try makeTemporaryBrowserProfile(named: "Switched")
+        let alternateProfile = try makeTemporaryBrowserPanelProfile(named: "Switched")
         let defaultStore = BrowserHistoryStore.shared
         let alternateStore = BrowserProfileStore.shared.historyStore(for: alternateProfile.id)
         defaultStore.clearHistory()
@@ -137,7 +137,7 @@ final class BrowserPanelProfileIsolationTests: XCTestCase {
         alternateStore.clearHistory()
 
         staleDelegate.webView?(staleWebView, didFinish: nil)
-        drainMainQueue()
+        drainBrowserPanelMainQueue()
 
         XCTAssertTrue(
             defaultStore.entries.isEmpty,
@@ -547,7 +547,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
 
         XCTAssertLessThanOrEqual(inspectorSplit.arrangedSubviews[0].frame.width, 1.5)
         XCTAssertTrue(
-            abs(dividerPointInHost.x - slot.frame.minX) <= SidebarResizeInteraction.hitWidthPerSide,
+            abs(dividerPointInHost.x - slot.frame.minX) <= 2,
             "Expected collapsed hosted divider to overlap the browser slot leading-edge resizer zone"
         )
 
@@ -905,7 +905,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         let dividerPointInWindow = slot.convert(dividerPointInSlot, to: nil)
         let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
 
-        XCTAssertLessThanOrEqual(dividerPointInHost.x - slot.frame.minX, SidebarResizeInteraction.hitWidthPerSide)
+        XCTAssertLessThanOrEqual(dividerPointInHost.x - slot.frame.minX, 2)
         let dividerHit = host.hitTest(dividerPointInHost)
         XCTAssertTrue(
             isInspectorOwnedHit(dividerHit, inspectorView: inspectorView, pageView: pageView),

@@ -6,7 +6,7 @@ import XCTest
 @testable import cmux
 #endif
 
-private let lastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
+private let appDelegateLastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
@@ -676,11 +676,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
     }
 
+    // NOTE: This test is skipped in CI via -skip-testing in ci.yml because closing
+    // the last Ghostty surface tears down the PTY/shell, which blocks indefinitely
+    // on headless runners. The xcodebuild test host doesn't inherit CI env vars,
+    // so XCTSkip can't detect CI from inside the test.
     func testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
+
+        // Auto-confirm window close to avoid a modal dialog that blocks the RunLoop.
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
 
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
@@ -725,13 +732,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let defaults = UserDefaults.standard
-        let originalSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
-        defaults.set(false, forKey: lastSurfaceCloseShortcutDefaultsKey)
+        let originalSetting = defaults.object(forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
+        defaults.set(false, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
         defer {
             if let originalSetting {
-                defaults.set(originalSetting, forKey: lastSurfaceCloseShortcutDefaultsKey)
+                defaults.set(originalSetting, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
             } else {
-                defaults.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
+                defaults.removeObject(forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
             }
         }
 
