@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Features
@@ -119,7 +119,7 @@ Give a million developers composable primitives and they'll collectively find th
 
 ## Documentation
 
-For more info on how to configure cmux, [head over to our docs](https://cmux.dev/docs/getting-started?utm_source=readme).
+For more info on how to configure cmux, [head over to our docs](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Keyboard Shortcuts
 
@@ -268,6 +268,6 @@ cmux is free, open source, and always will be. If you'd like to support developm
 
 ## License
 
-This project is licensed under the GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`).
+cmux is open source under [AGPL-3.0-or-later](LICENSE).
 
-See `LICENSE` for the full text.
+If your organization cannot comply with AGPL, a commercial license is available. Contact [founders@manaflow.com](mailto:founders@manaflow.com) for details.

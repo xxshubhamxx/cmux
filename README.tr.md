@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo videosu</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo videosu</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Özellikler
@@ -121,7 +121,7 @@ Bir milyon geliştiriciye birleştirilebilir ilkel yapılar verin, en verimli i�
 
 ## Dokümantasyon
 
-cmux'u nasıl yapılandıracağınız hakkında daha fazla bilgi için, [dokümantasyonumuza gidin](https://cmux.dev/docs/getting-started?utm_source=readme).
+cmux'u nasıl yapılandıracağınız hakkında daha fazla bilgi için, [dokümantasyonumuza gidin](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Klavye Kısayolları
 
@@ -268,6 +268,6 @@ cmux ücretsiz, açık kaynak ve her zaman öyle olacak. Geliştirmeyi desteklem
 
 ## Lisans
 
-Bu proje GNU Affero Genel Kamu Lisansı v3.0 veya sonrası (`AGPL-3.0-or-later`) ile lisanslanmıştır.
+cmux, [AGPL-3.0-or-later](LICENSE) kapsamında açık kaynaklıdır.
 
-Tam metin için `LICENSE` dosyasına bakın.
+Kuruluşunuz AGPL'ye uyum sağlayamıyorsa, ticari lisans mevcuttur. Ayrıntılar için [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçin.

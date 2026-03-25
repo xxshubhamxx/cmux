@@ -2849,7 +2849,8 @@ class TerminalController {
                 "selected_in_pane": v2OrNull(selectedInPaneByPanelId[panel.id]),
                 "pane_id": v2OrNull(paneUUID?.uuidString),
                 "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
-                "index_in_pane": v2OrNull(indexInPaneByPanelId[panel.id])
+                "index_in_pane": v2OrNull(indexInPaneByPanelId[panel.id]),
+                "tty": v2OrNull(workspace.surfaceTTYNames[panel.id])
             ]
 
             if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
@@ -3436,14 +3437,29 @@ class TerminalController {
         }
 
         var found = false
+        var protected = false
         v2MainSync {
             if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
+                guard tabManager.canCloseWorkspace(ws) else {
+                    protected = true
+                    found = true
+                    return
+                }
                 tabManager.closeWorkspace(ws)
                 found = true
             }
         }
 
         let windowId = v2ResolveWindowId(tabManager: tabManager)
+        if protected {
+            return .err(code: "protected", message: workspaceCloseProtectedMessage(), data: [
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": wsId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
+                "pinned": true
+            ])
+        }
         return found
             ? .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -3456,6 +3472,14 @@ class TerminalController {
                 "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
             ])
     }
+
+    private func workspaceCloseProtectedMessage() -> String {
+        String(
+            localized: "workspace.closeProtected.message",
+            defaultValue: "Pinned workspaces can't be closed while pinned. Unpin the workspace first."
+        )
+    }
+
     private func v2WorkspaceMoveToWindow(params: [String: Any]) -> V2CallResult {
         guard let wsId = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -3933,7 +3957,8 @@ class TerminalController {
             "pin", "unpin", "rename", "clear_name",
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
-            "mark_read", "mark_unread"
+            "mark_read", "mark_unread",
+            "set_color", "clear_color"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -4058,6 +4083,35 @@ class TerminalController {
             case "mark_unread":
                 AppDelegate.shared?.notificationStore?.markUnread(forTabId: workspace.id)
                 finish()
+
+            case "set_color":
+                guard let colorRaw = v2String(params, "color"), !colorRaw.isEmpty else {
+                    result = .err(code: "invalid_params", message: "set-color requires --color", data: nil)
+                    return
+                }
+                // Resolve named color to hex via palette lookup
+                let resolved: String
+                if colorRaw.hasPrefix("#") {
+                    guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorRaw) else {
+                        result = .err(code: "invalid_params", message: "Invalid hex color '\(colorRaw)'. Expected #RRGGBB", data: nil)
+                        return
+                    }
+                    resolved = normalized
+                } else if let entry = WorkspaceTabColorSettings.defaultPalette.first(where: {
+                    $0.name.lowercased() == colorRaw.lowercased()
+                }) {
+                    resolved = entry.hex
+                } else {
+                    let names = WorkspaceTabColorSettings.defaultPalette.map(\.name).joined(separator: ", ")
+                    result = .err(code: "invalid_params", message: "Unknown color '\(colorRaw)'. Use #RRGGBB or: \(names)", data: nil)
+                    return
+                }
+                tabManager.setTabColor(tabId: workspace.id, color: resolved)
+                finish(["color": resolved])
+
+            case "clear_color":
+                tabManager.setTabColor(tabId: workspace.id, color: nil)
+                finish(["color": NSNull()])
 
             default:
                 result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -6283,6 +6337,7 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let explicitSurfaceId = v2UUID(params, "surface_id")
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
@@ -6293,7 +6348,15 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = ws.focusedPanelId
+            if let explicitSurfaceId, ws.panels[explicitSurfaceId] == nil {
+                result = .err(
+                    code: "not_found",
+                    message: "Surface not found",
+                    data: ["surface_id": explicitSurfaceId.uuidString]
+                )
+                return
+            }
+            let surfaceId = explicitSurfaceId ?? ws.focusedPanelId
             TerminalNotificationStore.shared.addNotification(
                 tabId: ws.id,
                 surfaceId: surfaceId,
@@ -7119,9 +7182,18 @@ class TerminalController {
 
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
 
+            let directionStr = v2String(params, "direction") ?? "right"
+            guard let direction = parseSplitDirection(directionStr) else {
+                result = .err(code: "invalid_params", message: "Invalid direction '\(directionStr)' (left|right|up|down)", data: nil)
+                return
+            }
+            let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
+            let insertFirst = (direction == .left || direction == .up)
+
             let createdPanel = ws.newMarkdownSplit(
                 from: sourceSurfaceId,
-                orientation: .horizontal,
+                orientation: orientation,
+                insertFirst: insertFirst,
                 filePath: filePath,
                 focus: v2FocusAllowed()
             )
@@ -8004,6 +8076,28 @@ class TerminalController {
         }
     }
 
+    /// JavaScript snippet that sets an input element's value using the native
+    /// prototype setter. Frameworks like React, Vue, and Angular override the
+    /// value property on instances, so a plain `el.value = x` assignment only
+    /// updates the DOM without notifying the framework's internal state.
+    /// Calling the native setter from the prototype bypasses the override and
+    /// triggers the framework's change-detection when followed by an `input`
+    /// event. Walks the prototype chain instead of using instanceof so it
+    /// works with cross-realm elements (iframes) and custom web components.
+    /// Expects `el` and `newValue` to be in scope.
+    private static let reactCompatibleSetValue = """
+        let nativeSetter = null;
+        for (let proto = Object.getPrototypeOf(el); proto; proto = Object.getPrototypeOf(proto)) {
+          const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+          if (desc && desc.set) { nativeSetter = desc.set; break; }
+        }
+        if (nativeSetter) {
+          nativeSetter.call(el, newValue);
+        } else {
+          el.value = newValue;
+        }
+    """
+
     private func v2BrowserType(params: [String: Any]) -> V2CallResult {
         guard let text = v2String(params, "text") else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
@@ -8017,7 +8111,8 @@ class TerminalController {
               if (typeof el.focus === 'function') el.focus();
               const chunk = String(\(textLiteral));
               if ('value' in el) {
-                el.value = (el.value || '') + chunk;
+                const newValue = (el.value || '') + chunk;
+                \(Self.reactCompatibleSetValue)
                 el.dispatchEvent(new Event('input', { bubbles: true }));
                 el.dispatchEvent(new Event('change', { bubbles: true }));
               } else {
@@ -8041,13 +8136,13 @@ class TerminalController {
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (typeof el.focus === 'function') el.focus();
-              const value = String(\(textLiteral));
+              const newValue = String(\(textLiteral));
               if ('value' in el) {
-                el.value = value;
+                \(Self.reactCompatibleSetValue)
                 el.dispatchEvent(new Event('input', { bubbles: true }));
                 el.dispatchEvent(new Event('change', { bubbles: true }));
               } else {
-                el.textContent = value;
+                el.textContent = newValue;
               }
               return { ok: true };
             })()
@@ -8179,7 +8274,8 @@ class TerminalController {
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (!('value' in el)) return { ok: false, error: 'not_select' };
-              el.value = String(\(valueLiteral));
+              const newValue = String(\(valueLiteral));
+              \(Self.reactCompatibleSetValue)
               el.dispatchEvent(new Event('input', { bubbles: true }));
               el.dispatchEvent(new Event('change', { bubbles: true }));
               return { ok: true };
@@ -10949,26 +11045,30 @@ class TerminalController {
         let name = parts[0].lowercased()
         let combo = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let defaultsKey: String?
+        let action: KeyboardShortcutSettings.Action?
         switch name {
         case "focus_left", "focusleft":
-            defaultsKey = KeyboardShortcutSettings.focusLeftKey
+            action = .focusLeft
         case "focus_right", "focusright":
-            defaultsKey = KeyboardShortcutSettings.focusRightKey
+            action = .focusRight
         case "focus_up", "focusup":
-            defaultsKey = KeyboardShortcutSettings.focusUpKey
+            action = .focusUp
         case "focus_down", "focusdown":
-            defaultsKey = KeyboardShortcutSettings.focusDownKey
+            action = .focusDown
+        case "workspace_digits", "workspace_number", "select_workspace_by_number":
+            action = .selectWorkspaceByNumber
+        case "surface_digits", "surface_number", "select_surface_by_number":
+            action = .selectSurfaceByNumber
         default:
-            defaultsKey = nil
+            action = nil
         }
 
-        guard let defaultsKey else {
-            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down"
+        guard let action else {
+            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down, workspace_digits, surface_digits"
         }
 
         if combo.lowercased() == "clear" || combo.lowercased() == "default" || combo.lowercased() == "reset" {
-            UserDefaults.standard.removeObject(forKey: defaultsKey)
+            KeyboardShortcutSettings.resetShortcut(for: action)
             return "OK"
         }
 
@@ -10983,10 +11083,13 @@ class TerminalController {
             option: parsed.modifierFlags.contains(.option),
             control: parsed.modifierFlags.contains(.control)
         )
-        guard let data = try? JSONEncoder().encode(shortcut) else {
-            return "ERROR: Failed to encode shortcut"
+        if action.usesNumberedDigitMatching,
+           action.normalizedRecordedShortcut(shortcut) == nil {
+            return "ERROR: Numbered shortcuts must use a digit key (1-9). Example: ctrl+1"
         }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+
+        let storedShortcut = action.normalizedRecordedShortcut(shortcut) ?? shortcut
+        KeyboardShortcutSettings.setShortcut(storedShortcut, for: action)
         return "OK"
     }
 
@@ -12910,14 +13013,18 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         guard let uuid = UUID(uuidString: tabId) else { return "ERROR: Invalid tab ID" }
 
-        var success = false
+        var result = "ERROR: Tab not found"
         DispatchQueue.main.sync {
             if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
+                guard tabManager.canCloseWorkspace(tab) else {
+                    result = "ERROR: \(workspaceCloseProtectedMessage())"
+                    return
+                }
                 tabManager.closeTab(tab)
-                success = true
+                result = "OK"
             }
         }
-        return success ? "OK" : "ERROR: Tab not found"
+        return result
     }
 
     private func selectWorkspace(_ arg: String) -> String {
@@ -13960,10 +14067,11 @@ class TerminalController {
     }
 
     private func resolveTabForReport(_ args: String) -> Tab? {
-        guard let tabManager else { return nil }
         let parsed = parseOptions(args)
         if let tabArg = parsed.options["tab"], !tabArg.isEmpty {
-            if let tab = resolveTab(from: tabArg, tabManager: tabManager) {
+            // First try the local tabManager if available
+            if let tabManager = self.tabManager,
+               let tab = resolveTab(from: tabArg, tabManager: tabManager) {
                 return tab
             }
             // The tab may belong to a different window — search all contexts.
@@ -13973,6 +14081,8 @@ class TerminalController {
             }
             return nil
         }
+        // Only require self.tabManager when using the selected tab (no --tab arg)
+        guard let tabManager = self.tabManager else { return nil }
         guard let selectedId = tabManager.selectedTabId else { return nil }
         return tabManager.tabs.first(where: { $0.id == selectedId })
     }
@@ -14077,7 +14187,6 @@ class TerminalController {
     }
 
     private func upsertSidebarMetadata(_ args: String, missingError: String) -> String {
-        guard tabManager != nil else { return "ERROR: TabManager not available" }
         let parsed = parseOptionsNoStop(args)
         guard parsed.positional.count >= 2 else { return missingError }
 

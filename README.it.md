@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Video demo</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Video demo</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Funzionalità
@@ -121,7 +121,7 @@ Date a un milione di sviluppatori primitive componibili e troveranno collettivam
 
 ## Documentazione
 
-Per maggiori informazioni su come configurare cmux, [consulta la nostra documentazione](https://cmux.dev/docs/getting-started?utm_source=readme).
+Per maggiori informazioni su come configurare cmux, [consulta la nostra documentazione](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Scorciatoie da Tastiera
 
@@ -268,6 +268,6 @@ cmux è gratuito, open source, e lo sarà sempre. Se vuoi supportare lo sviluppo
 
 ## Licenza
 
-Questo progetto è distribuito sotto la GNU Affero General Public License v3.0 o successiva (`AGPL-3.0-or-later`).
+cmux è open source sotto [AGPL-3.0-or-later](LICENSE).
 
-Vedi `LICENSE` per il testo completo.
+Se la tua organizzazione non può conformarsi all'AGPL, è disponibile una licenza commerciale. Contatta [founders@manaflow.com](mailto:founders@manaflow.com) per i dettagli.

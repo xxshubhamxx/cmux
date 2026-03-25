@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Vídeo de demonstração</a> · <a href="https://cmux.dev/blog/zen-of-cmux">O Zen do cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Vídeo de demonstração</a> · <a href="https://cmux.com/blog/zen-of-cmux">O Zen do cmux</a>
 </p>
 
 ## Recursos
@@ -121,7 +121,7 @@ Dê a um milhão de desenvolvedores primitivas combináveis e eles coletivamente
 
 ## Documentação
 
-Para mais informações sobre como configurar o cmux, [acesse nossa documentação](https://cmux.dev/docs/getting-started?utm_source=readme).
+Para mais informações sobre como configurar o cmux, [acesse nossa documentação](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Atalhos de Teclado
 
@@ -268,6 +268,6 @@ O cmux é gratuito, open source, e sempre será. Se você gostaria de apoiar o d
 
 ## Licença
 
-Este projeto é licenciado sob a GNU Affero General Public License v3.0 ou posterior (`AGPL-3.0-or-later`).
+cmux é open source sob [AGPL-3.0-or-later](LICENSE).
 
-Veja `LICENSE` para o texto completo.
+Se sua organização não puder cumprir a AGPL, uma licença comercial está disponível. Entre em contato com [founders@manaflow.com](mailto:founders@manaflow.com) para detalhes.

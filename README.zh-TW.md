@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ 示範影片</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ 示範影片</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## 功能特色
@@ -121,7 +121,7 @@ cmux 是一個基礎元件，而非完整方案。它提供終端機、瀏覽器
 
 ## 文件
 
-如需更多 cmux 設定資訊，[請前往我們的文件](https://cmux.dev/docs/getting-started?utm_source=readme)。
+如需更多 cmux 設定資訊，[請前往我們的文件](https://cmux.com/docs/getting-started?utm_source=readme)。
 
 ## 鍵盤快捷鍵
 
@@ -268,6 +268,6 @@ cmux 免費、開源，且將永遠如此。如果您想支持開發並提前體
 
 ## 授權條款
 
-本專案採用 GNU Affero 通用公共授權條款 v3.0 或更新版本（`AGPL-3.0-or-later`）授權。
+cmux 以 [AGPL-3.0-or-later](LICENSE) 開源。
 
-完整授權條款文字請參見 `LICENSE` 檔案。
+如果您的組織無法遵守 AGPL，可提供商業授權。詳情請聯繫 [founders@manaflow.com](mailto:founders@manaflow.com)。

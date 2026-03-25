@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demovideo</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demovideo</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Funktioner
@@ -121,7 +121,7 @@ Giv en million udviklere komponerbare primitiver, og de vil kollektivt finde de 
 
 ## Dokumentation
 
-For mere information om konfiguration af cmux, [se vores dokumentation](https://cmux.dev/docs/getting-started?utm_source=readme).
+For mere information om konfiguration af cmux, [se vores dokumentation](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Tastaturgenveje
 
@@ -268,6 +268,6 @@ cmux er gratis, open source og vil altid være det. Hvis du gerne vil støtte ud
 
 ## Licens
 
-Dette projekt er licenseret under GNU Affero General Public License v3.0 eller senere (`AGPL-3.0-or-later`).
+cmux er open source under [AGPL-3.0-or-later](LICENSE).
 
-Se `LICENSE` for den fulde tekst.
+Hvis din organisation ikke kan overholde AGPL, er en kommerciel licens tilgængelig. Kontakt [founders@manaflow.com](mailto:founders@manaflow.com) for detaljer.
