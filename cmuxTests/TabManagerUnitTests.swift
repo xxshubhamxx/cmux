@@ -1147,7 +1147,7 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
         }
     }
 
-    private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+    private func splitNodes(in node: CmuxExternalTreeNode) -> [CmuxExternalSplitNode] {
         switch node {
         case .pane:
             return []
