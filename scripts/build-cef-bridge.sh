@@ -102,7 +102,11 @@ link_framework() {
 build_stub_framework() {
     local target_archs="${1:-arm64}"
     local framework_dir="$CEF_BRIDGE_DIR/Chromium Embedded Framework.framework"
-    local framework_bin="$framework_dir/Chromium Embedded Framework"
+    local framework_versions_dir="$framework_dir/Versions"
+    local framework_current_dir="$framework_versions_dir/Current"
+    local framework_version_dir="$framework_versions_dir/A"
+    local framework_resources_dir="$framework_version_dir/Resources"
+    local framework_bin="$framework_version_dir/Chromium Embedded Framework"
     local arch_flags=()
 
     for arch in $target_archs; do
@@ -110,12 +114,15 @@ build_stub_framework() {
     done
 
     rm -rf "$framework_dir"
-    mkdir -p "$framework_dir"
+    mkdir -p "$framework_resources_dir"
     printf 'void cmux_cef_framework_stub(void) {}\n' | \
         clang -dynamiclib "${arch_flags[@]}" -mmacosx-version-min=13.0 \
             -install_name "@rpath/Chromium Embedded Framework.framework/Chromium Embedded Framework" \
             -x c - -o "$framework_bin"
-    cat > "$framework_dir/Info.plist" <<'EOF'
+    ln -sfn "A" "$framework_current_dir"
+    ln -sfn "Versions/Current/Chromium Embedded Framework" "$framework_dir/Chromium Embedded Framework"
+    ln -sfn "Versions/Current/Resources" "$framework_dir/Resources"
+    cat > "$framework_resources_dir/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
