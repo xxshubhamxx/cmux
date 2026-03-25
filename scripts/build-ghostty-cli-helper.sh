@@ -16,6 +16,7 @@ EOF
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GHOSTTY_DIR="$REPO_ROOT/ghostty"
+source "$SCRIPT_DIR/zig-build-env.sh"
 
 OUTPUT_PATH=""
 TARGET_TRIPLE=""
@@ -109,7 +110,7 @@ build_helper() {
 
   (
     cd "$GHOSTTY_DIR"
-    "${args[@]}"
+    cmux_run_zig "${args[@]:1}"
   )
 }
 

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/zig-build-env.sh"
+
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
@@ -280,7 +283,7 @@ fi
 
 LOCAL_REMOTE_DAEMON_BIN="$PWD/daemon/remote/zig/zig-out/bin/cmuxd-remote"
 if [[ -n "${TAG_SLUG:-}" && -d "$PWD/daemon/remote/zig" ]]; then
-  (cd "$PWD/daemon/remote/zig" && zig build -Doptimize=ReleaseFast)
+  (cd "$PWD/daemon/remote/zig" && cmux_run_zig build -Doptimize=ReleaseFast)
 fi
 
 XCODEBUILD_ARGS=(
@@ -451,7 +454,7 @@ else
 fi
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 if [[ -d "$PWD/cmuxd" ]]; then
-  (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
+  (cd "$PWD/cmuxd" && cmux_run_zig build -Doptimize=ReleaseFast)
 fi
 if [[ -x "$CMUXD_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"

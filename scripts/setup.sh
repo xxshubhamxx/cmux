@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/zig-build-env.sh"
 
 cd "$PROJECT_DIR"
 
@@ -61,7 +62,7 @@ else
         echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
         (
             cd ghostty
-            zig build \
+            cmux_run_zig build \
                 -Demit-xcframework=true \
                 -Doptimize=ReleaseFast \
                 -Dversion-string="$GHOSTTY_VERSION_STRING"

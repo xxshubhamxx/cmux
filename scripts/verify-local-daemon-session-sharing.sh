@@ -18,6 +18,7 @@ fi
 
 TAG="$1"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/zig-build-env.sh"
 SANITIZED_TAG="$(echo "$TAG" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
 BUNDLE_ID="com.cmuxterm.app.debug.$(echo "$TAG" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/./g; s/^\\.+//; s/\\.+$//; s/\\.+/./g')"
 APP_PROCESS_NAME="cmux DEV ${TAG}"
@@ -40,7 +41,7 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$ROOT/daemon/remote/zig"
-zig build -Doptimize=ReleaseFast
+cmux_run_zig build -Doptimize=ReleaseFast
 cd "$ROOT"
 
 pkill -f "cmuxd-remote serve --unix --socket ${DAEMON_SOCKET}" >/dev/null 2>&1 || true

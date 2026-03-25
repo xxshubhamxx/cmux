@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/zig-build-env.sh"
 DAEMON_DIR="$ROOT/daemon/remote/zig"
 
 if ! command -v expect >/dev/null 2>&1; then
@@ -33,7 +34,7 @@ trap cleanup EXIT
 echo "=== Build Zig daemon ==="
 (
   cd "$DAEMON_DIR"
-  zig build -Doptimize=ReleaseFast >/dev/null
+  cmux_run_zig build -Doptimize=ReleaseFast >/dev/null
 )
 
 BIN="$DAEMON_DIR/zig-out/bin/cmuxd-remote"

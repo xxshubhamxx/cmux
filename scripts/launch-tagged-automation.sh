@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/zig-build-env.sh"
+
 usage() {
   cat <<'EOF'
 Usage: ./scripts/launch-tagged-automation.sh <tag> [options]
@@ -130,7 +133,7 @@ if [[ ! -d "$APP" ]]; then
 fi
 
 if [[ -d "$PWD/daemon/remote/zig" ]]; then
-  (cd "$PWD/daemon/remote/zig" && zig build -Doptimize=ReleaseFast)
+  (cd "$PWD/daemon/remote/zig" && cmux_run_zig build -Doptimize=ReleaseFast)
 fi
 
 /usr/bin/osascript -e "tell application id \"${BID}\" to quit" >/dev/null 2>&1 || true

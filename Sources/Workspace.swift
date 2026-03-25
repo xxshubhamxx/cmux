@@ -4788,6 +4788,12 @@ final class WorkspaceRemoteSessionController {
                 NSLocalizedDescriptionKey: "unsupported cmuxd-remote target \(goOS)-\(goArch)",
             ])
         }
+        let buildEnvironment = localRemoteDaemonBuildEnvironment(
+            baseEnvironment: environment,
+            goOS: goOS,
+            goArch: goArch,
+            fileManager: fileManager
+        )
         return LocalRemoteDaemonBuildPlan(
             executable: zigBinary,
             arguments: [
@@ -4796,11 +4802,48 @@ final class WorkspaceRemoteSessionController {
                 "-Dtarget=\(target)",
                 "-Dversion=\(version)",
             ],
-            environment: environment,
+            environment: buildEnvironment,
             currentDirectory: daemonRoot,
             builtBinary: daemonRoot.appendingPathComponent("zig-out/bin/cmuxd-remote", isDirectory: false),
             outputURL: versionedRemoteDaemonBuildURL(goOS: goOS, goArch: goArch, version: version)
         )
+    }
+
+    private static func localRemoteDaemonBuildEnvironment(
+        baseEnvironment: [String: String],
+        goOS: String,
+        goArch: String,
+        fileManager: FileManager
+    ) -> [String: String] {
+        guard goOS == "darwin", goArch == "arm64" else {
+            return baseEnvironment
+        }
+
+        let xcodeTBD = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libSystem.B.tbd"
+        let cltSDKRoot = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
+        let cltTBD = "\(cltSDKRoot)/usr/lib/libSystem.B.tbd"
+
+        guard
+            fileManager.fileExists(atPath: xcodeTBD),
+            fileManager.fileExists(atPath: cltTBD),
+            localRemoteDaemonSDKSupportsArm64(path: cltTBD),
+            !localRemoteDaemonSDKSupportsArm64(path: xcodeTBD)
+        else {
+            return baseEnvironment
+        }
+
+        var environment = baseEnvironment
+        environment["DEVELOPER_DIR"] = "/Library/Developer/CommandLineTools"
+        environment["SDKROOT"] = cltSDKRoot
+        return environment
+    }
+
+    private static func localRemoteDaemonSDKSupportsArm64(path: String) -> Bool {
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return false
+        }
+        let prefix = contents.split(separator: "\n", omittingEmptySubsequences: false).prefix(8).joined(separator: "\n")
+        return prefix.contains("arm64-macos")
     }
 
     private static func remoteDaemonZigTarget(goOS: String, goArch: String) -> String? {
