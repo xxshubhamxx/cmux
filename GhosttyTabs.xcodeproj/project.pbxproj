@@ -7,6 +7,10 @@
 	objects = {
 
 		/* Begin PBXBuildFile section */
+		CEF00001 /* BrowserEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF00011 /* BrowserEngineType.swift */; };
+		CEF00002 /* CEFFrameworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF00012 /* CEFFrameworkManager.swift */; };
+		CEF00003 /* CEFRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF00013 /* CEFRuntime.swift */; };
+		CEF00004 /* CEFDownloadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF00014 /* CEFDownloadView.swift */; };
 			A5001001 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001011 /* cmuxApp.swift */; };
 			A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
 			E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */; };
@@ -176,6 +180,10 @@
 /* End PBXContainerItemProxy section */
 
 		/* Begin PBXFileReference section */
+		CEF00011 /* BrowserEngineType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEngine/BrowserEngineType.swift; sourceTree = "<group>"; };
+		CEF00012 /* CEFFrameworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEngine/CEFFrameworkManager.swift; sourceTree = "<group>"; };
+		CEF00013 /* CEFRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEngine/CEFRuntime.swift; sourceTree = "<group>"; };
+		CEF00014 /* CEFDownloadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEngine/CEFDownloadView.swift; sourceTree = "<group>"; };
 			A5001000 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 			F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 			7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -458,6 +466,10 @@
 				A5001222 /* WindowAccessor.swift */,
 				A5001611 /* SessionPersistence.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
+				CEF00011 /* BrowserEngineType.swift */,
+				CEF00012 /* CEFFrameworkManager.swift */,
+				CEF00013 /* CEFRuntime.swift */,
+				CEF00014 /* CEFDownloadView.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -753,6 +765,10 @@
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
 				A5001640 /* RemoteRelayZshBootstrap.swift in Sources */,
+				CEF00001 /* BrowserEngineType.swift in Sources */,
+				CEF00002 /* CEFFrameworkManager.swift in Sources */,
+				CEF00003 /* CEFRuntime.swift in Sources */,
+				CEF00004 /* CEFDownloadView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -921,9 +937,14 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/vendor/cef-bridge",
+				);
 				MARKETING_VERSION = 0.62.2;
 				OTHER_LDFLAGS = (
 					"-lc++",
+					"-lcef_bridge",
 					"-framework",
 					Metal,
 					"-framework",
@@ -960,9 +981,14 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/vendor/cef-bridge",
+				);
 				MARKETING_VERSION = 0.62.2;
 				OTHER_LDFLAGS = (
 					"-lc++",
+					"-lcef_bridge",
 					"-framework",
 					Metal,
 					"-framework",

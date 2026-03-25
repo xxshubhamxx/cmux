@@ -81,6 +81,18 @@ fi
 echo "==> Creating symlink for GhosttyKit.xcframework..."
 ln -sfn "$CACHE_XCFRAMEWORK" GhosttyKit.xcframework
 
+# -------------------------------------------------------------------
+# CEF bridge (stub library for compilation)
+# -------------------------------------------------------------------
+echo "==> Building CEF bridge stub library..."
+CEF_BRIDGE_DIR="$PROJECT_DIR/vendor/cef-bridge"
+if [ -f "$CEF_BRIDGE_DIR/Makefile" ]; then
+    make -C "$CEF_BRIDGE_DIR" clean all
+    echo "==> Built libcef_bridge.a (stub mode, no CEF framework)"
+else
+    echo "==> Warning: vendor/cef-bridge/Makefile not found, skipping CEF bridge build"
+fi
+
 echo "==> Setup complete!"
 echo ""
 echo "You can now build and run the app:"
