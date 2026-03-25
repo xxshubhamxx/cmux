@@ -201,9 +201,17 @@ public final class PaperLayoutController {
 
         viewportOffset = animationStartOffset + (animationTargetOffset - animationStartOffset) * t
 
-        // Trigger portal sync AFTER SwiftUI renders the new .offset()
-        DispatchQueue.main.async { [weak self] in
-            self?.notifyGeometryChange()
+        // Post a frameDidChange notification so the portal re-syncs
+        // terminal positions. Also trigger geometry notification for
+        // the layout system. Both fire after a 1ms delay to ensure
+        // SwiftUI has committed the new .offset() to the layer tree.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.001) { [weak self] in
+            guard let self else { return }
+            // Post frame change notification to trigger portal sync
+            NotificationCenter.default.post(
+                name: NSView.frameDidChangeNotification,
+                object: nil
+            )
         }
 
         if progress >= 1.0 {
