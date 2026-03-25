@@ -10,6 +10,12 @@ class UpdateDriver: NSObject, SPUUserDriver {
     private var checkTimeoutWorkItem: DispatchWorkItem?
     private var lastFeedURLString: String?
 
+    /// When true, the next update found by Sparkle is confirmed immediately
+    /// without waiting for the minimum-check-display delay. This prevents
+    /// the delayed `.updateAvailable` transition from being preempted by
+    /// a `dismissUpdateInstallation` call (e.g. from a background probe race).
+    var autoInstallOnNextUpdate: Bool = false
+
     init(viewModel: UpdateViewModel, hostBundle _: Bundle) {
         self.viewModel = viewModel
         super.init()
@@ -44,6 +50,12 @@ class UpdateDriver: NSObject, SPUUserDriver {
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         UpdateLogStore.shared.append("show update found: \(appcastItem.displayVersionString)")
+        if autoInstallOnNextUpdate {
+            autoInstallOnNextUpdate = false
+            UpdateLogStore.shared.append("auto-installing update (attemptUpdate)")
+            reply(.install)
+            return
+        }
         setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)))
     }
 
@@ -57,12 +69,14 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showUpdateNotFoundWithError(_ error: any Error,
                                      acknowledgement: @escaping () -> Void) {
+        autoInstallOnNextUpdate = false
         UpdateLogStore.shared.append("show update not found: \(formatErrorForLog(error))")
         setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)))
     }
 
     func showUpdaterError(_ error: any Error,
                           acknowledgement: @escaping () -> Void) {
+        autoInstallOnNextUpdate = false
         let details = formatErrorForLog(error)
         UpdateLogStore.shared.append("show updater error: \(details)")
         setState(.error(.init(
@@ -151,6 +165,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
 
     func dismissUpdateInstallation() {
+        autoInstallOnNextUpdate = false
         UpdateLogStore.shared.append("dismiss update installation")
         if case .error = viewModel.state {
             UpdateLogStore.shared.append("dismiss update installation ignored (error visible)")

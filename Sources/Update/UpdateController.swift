@@ -177,6 +177,7 @@ class UpdateController {
     func attemptUpdate() {
         stopAttemptUpdateMonitoring()
         didObserveAttemptUpdateProgress = false
+        userDriver.autoInstallOnNextUpdate = true
 
         attemptInstallCancellable = viewModel.$state
             .receive(on: DispatchQueue.main)
@@ -187,6 +188,9 @@ class UpdateController {
                     self.didObserveAttemptUpdateProgress = true
                 }
 
+                // Fallback: auto-confirm if we reach .updateAvailable
+                // (e.g. the driver flag was cleared by a dismiss before
+                // showUpdateFound fired).
                 if case .updateAvailable = state {
                     UpdateLogStore.shared.append("attemptUpdate auto-confirming available update")
                     state.confirm()
@@ -196,6 +200,14 @@ class UpdateController {
                 guard self.didObserveAttemptUpdateProgress, !state.isInstallable else {
                     return
                 }
+
+                // While the driver's auto-install flag is set, the Sparkle
+                // check may still be starting up. Don't tear down on a
+                // transient .idle that occurs during retry/probe races.
+                if state.isIdle, self.userDriver.autoInstallOnNextUpdate {
+                    return
+                }
+
                 self.stopAttemptUpdateMonitoring()
             }
 
@@ -279,6 +291,7 @@ class UpdateController {
         attemptInstallCancellable?.cancel()
         attemptInstallCancellable = nil
         didObserveAttemptUpdateProgress = false
+        userDriver.autoInstallOnNextUpdate = false
     }
 
     private func installNoUpdateDismissObserver() {
