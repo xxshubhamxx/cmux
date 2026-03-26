@@ -11,6 +11,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private var commandLabels: [ObjectIdentifier: NSTextField] = [:]
     private var observers: [NSObjectProtocol] = []
     private let focusedCommandUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
 
     override init() {
         super.init()
@@ -61,6 +62,26 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
                 self?.attach(to: window)
             }
         })
+
+        observers.append(center.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateToolbarVisibilityIfNeeded()
+            }
+        })
+    }
+
+    private func updateToolbarVisibilityIfNeeded() {
+        let currentMode = WorkspacePresentationModeSettings.mode()
+        guard currentMode != lastKnownPresentationMode else { return }
+        lastKnownPresentationMode = currentMode
+        let visible = currentMode != .minimal
+        for window in NSApp.windows {
+            window.toolbar?.isVisible = visible
+        }
     }
 
     private func attachToExistingWindows() {
@@ -78,6 +99,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         toolbar.allowsUserCustomization = false
         toolbar.autosavesConfiguration = false
         toolbar.showsBaselineSeparator = false
+        toolbar.isVisible = !WorkspacePresentationModeSettings.isMinimal()
         window.toolbar = toolbar
         window.toolbarStyle = .unifiedCompact
         window.titleVisibility = .hidden
