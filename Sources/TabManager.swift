@@ -1199,6 +1199,7 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func addWorkspace(
+        title: String? = nil,
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
@@ -1207,9 +1208,24 @@ class TabManager: ObservableObject {
         placementOverride: NewWorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true
     ) -> Workspace {
-        // Snapshot current published state once so workspace creation doesn't repeatedly
-        // bounce through Combine-backed accessors while we're preparing the new workspace.
-        let snapshot = workspaceCreationSnapshot()
+        // Extract Workspace-dependent data through `self` BEFORE capturing locals.
+        // Accessing through `self` is safe because the method retains `self` for its
+        // duration, keeping all Workspace objects reachable via `self.tabs`. Local copies
+        // of Workspace references (like a `selectedWorkspace` local) are vulnerable to
+        // Xcode 16.x's aggressive ARC optimizer eliding retains through inlined call
+        // chains (workspace → panel → surface → C pointer), causing use-after-free.
+        let preferredDir = preferredWorkingDirectoryForNewTab()
+        let inheritedFontPoints = inheritedTerminalFontPointsForNewWorkspace()
+
+        let capturedTabs = tabs
+        let capturedSelectedTabId = selectedTabId
+
+        let snapshot = workspaceCreationSnapshotLite(
+            currentTabs: capturedTabs,
+            currentSelectedTabId: capturedSelectedTabId,
+            preferredWorkingDirectory: preferredDir,
+            inheritedTerminalFontPoints: inheritedFontPoints
+        )
         didCaptureWorkspaceCreationSnapshot()
 #if DEBUG
         maybeMutateSelectionDuringWorkspaceCreationForDev(snapshot: snapshot)
@@ -1228,7 +1244,7 @@ class TabManager: ObservableObject {
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
         let newWorkspace = makeWorkspaceForCreation(
-            title: "Terminal \(nextTabCount)",
+            title: title ?? "Terminal \(nextTabCount)",
             workingDirectory: workingDirectory,
             portOrdinal: ordinal,
             configTemplate: inheritedConfig,
@@ -1236,6 +1252,9 @@ class TabManager: ObservableObject {
             initialTerminalEnvironment: initialTerminalEnvironment
         )
         newWorkspace.owningTabManager = self
+        if title != nil {
+            newWorkspace.setCustomTitle(title)
+        }
         wireClosedBrowserTracking(for: newWorkspace)
         if eagerLoadTerminal && !select {
             requestBackgroundWorkspaceLoad(for: newWorkspace.id)
@@ -2177,23 +2196,36 @@ class TabManager: ObservableObject {
         terminalPanelForWorkspaceConfigInheritanceSource(workspace: selectedWorkspace)
     }
 
-    private func workspaceCreationSnapshot() -> WorkspaceCreationSnapshot {
-        let currentTabs = tabs
-        let currentSelectedTabId = selectedTabId
+    /// Build a snapshot using pre-extracted value-type data. The caller is responsible
+    /// for obtaining `preferredWorkingDirectory` and `inheritedTerminalFontPoints` through
+    /// `self` (where `self.tabs` keeps all Workspace objects alive) so that no local
+    /// Workspace references are needed here.
+    private func workspaceCreationSnapshotLite(
+        currentTabs: [Workspace],
+        currentSelectedTabId: UUID?,
+        preferredWorkingDirectory: String?,
+        inheritedTerminalFontPoints: Float?
+    ) -> WorkspaceCreationSnapshot {
         let tabSnapshots = currentTabs.map { WorkspaceCreationTabSnapshot(workspace: $0) }
         let selectedTabSnapshot = currentSelectedTabId.flatMap { selectedTabId in
             tabSnapshots.first(where: { $0.id == selectedTabId })
-        }
-        let selectedWorkspace = currentSelectedTabId.flatMap { selectedTabId in
-            currentTabs.first(where: { $0.id == selectedTabId })
         }
 
         return WorkspaceCreationSnapshot(
             tabs: tabSnapshots,
             selectedTabId: currentSelectedTabId,
             selectedTabWasPinned: selectedTabSnapshot?.isPinned ?? false,
-            preferredWorkingDirectory: preferredWorkingDirectoryForNewTab(workspace: selectedWorkspace),
-            inheritedTerminalFontPoints: inheritedTerminalFontPointsForNewWorkspace(workspace: selectedWorkspace)
+            preferredWorkingDirectory: preferredWorkingDirectory,
+            inheritedTerminalFontPoints: inheritedTerminalFontPoints
+        )
+    }
+
+    private func workspaceCreationSnapshot() -> WorkspaceCreationSnapshot {
+        workspaceCreationSnapshotLite(
+            currentTabs: tabs,
+            currentSelectedTabId: selectedTabId,
+            preferredWorkingDirectory: preferredWorkingDirectoryForNewTab(),
+            inheritedTerminalFontPoints: inheritedTerminalFontPointsForNewWorkspace()
         )
     }
 
@@ -2273,7 +2305,11 @@ class TabManager: ObservableObject {
         return nil
     }
 
-    func inheritedTerminalFontPointsForNewWorkspace(
+    private func inheritedTerminalFontPointsForNewWorkspace() -> Float? {
+        inheritedTerminalFontPointsForNewWorkspace(workspace: selectedWorkspace)
+    }
+
+    private func inheritedTerminalFontPointsForNewWorkspace(
         workspace: Workspace?
     ) -> Float? {
         guard let inheritedConfig = inheritedTerminalConfigForNewWorkspace(workspace: workspace),
@@ -2283,7 +2319,7 @@ class TabManager: ObservableObject {
         return inheritedConfig.font_size
     }
 
-    func workspaceCreationConfigTemplate(
+    private func workspaceCreationConfigTemplate(
         inheritedTerminalFontPoints: Float?
     ) -> ghostty_surface_config_s? {
         guard let inheritedTerminalFontPoints, inheritedTerminalFontPoints > 0 else {
