@@ -263,6 +263,14 @@ struct WorkspaceContentView: View {
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
         let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
 
+        // In minimal mode, split buttons only appear on hover.
+        let _ = {
+            let onHover = isMinimalMode
+            if workspace.bonsplitController.configuration.appearance.splitButtonsOnHover != onHover {
+                workspace.bonsplitController.configuration.appearance.splitButtonsOnHover = onHover
+            }
+        }()
+
         // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
         // Finder file drops to the correct terminal panel.
         let _ = {

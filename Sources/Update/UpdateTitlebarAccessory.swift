@@ -1270,17 +1270,24 @@ final class UpdateTitlebarAccessoryController {
         let currentMode = WorkspacePresentationModeSettings.mode()
         guard currentMode != lastKnownPresentationMode else { return }
         lastKnownPresentationMode = currentMode
-        attachToExistingWindows()
 
-        // When switching back to standard mode while a window is in fullscreen,
-        // hide the newly attached accessories because fullscreen uses SwiftUI
-        // overlay controls instead of the titlebar accessories.
-        if currentMode == .standard {
-            for window in NSApp.windows where window.styleMask.contains(.fullScreen) {
-                for accessory in window.titlebarAccessoryViewControllers
-                    where accessory.view.identifier == controlsIdentifier {
-                    accessory.isHidden = true
-                    accessory.view.alphaValue = 0
+        if currentMode == .minimal {
+            attachToExistingWindows()
+        } else {
+            // When switching back to standard, delay re-attachment so the toolbar
+            // is re-added first (WindowToolbarController also observes the same
+            // UserDefaults change). The accessory needs a valid toolbar/titlebar
+            // area to lay out correctly.
+            DispatchQueue.main.async { [weak self] in
+                self?.attachToExistingWindows()
+                // Hide accessories on fullscreen windows (fullscreen uses SwiftUI
+                // overlay controls instead).
+                for window in NSApp.windows where window.styleMask.contains(.fullScreen) {
+                    for accessory in window.titlebarAccessoryViewControllers
+                        where accessory.view.identifier == self?.controlsIdentifier {
+                        accessory.isHidden = true
+                        accessory.view.alphaValue = 0
+                    }
                 }
             }
         }
