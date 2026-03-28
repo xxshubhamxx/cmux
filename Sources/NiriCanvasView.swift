@@ -657,10 +657,16 @@ final class NiriCanvasView: NSView {
             else if localY < edgeRatio { edge = .bottom }
             else { edge = nil }
 
+            let isSamePanel = entry.panel == srcPi
+
             if let edge {
+                // Skip edge drops on own panel with single tab (would just recreate same layout)
+                if isSamePanel && isSingleTab && (edge == .left || edge == .right) { return }
                 currentDropTarget = .init(kind: .terminalEdge(livePanel: li, edge: edge))
                 showDropZoneOverlay(in: termRect, edge: edge)
             } else {
+                // Skip center drop on own panel (no-op: tab is already there)
+                if isSamePanel { return }
                 currentDropTarget = .init(kind: .terminalCenter(livePanel: li))
                 showDropZoneOverlay(in: termRect, edge: nil)
             }
