@@ -337,6 +337,12 @@ final class WindowTerminalHostView: NSView {
         return nil
     }
 
+    static func hasSplitDivider(atScreenPoint screenPoint: NSPoint, in window: NSWindow) -> Bool {
+        guard let rootView = window.contentView else { return false }
+        let windowPoint = window.convertPoint(fromScreen: screenPoint)
+        return dividerCursorKind(at: windowPoint, in: rootView) != nil
+    }
+
     private static func collectSplitDividerRegions(in view: NSView, into result: inout [DividerRegion]) {
         guard !view.isHidden else { return }
 
@@ -1677,7 +1683,42 @@ enum TerminalWindowPortalRegistry {
 #if DEBUG
         if Self.isPointerDragActiveForTesting { return true }
 #endif
-        return Self.interactiveGeometryResizeCount > 0
+        if Self.interactiveGeometryResizeCount > 0 { return true }
+        return isCurrentEventSplitDividerDrag()
+    }
+
+    private static func isCurrentEventSplitDividerDrag() -> Bool {
+        // Bonsplit divider drags do not participate in the explicit resize counter used by
+        // sidebar drags, but they should still get immediate portal geometry synchronization.
+        guard let event = NSApp.currentEvent else { return false }
+        switch event.type {
+        case .leftMouseDragged:
+            break
+        default:
+            return false
+        }
+
+        guard (NSEvent.pressedMouseButtons & 1) != 0 else { return false }
+
+        let mouseLocation = NSEvent.mouseLocation
+        var candidateWindows: [NSWindow] = []
+        if let eventWindow = event.window {
+            candidateWindows.append(eventWindow)
+        }
+        if let keyWindow = NSApp.keyWindow, !candidateWindows.contains(where: { $0 === keyWindow }) {
+            candidateWindows.append(keyWindow)
+        }
+        if let mainWindow = NSApp.mainWindow, !candidateWindows.contains(where: { $0 === mainWindow }) {
+            candidateWindows.append(mainWindow)
+        }
+
+        for window in candidateWindows {
+            if WindowTerminalHostView.hasSplitDivider(atScreenPoint: mouseLocation, in: window) {
+                return true
+            }
+        }
+
+        return false
     }
 
     private static func bindBlockReason(
