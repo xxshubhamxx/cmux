@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -379,6 +380,16 @@ func omoEnsurePlugin(searchPath string) error {
 	}
 	config["plugin"] = plugins
 
+	// Set colorScheme from system appearance if not already configured.
+	// opencode uses OSC 11 to query terminal background, which fails over
+	// SSH (response times out through the relay). Fall back to detecting
+	// macOS dark mode directly.
+	if config["colorScheme"] == nil {
+		if scheme := detectColorScheme(); scheme != "" {
+			config["colorScheme"] = scheme
+		}
+	}
+
 	output, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err
@@ -514,6 +525,26 @@ func fileExists(path string) bool {
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+// --- Color scheme detection ---
+
+// detectColorScheme returns "dark" or "light" based on the system appearance.
+// On macOS, reads AppleInterfaceStyle. On Linux, defaults to "dark".
+func detectColorScheme() string {
+	if runtime.GOOS == "darwin" {
+		out, err := exec.Command("defaults", "read", "-g", "AppleInterfaceStyle").Output()
+		if err != nil {
+			// Command fails when in light mode (key doesn't exist)
+			return "light"
+		}
+		if strings.TrimSpace(string(out)) == "Dark" {
+			return "dark"
+		}
+		return "light"
+	}
+	// Linux/other: default to dark (most terminal users prefer dark)
+	return "dark"
 }
 
 // --- Node script resolution ---
