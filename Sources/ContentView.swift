@@ -2424,6 +2424,7 @@ struct ContentView: View {
     }
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
+    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
 
     // Background glass settings
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
@@ -2601,7 +2602,11 @@ struct ContentView: View {
 
     private var contentAndSidebarLayout: AnyView {
         let layout: AnyView
-        if sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue {
+        // When matching terminal background, use HStack so both sidebar and terminal
+        // sit directly on the window background with no intermediate layers.
+        let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
+            && !sidebarMatchTerminalBackground
+        if useWithinWindow {
             // Overlay mode: terminal extends full width, sidebar on top
             // This allows withinWindow blur to see the terminal content
             layout = AnyView(
@@ -8487,6 +8492,132 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
     }
 }
 
+private struct SidebarTabItemSettingsSnapshot: Equatable {
+    let sidebarShortcutHintXOffset: Double
+    let sidebarShortcutHintYOffset: Double
+    let alwaysShowShortcutHints: Bool
+    let showsGitBranch: Bool
+    let usesVerticalBranchLayout: Bool
+    let showsGitBranchIcon: Bool
+    let showsSSH: Bool
+    let openPullRequestLinksInCmuxBrowser: Bool
+    let openPortLinksInCmuxBrowser: Bool
+    let showsNotificationMessage: Bool
+    let activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle
+    let selectionColorHex: String?
+    let notificationBadgeColorHex: String?
+    let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+
+    init(defaults: UserDefaults = .standard) {
+        sidebarShortcutHintXOffset = Self.double(
+            defaults: defaults,
+            key: ShortcutHintDebugSettings.sidebarHintXKey,
+            defaultValue: ShortcutHintDebugSettings.defaultSidebarHintX
+        )
+        sidebarShortcutHintYOffset = Self.double(
+            defaults: defaults,
+            key: ShortcutHintDebugSettings.sidebarHintYKey,
+            defaultValue: ShortcutHintDebugSettings.defaultSidebarHintY
+        )
+        alwaysShowShortcutHints = Self.bool(
+            defaults: defaults,
+            key: ShortcutHintDebugSettings.alwaysShowHintsKey,
+            defaultValue: ShortcutHintDebugSettings.defaultAlwaysShowHints
+        )
+        showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
+        usesVerticalBranchLayout = SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults)
+        showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
+        showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: true)
+        openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
+            defaults: defaults
+        )
+        openPortLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowser(
+            defaults: defaults
+        )
+
+        let hidesAllDetails = SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+        let showsNotificationMessageSetting = SidebarWorkspaceDetailSettings.showsNotificationMessage(
+            defaults: defaults
+        )
+        showsNotificationMessage = SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
+            showNotificationMessage: showsNotificationMessageSetting,
+            hideAllDetails: hidesAllDetails
+        )
+
+        let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: true)
+        let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: true)
+        let showsProgress = Self.bool(defaults: defaults, key: "sidebarShowProgress", defaultValue: true)
+        let showsBranchDirectory = Self.bool(defaults: defaults, key: "sidebarShowBranchDirectory", defaultValue: true)
+        let showsPullRequests = Self.bool(defaults: defaults, key: "sidebarShowPullRequest", defaultValue: true)
+        let showsPorts = Self.bool(defaults: defaults, key: "sidebarShowPorts", defaultValue: true)
+        visibleAuxiliaryDetails = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+            showMetadata: showsMetadata,
+            showLog: showsLog,
+            showProgress: showsProgress,
+            showBranchDirectory: showsBranchDirectory,
+            showPullRequests: showsPullRequests,
+            showPorts: showsPorts,
+            hideAllDetails: hidesAllDetails
+        )
+
+        activeTabIndicatorStyle = SidebarActiveTabIndicatorSettings.current(defaults: defaults)
+        selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
+        notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+    }
+
+    private static func bool(
+        defaults: UserDefaults,
+        key: String,
+        defaultValue: Bool
+    ) -> Bool {
+        guard defaults.object(forKey: key) != nil else { return defaultValue }
+        return defaults.bool(forKey: key)
+    }
+
+    private static func double(
+        defaults: UserDefaults,
+        key: String,
+        defaultValue: Double
+    ) -> Double {
+        guard let value = defaults.object(forKey: key) as? NSNumber else { return defaultValue }
+        return value.doubleValue
+    }
+}
+
+@MainActor
+private final class SidebarTabItemSettingsStore: ObservableObject {
+    @Published private(set) var snapshot: SidebarTabItemSettingsSnapshot
+
+    private let defaults: UserDefaults
+    private var defaultsObserver: NSObjectProtocol?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.snapshot = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshSnapshot()
+            }
+        }
+    }
+
+    deinit {
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+        }
+    }
+
+    private func refreshSnapshot() {
+        let nextSnapshot = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        guard nextSnapshot != snapshot else { return }
+        snapshot = nextSnapshot
+    }
+}
+
 struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let onSendFeedback: () -> Void
@@ -8498,12 +8629,9 @@ struct VerticalTabsSidebar: View {
     @StateObject private var modifierKeyMonitor = SidebarShortcutHintModifierMonitor()
     @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
+    @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore()
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
-    @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
-    private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
-    @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
-    private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultsKey)
@@ -8519,10 +8647,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private var showsSidebarNotificationMessage: Bool {
-        SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
-            showNotificationMessage: sidebarShowNotificationMessage,
-            hideAllDetails: sidebarHideAllDetails
-        )
+        tabItemSettingsStore.snapshot.showsNotificationMessage
     }
 
     private var workspaceNumberShortcut: StoredShortcut {
@@ -8541,9 +8666,22 @@ struct VerticalTabsSidebar: View {
     }
 
     var body: some View {
-        let workspaceCount = tabManager.tabs.count
+        let tabs = tabManager.tabs
+        let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
+        let tabItemSettings = tabItemSettingsStore.snapshot
+        let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
+            ($0.element.id, $0.offset)
+        })
+        let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
+        let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
+        let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
+        let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
+        let allSelectedRemoteContextMenuTargetsConnecting = !selectedRemoteContextMenuTargets.isEmpty &&
+            selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting }
+        let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
+            selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
 
         VStack(spacing: 0) {
             GeometryReader { proxy in
@@ -8554,14 +8692,21 @@ struct VerticalTabsSidebar: View {
                             .frame(height: trafficLightPadding)
 
                         LazyVStack(spacing: tabRowSpacing) {
-                            ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                                let selectedContextIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
-                                let contextTargetIds = tabManager.tabs.compactMap { workspace in
-                                    selectedContextIds.contains(workspace.id) ? workspace.id : nil
-                                }
-                                let remoteContextMenuTargets = tabManager.tabs.filter { workspace in
-                                    contextTargetIds.contains(workspace.id) && workspace.isRemoteWorkspace
-                                }
+                            ForEach(tabs, id: \.id) { tab in
+                                let index = tabIndexById[tab.id] ?? 0
+                                let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
+                                let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
+                                    ? selectedContextTargetIds
+                                    : [tab.id]
+                                let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
+                                    ? selectedRemoteContextMenuWorkspaceIds
+                                    : (tab.isRemoteWorkspace ? [tab.id] : [])
+                                let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
+                                    ? allSelectedRemoteContextMenuTargetsConnecting
+                                    : (tab.isRemoteWorkspace && tab.remoteConnectionState == .connecting)
+                                let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
+                                    ? allSelectedRemoteContextMenuTargetsDisconnected
+                                    : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
                                 TabItemView(
                                     tabManager: tabManager,
                                     notificationStore: notificationStore,
@@ -8593,9 +8738,11 @@ struct VerticalTabsSidebar: View {
                                     dragAutoScrollController: dragAutoScrollController,
                                     draggedTabId: $draggedTabId,
                                     dropIndicator: $dropIndicator,
-                                    remoteContextMenuWorkspaceIds: remoteContextMenuTargets.map(\.id),
-                                    allRemoteContextMenuTargetsConnecting: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting },
-                                    allRemoteContextMenuTargetsDisconnected: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+                                    contextMenuWorkspaceIds: contextMenuWorkspaceIds,
+                                    remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
+                                    allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
+                                    allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
+                                    settings: tabItemSettings
                                 )
                                 .equatable()
                             }
@@ -8648,6 +8795,9 @@ struct VerticalTabsSidebar: View {
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .background(SidebarBackdrop().ignoresSafeArea())
+        .overlay(alignment: .trailing) {
+            SidebarTrailingBorder()
+        }
         .background(
             WindowAccessor { window in
                 modifierKeyMonitor.setHostWindow(window)
@@ -10990,9 +11140,11 @@ private struct TabItemView: View, Equatable {
         lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
+        lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
-        lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected
+        lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
+        lhs.settings == rhs.settings
     }
 
     // Use plain references instead of @EnvironmentObject to avoid subscribing
@@ -11018,35 +11170,14 @@ private struct TabItemView: View, Equatable {
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var draggedTabId: UUID?
     @Binding var dropIndicator: SidebarDropIndicator?
+    let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
+    let settings: SidebarTabItemSettingsSnapshot
     @State private var workspaceObservationGeneration: UInt64 = 0
     @State private var isHovering = false
     @State private var rowHeight: CGFloat = 1
-    @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
-    @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
-    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
-    @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
-    @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
-    @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
-    @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
-    @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
-    @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
-    private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
-    @AppStorage(BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey)
-    private var openSidebarPortLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser
-    @AppStorage("sidebarShowSSH") private var sidebarShowSSH = true
-    @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
-    @AppStorage("sidebarShowLog") private var sidebarShowLog = true
-    @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
-    @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
-    @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
-    private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
-    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
-    private var activeTabIndicatorStyleRaw = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
-    @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
-    @AppStorage("sidebarNotificationBadgeColorHex") private var sidebarNotificationBadgeColorHex: String?
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -11056,8 +11187,52 @@ private struct TabItemView: View, Equatable {
         draggedTabId == tab.id
     }
 
+    private var sidebarShortcutHintXOffset: Double {
+        settings.sidebarShortcutHintXOffset
+    }
+
+    private var sidebarShortcutHintYOffset: Double {
+        settings.sidebarShortcutHintYOffset
+    }
+
+    private var alwaysShowShortcutHints: Bool {
+        settings.alwaysShowShortcutHints
+    }
+
+    private var sidebarShowGitBranch: Bool {
+        settings.showsGitBranch
+    }
+
+    private var sidebarBranchVerticalLayout: Bool {
+        settings.usesVerticalBranchLayout
+    }
+
+    private var sidebarShowGitBranchIcon: Bool {
+        settings.showsGitBranchIcon
+    }
+
+    private var sidebarShowSSH: Bool {
+        settings.showsSSH
+    }
+
     private var activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
-        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: activeTabIndicatorStyleRaw)
+        settings.activeTabIndicatorStyle
+    }
+
+    private var sidebarSelectionColorHex: String? {
+        settings.selectionColorHex
+    }
+
+    private var sidebarNotificationBadgeColorHex: String? {
+        settings.notificationBadgeColorHex
+    }
+
+    private var openSidebarPullRequestLinksInCmuxBrowser: Bool {
+        settings.openPullRequestLinksInCmuxBrowser
+    }
+
+    private var openSidebarPortLinksInCmuxBrowser: Bool {
+        settings.openPortLinksInCmuxBrowser
     }
 
     private var titleFontWeight: Font.Weight {
@@ -11224,15 +11399,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
-        SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
-            showMetadata: sidebarShowMetadata,
-            showLog: sidebarShowLog,
-            showProgress: sidebarShowProgress,
-            showBranchDirectory: sidebarShowBranchDirectory,
-            showPullRequests: sidebarShowPullRequest,
-            showPorts: sidebarShowPorts,
-            hideAllDetails: sidebarHideAllDetails
-        )
+        settings.visibleAuxiliaryDetails
     }
 
     var body: some View {
@@ -11650,7 +11817,7 @@ private struct TabItemView: View, Equatable {
 
     @ViewBuilder
     private var workspaceContextMenu: some View {
-        let targetIds = contextTargetIds()
+        let targetIds = contextMenuWorkspaceIds
         let isMulti = targetIds.count > 1
         let tabColorPalette = WorkspaceTabColorSettings.palette()
         let shouldPin = !tab.isPinned
@@ -11977,11 +12144,6 @@ private struct TabItemView: View, Equatable {
             )
         }
         setSelectionToTabs()
-    }
-
-    private func contextTargetIds() -> [UUID] {
-        let baseIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
-        return tabManager.tabs.compactMap { baseIds.contains($0.id) ? $0.id : nil }
     }
 
     private func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
@@ -13760,7 +13922,70 @@ private struct TitlebarLeadingInsetReader: NSViewRepresentable {
     }
 }
 
+/// 1px trailing border on the sidebar, derived from the terminal chrome background
+/// using the same logic as bonsplit's TabBarColors.nsColorSeparator:
+/// dark bg → lighten RGB by 0.16 at 0.36 alpha; light bg → darken by 0.12 at 0.26 alpha.
+private struct SidebarTrailingBorder: View {
+    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
+    @State private var separatorColor: NSColor = chromeSeparatorColor()
+
+    var body: some View {
+        if matchTerminalBackground {
+            Rectangle()
+                .fill(Color(nsColor: separatorColor))
+                .frame(width: 1)
+                .ignoresSafeArea()
+                .onAppear {
+                    separatorColor = Self.chromeSeparatorColor()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+                    separatorColor = Self.chromeSeparatorColor()
+                }
+        }
+    }
+
+    /// Replicates bonsplit TabBarColors.nsColorSeparator derivation from chrome background.
+    private static func chromeSeparatorColor() -> NSColor {
+        let chrome = GhosttyBackgroundTheme.currentColor()
+        let srgb = chrome.usingColorSpace(.sRGB) ?? chrome
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        srgb.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        let isLight = luminance > 0.5
+        let amount: CGFloat = isLight ? -0.12 : 0.16
+        let alpha: CGFloat = isLight ? 0.26 : 0.36
+        return NSColor(
+            red: min(1.0, max(0.0, r + amount)),
+            green: min(1.0, max(0.0, g + amount)),
+            blue: min(1.0, max(0.0, b + amount)),
+            alpha: alpha
+        )
+    }
+}
+
+/// Sidebar background that uses the same technique as TitlebarLayerBackground:
+/// fully opaque layer color + layer-level opacity. This matches how the terminal's
+/// Metal surface composites its background.
+private struct SidebarTerminalBackgroundView: NSViewRepresentable {
+    let backgroundColor: NSColor
+    let opacity: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
+        view.layer?.opacity = Float(opacity)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        nsView.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
+        nsView.layer?.opacity = Float(opacity)
+    }
+}
+
 private struct SidebarBackdrop: View {
+    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
@@ -13771,8 +13996,28 @@ private struct SidebarBackdrop: View {
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
     @Environment(\.colorScheme) private var colorScheme
+    @State private var terminalBackgroundColor: NSColor = GhosttyBackgroundTheme.currentColor()
 
     var body: some View {
+        let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
+
+        if matchTerminalBackground {
+            // The terminal area has two stacked semi-transparent layers (Bonsplit chrome +
+            // Ghostty Metal background). Compute the effective composited opacity to match.
+            let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
+            let effective = alpha >= 0.999 ? alpha : 1.0 - pow(1.0 - alpha, 2)
+            return AnyView(
+                SidebarTerminalBackgroundView(
+                    backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+                    opacity: effective
+                )
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+                    terminalBackgroundColor = GhosttyBackgroundTheme.currentColor()
+                }
+            )
+        }
+
         let materialOption = SidebarMaterialOption(rawValue: sidebarMaterial)
         let blendingMode = SidebarBlendModeOption(rawValue: sidebarBlendMode)?.mode ?? .behindWindow
         let state = SidebarStateOption(rawValue: sidebarState)?.state ?? .active
@@ -13785,33 +14030,34 @@ private struct SidebarBackdrop: View {
             return sidebarTintHex
         }()
         let tintColor = (NSColor(hex: resolvedHex) ?? NSColor(hex: sidebarTintHex) ?? .black).withAlphaComponent(sidebarTintOpacity)
-        let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
         let useLiquidGlass = materialOption?.usesLiquidGlass ?? false
         let useWindowLevelGlass = useLiquidGlass && blendingMode == .behindWindow
 
-        return ZStack {
-            if let material = materialOption?.material {
-                // When using liquidGlass + behindWindow, window handles glass + tint
-                // Sidebar is fully transparent
-                if !useWindowLevelGlass {
-                    SidebarVisualEffectBackground(
-                        material: material,
-                        blendingMode: blendingMode,
-                        state: state,
-                        opacity: sidebarBlurOpacity,
-                        tintColor: tintColor,
-                        cornerRadius: cornerRadius,
-                        preferLiquidGlass: useLiquidGlass
-                    )
-                    // Tint overlay for NSVisualEffectView fallback
-                    if !useLiquidGlass {
-                        Color(nsColor: tintColor)
+        return AnyView(
+            ZStack {
+                if let material = materialOption?.material {
+                    // When using liquidGlass + behindWindow, window handles glass + tint
+                    // Sidebar is fully transparent
+                    if !useWindowLevelGlass {
+                        SidebarVisualEffectBackground(
+                            material: material,
+                            blendingMode: blendingMode,
+                            state: state,
+                            opacity: sidebarBlurOpacity,
+                            tintColor: tintColor,
+                            cornerRadius: cornerRadius,
+                            preferLiquidGlass: useLiquidGlass
+                        )
+                        // Tint overlay for NSVisualEffectView fallback
+                        if !useLiquidGlass {
+                            Color(nsColor: tintColor)
+                        }
                     }
                 }
+                // When material is none or useWindowLevelGlass, render nothing
             }
-            // When material is none or useWindowLevelGlass, render nothing
-        }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        )
     }
 }
 

@@ -2863,6 +2863,7 @@ private struct AboutPanelView: View {
 }
 
 private struct SidebarDebugView: View {
+    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
@@ -2918,6 +2919,8 @@ private struct SidebarDebugView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Sidebar Appearance")
                     .font(.headline)
+
+                Toggle(String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), isOn: $matchTerminalBackground)
 
                 GroupBox("Presets") {
                     Picker("Preset", selection: $sidebarPreset) {
@@ -3920,6 +3923,7 @@ struct SettingsView: View {
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
+    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @State private var shortcutResetToken = UUID()
@@ -5076,6 +5080,18 @@ struct SettingsView: View {
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar Appearance"))
                     SettingsCard {
                         SettingsCardRow(
+                            String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"),
+                            subtitle: String(localized: "settings.sidebarAppearance.matchTerminalBackground.subtitle", defaultValue: "Use the same background color and transparency as the terminal.")
+                        ) {
+                            Toggle("", isOn: $sidebarMatchTerminalBackground)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             String(localized: "settings.sidebarAppearance.tintColorLight", defaultValue: "Light Mode Tint"),
                             subtitle: String(localized: "settings.sidebarAppearance.tintColorLight.subtitle", defaultValue: "Sidebar tint color when using light appearance.")
                         ) {
@@ -5843,6 +5859,7 @@ struct SettingsView: View {
         sidebarTintHexLight = nil
         sidebarTintHexDark = nil
         sidebarTintOpacity = SidebarTintDefaults.opacity
+        sidebarMatchTerminalBackground = false
         showOpenAccessConfirmation = false
         pendingOpenAccessMode = nil
         socketPasswordDraft = ""
