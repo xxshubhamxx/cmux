@@ -343,6 +343,9 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
             ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
         }
+        ghostty_surface_refresh(surface)
+        runtime?.tick()
+        ghostty_surface_draw(surface)
     }
 
     @objc

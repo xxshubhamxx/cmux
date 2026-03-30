@@ -75,15 +75,19 @@ final class TerminalRemoteDaemonSessionTransport: @unchecked Sendable, TerminalT
     }
 
     func connect(initialSize: TerminalGridSize) async throws {
+        NSLog("📱 SessionTransport: starting connect")
         let hello = try await client.sendHello()
+        NSLog("📱 SessionTransport: hello OK, capabilities=%@", hello.capabilities.joined(separator: ","))
         guard hello.capabilities.contains("terminal.stream") else {
             throw TerminalRemoteDaemonSessionTransportError.missingCapability("terminal.stream")
         }
 
         try await openOrAttachTerminal(initialSize: initialSize)
+        NSLog("📱 SessionTransport: terminal opened, sessionID=%@", lockedSessionID() ?? "nil")
 
         eventHandler?(.connected)
         startReadLoop()
+        NSLog("📱 SessionTransport: read loop started")
     }
 
     func send(_ data: Data) async throws {
@@ -200,6 +204,7 @@ final class TerminalRemoteDaemonSessionTransport: @unchecked Sendable, TerminalT
                 }
 
                 if result.eof {
+                    NSLog("📱 readLoop: EOF received for session %@, data=%d bytes", state.sessionID, result.data.count)
                     clearSessionState()
                     finishDisconnect(error: nil)
                     return
@@ -208,9 +213,11 @@ final class TerminalRemoteDaemonSessionTransport: @unchecked Sendable, TerminalT
                 if case .rpc(let code, _) = error, code == "deadline_exceeded" {
                     continue
                 }
+                NSLog("📱 readLoop RPC error: %@", error.localizedDescription ?? "unknown")
                 finishDisconnect(error: error.localizedDescription)
                 return
             } catch {
+                NSLog("📱 readLoop error: %@", String(describing: error))
                 finishDisconnect(error: error.localizedDescription)
                 return
             }
