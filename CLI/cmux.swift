@@ -9084,8 +9084,12 @@ struct CMUXCLI {
             let callerSurface = tmuxCallerSurfaceHandle()
             let canonicalCallerPane = callerPane.flatMap { try? tmuxCanonicalPaneId($0, workspaceId: resolved.workspaceId, client: client) }
             let paneMatch = callerPane != nil && (resolved.paneId == callerPane! || resolved.paneId == canonicalCallerPane)
-            let canonicalSurface = callerSurface.flatMap { try? tmuxCanonicalSurfaceId($0, workspaceId: resolved.workspaceId, client: client) }
-            if paneMatch, let surfaceId = canonicalSurface {
+            if paneMatch, let callerSurface {
+                let surfaceId = try tmuxCanonicalSurfaceId(
+                    callerSurface,
+                    workspaceId: resolved.workspaceId,
+                    client: client
+                )
                 return (resolved.workspaceId, resolved.paneId, surfaceId)
             }
             let surfaceId = try tmuxSelectedSurfaceId(
@@ -9099,8 +9103,12 @@ struct CMUXCLI {
         let workspaceId = try tmuxResolveWorkspaceTarget(tmuxWindowSelector(from: raw), client: client)
         if tmuxWindowSelector(from: raw) == nil,
            tmuxCallerWorkspaceHandle() == workspaceId,
-           let callerSurface = tmuxCallerSurfaceHandle(),
-           let surfaceId = try? tmuxCanonicalSurfaceId(callerSurface, workspaceId: workspaceId, client: client) {
+           let callerSurface = tmuxCallerSurfaceHandle() {
+            let surfaceId = try tmuxCanonicalSurfaceId(
+                callerSurface,
+                workspaceId: workspaceId,
+                client: client
+            )
             return (workspaceId, nil, surfaceId)
         }
         let surfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
@@ -9110,16 +9118,7 @@ struct CMUXCLI {
     private func tmuxAnchoredSplitTarget(
         workspaceId: String,
         client: SocketClient
-    ) -> (targetSurfaceId: String, callerSurfaceId: String, direction: String)? {
-        guard let callerSurface = tmuxCallerSurfaceHandle(),
-              let callerSurfaceId = try? tmuxCanonicalSurfaceId(
-                callerSurface,
-                workspaceId: workspaceId,
-                client: client
-              ) else {
-            return nil
-        }
-
+    ) -> (targetSurfaceId: String, callerSurfaceId: String?, direction: String)? {
         var store = loadTmuxCompatStore()
         if let lastColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId {
             if let lastColumnId = try? tmuxCanonicalSurfaceId(
@@ -9127,7 +9126,9 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 client: client
             ) {
-                return (lastColumnId, callerSurfaceId, "down")
+                // Once the agent column exists, keep stacking into it even if the
+                // caller surface handle has churned from a stale surface:<n> ref.
+                return (lastColumnId, nil, "down")
             }
 
             // Right-column anchors can outlive the pane they pointed at.
@@ -9135,6 +9136,15 @@ struct CMUXCLI {
             store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId = nil
             store.lastSplitSurface.removeValue(forKey: workspaceId)
             try? saveTmuxCompatStore(store)
+        }
+
+        guard let callerSurface = tmuxCallerSurfaceHandle(),
+              let callerSurfaceId = try? tmuxCanonicalSurfaceId(
+                callerSurface,
+                workspaceId: workspaceId,
+                client: client
+              ) else {
+            return nil
         }
 
         return (callerSurfaceId, callerSurfaceId, "right")
