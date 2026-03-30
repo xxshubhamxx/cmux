@@ -60,6 +60,10 @@ private extension WKWebView {
         }
     }
 
+    var browserPortalRequiresRenderingStateReattach: Bool {
+        browserPortalNeedsRenderingStateReattach
+    }
+
     func browserPortalNotifyHidden(reason: String) {
         browserPortalNeedsRenderingStateReattach = true
         let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
@@ -3493,13 +3497,15 @@ final class WindowBrowserPortal: NSObject {
         let hostedInspectorAdjustedDuringSync =
             containerOwnsWebView &&
             hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
+        let requiresRenderingStateReattach = webView.browserPortalRequiresRenderingStateReattach
         let presentationUpdateKind = HostedWebViewPresentationUpdateKind.resolve(
             reasons: refreshReasons
         )
         if !shouldHide, containerOwnsWebView, presentationUpdateKind != .none {
             if presentationUpdateKind == .refresh &&
                 hostedInspectorAdjustedDuringSync &&
-                !recoveredFromTransientGeometry {
+                !recoveredFromTransientGeometry &&
+                !requiresRenderingStateReattach {
 #if DEBUG
                 dlog(
                     "browser.portal.refresh.skip web=\(browserPortalDebugToken(webView)) " +
