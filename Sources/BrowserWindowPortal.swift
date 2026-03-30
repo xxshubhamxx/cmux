@@ -2060,6 +2060,8 @@ final class WindowBrowserPortal: NSObject {
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
     private var geometryObservers: [NSObjectProtocol] = []
+    // Keep generations monotonic even if a pending entry is cleared during hide/detach churn.
+    private var nextHostedWebViewRefreshGeneration: UInt64 = 0
     private var pendingHostedWebViewRefreshes: [ObjectIdentifier: PendingHostedWebViewRefresh] = [:]
 
     private struct Entry {
@@ -2551,10 +2553,11 @@ final class WindowBrowserPortal: NSObject {
         // Bind/reveal/fullscreen refreshes can stack up during a single layout churn.
         // Keep only the latest follow-up passes so reattach work does not pile up on
         // the main thread while browser panes are moving between hosts.
-        var pending = pendingHostedWebViewRefreshes[webViewId] ?? PendingHostedWebViewRefresh()
-        pending.generation &+= 1
-        let generation = pending.generation
         cancelPendingHostedWebViewRefreshes(for: webViewId, keepGeneration: true)
+        var pending = pendingHostedWebViewRefreshes[webViewId] ?? PendingHostedWebViewRefresh()
+        nextHostedWebViewRefreshGeneration &+= 1
+        let generation = nextHostedWebViewRefreshGeneration
+        pending.generation = generation
 
         runHostedWebViewRefreshPass(
             webView,
