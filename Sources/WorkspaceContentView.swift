@@ -1,7 +1,6 @@
 import SwiftUI
 import Foundation
 import AppKit
-import Bonsplit
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface

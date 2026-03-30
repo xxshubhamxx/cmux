@@ -1,7 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
 import Foundation
-import Bonsplit
 import WebKit
 
 extension Notification.Name {

@@ -38,6 +38,7 @@
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
 		A5001407 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001417 /* WorkspaceContentView.swift */; };
+		A5001700 /* WorkspaceSplitCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001701 /* WorkspaceSplitCompat.swift */; };
 			A5001093 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001090 /* AppDelegate.swift */; };
 			A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
 			A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
@@ -217,6 +218,7 @@
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
+		A5001701 /* WorkspaceSplitCompat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSplitCompat.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
 		A5001092 /* TerminalNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationStore.swift; sourceTree = "<group>"; };
@@ -424,6 +426,7 @@
 					A5001520 /* PostHogAnalytics.swift */,
 					A5001416 /* Workspace.swift */,
 				A5001417 /* WorkspaceContentView.swift */,
+				A5001701 /* WorkspaceSplitCompat.swift */,
 				A5001014 /* GhosttyConfig.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
 				A5001531 /* TerminalWindowPortal.swift */,
@@ -589,7 +592,6 @@
 					A5001231 /* Sparkle */,
 					A5001251 /* Sentry */,
 					A5001271 /* PostHog */,
-					A5001261 /* Bonsplit */,
 					A5001291 /* MarkdownUI */,
 				);
 			name = GhosttyTabs;
@@ -693,7 +695,6 @@
 					A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 					A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 					A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
-					A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
 				);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -724,6 +725,7 @@
 						A5001521 /* PostHogAnalytics.swift in Sources */,
 						A5001406 /* Workspace.swift in Sources */,
 				A5001407 /* WorkspaceContentView.swift in Sources */,
+				A5001700 /* WorkspaceSplitCompat.swift in Sources */,
 				A5001004 /* GhosttyConfig.swift in Sources */,
 				A5001005 /* GhosttyTerminalView.swift in Sources */,
 				A5001532 /* TerminalWindowPortal.swift in Sources */,
@@ -1148,10 +1150,6 @@
 					minimumVersion = 2.4.1;
 				};
 			};
-			A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
-				isa = XCLocalSwiftPackageReference;
-				relativePath = bonsplit;
-			};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1169,11 +1167,6 @@
 				isa = XCSwiftPackageProductDependency;
 				package = A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */;
 				productName = PostHog;
-			};
-			A5001261 /* Bonsplit */ = {
-				isa = XCSwiftPackageProductDependency;
-				package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
-				productName = Bonsplit;
 			};
 			A5001291 /* MarkdownUI */ = {
 				isa = XCSwiftPackageProductDependency;

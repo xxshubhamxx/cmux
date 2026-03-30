@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import Bonsplit
 import CoreServices
 import UserNotifications
 import Sentry

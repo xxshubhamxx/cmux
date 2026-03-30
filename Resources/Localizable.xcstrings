@@ -84813,6 +84813,23 @@
           }
         }
       }
+    },
+    "workspace.emptyPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace content unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの内容を表示できません"
+          }
+        }
+      }
     }
   }
 }

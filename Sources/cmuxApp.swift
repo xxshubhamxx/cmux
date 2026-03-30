@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import Darwin
-import Bonsplit
 import UniformTypeIdentifiers
 
 enum WorkspaceTitlebarSettings {
