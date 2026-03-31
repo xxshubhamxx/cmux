@@ -26,6 +26,9 @@ jobs:
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
+      - name: Validate CI skips zig Ghostty helper builds on macOS
+        run: ./tests/test_ci_skip_zig_build_guard.sh
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
@@ -77,6 +80,8 @@ jobs:
   tests:
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 30
+    env:
+      CMUX_SKIP_ZIG_BUILD: 1
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -241,6 +246,8 @@ jobs:
     # still run via test-e2e.yml on GitHub-hosted runners.
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
+    env:
+      CMUX_SKIP_ZIG_BUILD: 1
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -403,6 +410,8 @@ jobs:
   ui-regressions:
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 25
+    env:
+      CMUX_SKIP_ZIG_BUILD: 1
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
