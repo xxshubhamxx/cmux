@@ -41,6 +41,8 @@ final class TerminalWebSocketDaemonClient: Sendable {
             throw TerminalWebSocketTransportError.invalidURL
         }
 
+        NSLog("[WebSocket] Connecting to %@:%d", host, port)
+
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = timeoutSeconds
         let session = URLSession(configuration: config)
@@ -60,6 +62,7 @@ final class TerminalWebSocketDaemonClient: Sendable {
         case .data(let data):
             responseString = String(data: data, encoding: .utf8) ?? ""
         @unknown default:
+            session.invalidateAndCancel()
             throw TerminalWebSocketTransportError.unexpectedMessageType
         }
 
@@ -67,6 +70,7 @@ final class TerminalWebSocketDaemonClient: Sendable {
               let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               json["ok"] as? Bool == true else {
             let errorMessage = parseErrorMessage(from: responseString)
+            session.invalidateAndCancel()
             throw TerminalWebSocketTransportError.handshakeRejected(
                 errorMessage ?? String(
                     localized: "terminal.websocket.auth_failed",
@@ -75,7 +79,9 @@ final class TerminalWebSocketDaemonClient: Sendable {
             )
         }
 
-        return TerminalWebSocketLineTransport(webSocket: task)
+        NSLog("[WebSocket] Connection established to %@:%d", host, port)
+
+        return TerminalWebSocketLineTransport(session: session, webSocket: task)
     }
 
     private func parseErrorMessage(from response: String) -> String? {
@@ -91,9 +97,11 @@ final class TerminalWebSocketDaemonClient: Sendable {
 }
 
 actor TerminalWebSocketLineTransport: TerminalRemoteDaemonTransport {
+    private let session: URLSession
     private let webSocket: URLSessionWebSocketTask
 
-    init(webSocket: URLSessionWebSocketTask) {
+    init(session: URLSession, webSocket: URLSessionWebSocketTask) {
+        self.session = session
         self.webSocket = webSocket
     }
 
@@ -117,7 +125,9 @@ actor TerminalWebSocketLineTransport: TerminalRemoteDaemonTransport {
     }
 
     func cancel() {
+        NSLog("[WebSocket] Disconnecting, invalidating session")
         webSocket.cancel(with: .goingAway, reason: nil)
+        session.invalidateAndCancel()
     }
 }
 
@@ -173,6 +183,8 @@ final class TerminalWebSocketTransport: @unchecked Sendable, TerminalTransport {
             throw TerminalWebSocketTransportError.invalidURL
         }
 
+        NSLog("[WebSocket] Transport connecting to %@:%d session=%@", host.hostname, wsPort, sessionName)
+
         let daemonTransport = try await wsClient.connect(
             host: host.hostname,
             port: wsPort,
@@ -199,10 +211,13 @@ final class TerminalWebSocketTransport: @unchecked Sendable, TerminalTransport {
         do {
             try await transport.connect(initialSize: initialSize)
         } catch {
-            stateQueue.sync {
+            let line = stateQueue.sync { () -> TerminalWebSocketLineTransport? in
                 self.activeTransport = nil
+                let l = self.lineTransport
                 self.lineTransport = nil
+                return l
             }
+            await line?.cancel()
             throw error
         }
     }
@@ -218,6 +233,7 @@ final class TerminalWebSocketTransport: @unchecked Sendable, TerminalTransport {
     }
 
     func disconnect() async {
+        NSLog("[WebSocket] Transport disconnecting session=%@", sessionName)
         let (transport, line) = stateQueue.sync {
             let t = activeTransport
             let l = lineTransport
