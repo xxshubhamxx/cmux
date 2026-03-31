@@ -11155,20 +11155,21 @@ enum SidebarWorkspaceSelectionPolicy {
         let isShift = modifiers.contains(.shift)
         var nextSelectedWorkspaceIds = selectedWorkspaceIds
         var nextActiveWorkspaceId = clickedWorkspaceId
-        var nextAnchorIndex = clickedIndex
-        let hasSelectionAnchor = isShift &&
-            lastSelectionAnchorIndex.map(workspaceIds.indices.contains) == true
+        let validAnchorIndex = lastSelectionAnchorIndex.flatMap { index in
+            workspaceIds.indices.contains(index) ? index : nil
+        }
+        var nextAnchorIndex = validAnchorIndex ?? clickedIndex
 
-        if hasSelectionAnchor, let lastSelectionAnchorIndex {
-            let lower = min(lastSelectionAnchorIndex, clickedIndex)
-            let upper = max(lastSelectionAnchorIndex, clickedIndex)
+        if isShift, let validAnchorIndex {
+            let lower = min(validAnchorIndex, clickedIndex)
+            let upper = max(validAnchorIndex, clickedIndex)
             let rangeIds = workspaceIds[lower...upper]
             if isCommand {
                 nextSelectedWorkspaceIds.formUnion(rangeIds)
             } else {
                 nextSelectedWorkspaceIds = Set(rangeIds)
             }
-            nextAnchorIndex = lastSelectionAnchorIndex
+            nextAnchorIndex = validAnchorIndex
         } else if isCommand {
             if nextSelectedWorkspaceIds.contains(clickedWorkspaceId) {
                 if nextSelectedWorkspaceIds.count == 1 {
@@ -11188,6 +11189,7 @@ enum SidebarWorkspaceSelectionPolicy {
             }
         } else {
             nextSelectedWorkspaceIds = [clickedWorkspaceId]
+            nextAnchorIndex = clickedIndex
         }
 
         return SidebarWorkspaceSelectionUpdate(
