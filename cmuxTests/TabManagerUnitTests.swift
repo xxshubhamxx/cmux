@@ -1043,6 +1043,32 @@ final class SidebarWorkspaceSelectionPolicyTests: XCTestCase {
         )
     }
 
+    private func applyCommandClickSequence(
+        workspaceIds: [UUID],
+        initialSelectedWorkspaceIds: Set<UUID>,
+        initialAnchorIndex: Int?,
+        clickedIndexes: [Int]
+    ) throws -> [SidebarWorkspaceSelectionUpdate] {
+        var selectedWorkspaceIds = initialSelectedWorkspaceIds
+        var anchorIndex = initialAnchorIndex
+        var updates: [SidebarWorkspaceSelectionUpdate] = []
+
+        for clickedIndex in clickedIndexes {
+            let result = try update(
+                workspaceIds: workspaceIds,
+                selectedWorkspaceIds: selectedWorkspaceIds,
+                lastSelectionAnchorIndex: anchorIndex,
+                clickedIndex: clickedIndex,
+                modifiers: [.command]
+            )
+            updates.append(result)
+            selectedWorkspaceIds = result.selectedWorkspaceIds
+            anchorIndex = result.nextAnchorIndex
+        }
+
+        return updates
+    }
+
     func testPlainClickReplacesExistingSelectionAndMovesAnchor() throws {
         let workspaceIds = makeWorkspaceIds()
 
@@ -1130,6 +1156,39 @@ final class SidebarWorkspaceSelectionPolicyTests: XCTestCase {
         )
         XCTAssertEqual(result.nextActiveWorkspaceId, workspaceIds[4])
         XCTAssertEqual(result.nextAnchorIndex, 4)
+    }
+
+    func testRepeatedCommandClicksAccumulateDifferentWorkspaces() throws {
+        let workspaceIds = makeWorkspaceIds()
+
+        let updates = try applyCommandClickSequence(
+            workspaceIds: workspaceIds,
+            initialSelectedWorkspaceIds: Set([workspaceIds[0]]),
+            initialAnchorIndex: 0,
+            clickedIndexes: [2, 4, 1]
+        )
+
+        XCTAssertEqual(updates.count, 3)
+        XCTAssertEqual(updates[0].selectedWorkspaceIds, Set([workspaceIds[0], workspaceIds[2]]))
+        XCTAssertEqual(updates[1].selectedWorkspaceIds, Set([workspaceIds[0], workspaceIds[2], workspaceIds[4]]))
+        XCTAssertEqual(
+            updates[2].selectedWorkspaceIds,
+            Set([workspaceIds[0], workspaceIds[1], workspaceIds[2], workspaceIds[4]])
+        )
+    }
+
+    func testRepeatedCommandClicksMoveFocusAndAnchorToEachClickedWorkspace() throws {
+        let workspaceIds = makeWorkspaceIds()
+
+        let updates = try applyCommandClickSequence(
+            workspaceIds: workspaceIds,
+            initialSelectedWorkspaceIds: Set([workspaceIds[0]]),
+            initialAnchorIndex: 0,
+            clickedIndexes: [3, 1, 4]
+        )
+
+        XCTAssertEqual(updates.map(\.nextActiveWorkspaceId), [workspaceIds[3], workspaceIds[1], workspaceIds[4]])
+        XCTAssertEqual(updates.map(\.nextAnchorIndex), [3, 1, 4])
     }
 
     func testCommandShiftClickUnionsContiguousRangeIntoExistingSelection() throws {
