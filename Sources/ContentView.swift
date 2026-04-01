@@ -8744,109 +8744,118 @@ struct VerticalTabsSidebar: View {
 
         VStack(spacing: 0) {
             GeometryReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        // Space for traffic lights / fullscreen controls
-                        Spacer()
-                            .frame(height: trafficLightPadding)
+                ScrollViewReader { scrollProxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            // Space for traffic lights / fullscreen controls
+                            Spacer()
+                                .frame(height: trafficLightPadding)
 
-                        LazyVStack(spacing: tabRowSpacing) {
-                            ForEach(tabs, id: \.id) { tab in
-                                let index = tabIndexById[tab.id] ?? 0
-                                let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
-                                let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
-                                    ? selectedContextTargetIds
-                                    : [tab.id]
-                                let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
-                                    ? selectedRemoteContextMenuWorkspaceIds
-                                    : (tab.isRemoteWorkspace ? [tab.id] : [])
-                                let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
-                                    ? allSelectedRemoteContextMenuTargetsConnecting
-                                    : (tab.isRemoteWorkspace && tab.remoteConnectionState == .connecting)
-                                let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
-                                    ? allSelectedRemoteContextMenuTargetsDisconnected
-                                    : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
-                                TabItemView(
-                                    tabManager: tabManager,
-                                    notificationStore: notificationStore,
-                                    tab: tab,
-                                    index: index,
-                                    isActive: tabManager.selectedTabId == tab.id,
-                                    workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                                        at: index,
-                                        workspaceCount: workspaceCount
-                                    ),
-                                    workspaceShortcutModifierSymbol: workspaceNumberShortcut.modifierDisplayString,
-                                    canCloseWorkspace: canCloseWorkspace,
-                                    accessibilityWorkspaceCount: workspaceCount,
-                                    unreadCount: notificationStore.unreadCount(forTabId: tab.id),
-                                    latestNotificationText: {
-                                        guard showsSidebarNotificationMessage,
-                                              let notification = notificationStore.latestNotification(forTabId: tab.id) else {
-                                            return nil
-                                        }
-                                        let text = notification.body.isEmpty ? notification.title : notification.body
-                                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        return trimmed.isEmpty ? nil : trimmed
-                                    }(),
-                                    rowSpacing: tabRowSpacing,
-                                    setSelectionToTabs: { selection = .tabs },
-                                    selectedTabIds: $selectedTabIds,
-                                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                                    showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
-                                    dragAutoScrollController: dragAutoScrollController,
-                                    draggedTabId: $draggedTabId,
-                                    dropIndicator: $dropIndicator,
-                                    contextMenuWorkspaceIds: contextMenuWorkspaceIds,
-                                    remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
-                                    allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
-                                    allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
-                                    settings: tabItemSettings
-                                )
-                                .equatable()
+                            LazyVStack(spacing: tabRowSpacing) {
+                                ForEach(tabs, id: \.id) { tab in
+                                    let index = tabIndexById[tab.id] ?? 0
+                                    let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
+                                    let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
+                                        ? selectedContextTargetIds
+                                        : [tab.id]
+                                    let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
+                                        ? selectedRemoteContextMenuWorkspaceIds
+                                        : (tab.isRemoteWorkspace ? [tab.id] : [])
+                                    let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
+                                        ? allSelectedRemoteContextMenuTargetsConnecting
+                                        : (tab.isRemoteWorkspace && tab.remoteConnectionState == .connecting)
+                                    let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
+                                        ? allSelectedRemoteContextMenuTargetsDisconnected
+                                        : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
+                                    TabItemView(
+                                        tabManager: tabManager,
+                                        notificationStore: notificationStore,
+                                        tab: tab,
+                                        index: index,
+                                        isActive: tabManager.selectedTabId == tab.id,
+                                        workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
+                                            at: index,
+                                            workspaceCount: workspaceCount
+                                        ),
+                                        workspaceShortcutModifierSymbol: workspaceNumberShortcut.modifierDisplayString,
+                                        canCloseWorkspace: canCloseWorkspace,
+                                        accessibilityWorkspaceCount: workspaceCount,
+                                        unreadCount: notificationStore.unreadCount(forTabId: tab.id),
+                                        latestNotificationText: {
+                                            guard showsSidebarNotificationMessage,
+                                                  let notification = notificationStore.latestNotification(forTabId: tab.id) else {
+                                                return nil
+                                            }
+                                            let text = notification.body.isEmpty ? notification.title : notification.body
+                                            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                            return trimmed.isEmpty ? nil : trimmed
+                                        }(),
+                                        rowSpacing: tabRowSpacing,
+                                        setSelectionToTabs: { selection = .tabs },
+                                        selectedTabIds: $selectedTabIds,
+                                        lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                                        showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
+                                        dragAutoScrollController: dragAutoScrollController,
+                                        draggedTabId: $draggedTabId,
+                                        dropIndicator: $dropIndicator,
+                                        contextMenuWorkspaceIds: contextMenuWorkspaceIds,
+                                        remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
+                                        allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
+                                        allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
+                                        settings: tabItemSettings
+                                    )
+                                    .equatable()
+                                    .id(tab.id)
+                                }
                             }
-                        }
-                        .padding(.vertical, 8)
+                            .padding(.vertical, 8)
 
-                        SidebarEmptyArea(
-                            rowSpacing: tabRowSpacing,
-                            selection: $selection,
-                            selectedTabIds: $selectedTabIds,
-                            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                            dragAutoScrollController: dragAutoScrollController,
-                            draggedTabId: $draggedTabId,
-                            dropIndicator: $dropIndicator
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            SidebarEmptyArea(
+                                rowSpacing: tabRowSpacing,
+                                selection: $selection,
+                                selectedTabIds: $selectedTabIds,
+                                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                                dragAutoScrollController: dragAutoScrollController,
+                                draggedTabId: $draggedTabId,
+                                dropIndicator: $dropIndicator
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        .frame(minHeight: proxy.size.height, alignment: .top)
                     }
-                    .frame(minHeight: proxy.size.height, alignment: .top)
-                }
-                .background(
-                    SidebarScrollViewResolver { scrollView in
-                        dragAutoScrollController.attach(scrollView: scrollView)
+                    .background(
+                        SidebarScrollViewResolver { scrollView in
+                            dragAutoScrollController.attach(scrollView: scrollView)
+                        }
+                        .frame(width: 0, height: 0)
+                    )
+                    .overlay(alignment: .top) {
+                        SidebarTopScrim(height: trafficLightPadding + 20)
+                            .allowsHitTesting(false)
                     }
-                    .frame(width: 0, height: 0)
-                )
-                .overlay(alignment: .top) {
-                    SidebarTopScrim(height: trafficLightPadding + 20)
-                        .allowsHitTesting(false)
-                }
-                .overlay(alignment: .top) {
-                    // Match native titlebar behavior in the sidebar top strip:
-                    // drag-to-move and double-click action (zoom/minimize).
-                    WindowDragHandleView()
-                        .frame(height: trafficLightPadding)
-                        .background(TitlebarDoubleClickMonitorView())
-                }
-                .overlay(alignment: .topLeading) {
-                    if isMinimalMode {
-                        HiddenTitlebarSidebarControlsView(notificationStore: notificationStore)
-                            .padding(.leading, hiddenTitlebarControlsLeadingInset)
-                            .padding(.top, 2)
+                    .overlay(alignment: .top) {
+                        // Match native titlebar behavior in the sidebar top strip:
+                        // drag-to-move and double-click action (zoom/minimize).
+                        WindowDragHandleView()
+                            .frame(height: trafficLightPadding)
+                            .background(TitlebarDoubleClickMonitorView())
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if isMinimalMode {
+                            HiddenTitlebarSidebarControlsView(notificationStore: notificationStore)
+                                .padding(.leading, hiddenTitlebarControlsLeadingInset)
+                                .padding(.top, 2)
+                        }
+                    }
+                    .background(Color.clear)
+                    .modifier(ClearScrollBackground())
+                    .onAppear {
+                        revealSelectedWorkspace(using: scrollProxy, animated: false)
+                    }
+                    .onChange(of: tabManager.selectedTabId) { _ in
+                        revealSelectedWorkspace(using: scrollProxy)
                     }
                 }
-                .background(Color.clear)
-                .modifier(ClearScrollBackground())
             }
             SidebarFooter(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -8915,6 +8924,22 @@ struct VerticalTabsSidebar: View {
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
+    }
+
+    private func revealSelectedWorkspace(
+        using scrollProxy: ScrollViewProxy,
+        animated: Bool = true
+    ) {
+        guard let selectedWorkspaceId = tabManager.selectedTabId else { return }
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.easeInOut(duration: 0.14)) {
+                    scrollProxy.scrollTo(selectedWorkspaceId)
+                }
+            } else {
+                scrollProxy.scrollTo(selectedWorkspaceId)
+            }
+        }
     }
 }
 
