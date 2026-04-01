@@ -52,10 +52,7 @@ final class WorkspaceDescriptionUITests: XCTestCase {
             waitForNonExistence(editor, timeout: 5.0),
             "Expected Enter to save and dismiss the workspace description editor"
         )
-        XCTAssertTrue(
-            app.staticTexts[description].firstMatch.waitForExistence(timeout: 5.0),
-            "Expected immediate typing to save the workspace description into the sidebar"
-        )
+        assertSavedDescription(description, in: app)
     }
 
     func testClickingDescriptionEditorAllowsTypingAndSave() {
@@ -80,10 +77,7 @@ final class WorkspaceDescriptionUITests: XCTestCase {
             waitForNonExistence(editor, timeout: 5.0),
             "Expected Enter to save and dismiss the workspace description editor after clicking"
         )
-        XCTAssertTrue(
-            app.staticTexts[description].firstMatch.waitForExistence(timeout: 5.0),
-            "Expected clicking the description editor to allow typing and save the workspace description"
-        )
+        assertSavedDescription(description, in: app)
     }
 
     private func configuredApp() -> XCUIApplication {
@@ -136,6 +130,27 @@ final class WorkspaceDescriptionUITests: XCTestCase {
             return app.textViews["CommandPaletteWorkspaceDescriptionEditor"].firstMatch
         }
         return editor
+    }
+
+    private func assertSavedDescription(_ description: String, in app: XCUIApplication) {
+        app.typeKey("e", modifierFlags: [.command, .shift])
+
+        let editor = requireDescriptionEditor(
+            in: app,
+            timeout: 5.0,
+            failureMessage: "Expected Cmd+Shift+E to reopen the workspace description editor for verification"
+        )
+
+        XCTAssertTrue(
+            waitForEditorValue(editor, expected: description, timeout: 5.0),
+            "Expected the saved workspace description to be restored when reopening the editor. value=\(String(describing: editor.value))"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForNonExistence(editor, timeout: 5.0),
+            "Expected Escape to dismiss the workspace description editor after verification"
+        )
     }
 
     private func clickDescriptionEditor(_ editor: XCUIElement, in app: XCUIApplication) {
@@ -203,6 +218,15 @@ final class WorkspaceDescriptionUITests: XCTestCase {
         let predicate = NSPredicate(format: "exists == false")
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForEditorValue(_ editor: XCUIElement, expected: String, timeout: TimeInterval) -> Bool {
+        workspaceDescriptionPollUntil(timeout: timeout) {
+            guard editor.exists else { return false }
+            let value = (editor.value as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return value == expected
+        }
     }
 
     private func loadData() -> [String: String]? {
