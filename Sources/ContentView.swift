@@ -13453,7 +13453,10 @@ private struct SidebarBonsplitWorkspaceDropDelegate: DropDelegate {
 
     func validateDrop(info: DropInfo) -> Bool {
         guard info.hasItemsConforming(to: [BonsplitTabDragPayload.typeIdentifier]) else { return false }
-        guard BonsplitTabDragPayload.currentTransfer() != nil else { return false }
+        // The live drag pasteboard can report the bonsplit UTI before the
+        // payload is synchronously decodable. Allow hover feedback based on
+        // type plus insertion legality, and require the full transfer only
+        // when the drop is committed.
         return plannedTargetIndex(for: info) != nil
     }
 
