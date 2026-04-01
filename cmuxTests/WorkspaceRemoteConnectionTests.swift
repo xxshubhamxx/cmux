@@ -2146,4 +2146,42 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             "Stale env surface should not win inside tmux, saw \(state.commands)"
         )
     }
+
+    func testDockerSandboxRunCommandBuildsExpectedRemoteInvocation() {
+        let cli = CMUXCLI(args: ["cmux"])
+        let options = CMUXCLI.SSHDockerSandboxOptions(
+            workspacePath: "~/src/cmux",
+            name: "cmux-dev",
+            mounts: ["~/docs/cmux:ro", "./notes"],
+            shellArguments: ["-lc", "echo hi"]
+        )
+
+        let command = cli.buildDockerSandboxRunCommand(options)
+
+        XCTAssertEqual(
+            command,
+            "docker sandbox run --name cmux-dev shell \"$HOME\"/'src/cmux' \"$HOME\"/'docs/cmux':ro ./notes -- -lc 'echo hi'"
+        )
+    }
+
+    func testDockerSandboxBootstrapCreatesWritablePathsAndSkipsReadonlyMounts() {
+        let cli = CMUXCLI(args: ["cmux"])
+        let options = CMUXCLI.SSHDockerSandboxOptions(
+            workspacePath: "~/src/cmux",
+            name: nil,
+            mounts: ["~/docs/cmux:ro", "./notes"],
+            shellArguments: []
+        )
+
+        let script = cli.buildDockerSandboxRemoteBootstrapScript(options)
+
+        XCTAssertTrue(script.contains("docker sandbox ls"))
+        XCTAssertTrue(script.contains("mkdir -p -- \"$HOME\"/'src/cmux' || exit $?"), script)
+        XCTAssertTrue(script.contains("mkdir -p -- ./notes || exit $?"), script)
+        XCTAssertFalse(script.contains("mkdir -p -- \"$HOME\"/'docs/cmux':ro"), script)
+        XCTAssertTrue(
+            script.contains("exec docker sandbox run shell \"$HOME\"/'src/cmux' \"$HOME\"/'docs/cmux':ro ./notes"),
+            script
+        )
+    }
 }
