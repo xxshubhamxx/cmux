@@ -460,10 +460,10 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
-    func testTrackedWorkspaceGitMetadataPollCandidatesIncludeProbeableDirectoriesWithoutExistingBranchState() throws {
+    func testTrackedWorkspaceGitMetadataPollCandidatesExcludeDirectoriesWithoutResolvedGitMetadata() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-git-candidate-dir-\(UUID().uuidString)",
+            "cmux-git-nonrepo-candidate-\(UUID().uuidString)",
             isDirectory: true
         )
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -476,17 +476,14 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             return
         }
 
-        workspace.currentDirectory = directoryURL.path
-        guard let splitPanel = workspace.newTerminalSplit(from: panelId, orientation: .horizontal, focus: false) else {
-            XCTFail("Expected split terminal panel to be created")
-            return
-        }
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: directoryURL.path)
 
-        let expectedCandidates: Set<UUID> = [panelId, splitPanel.id]
         XCTAssertTrue(
             waitForCondition {
-                manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id)
-                    == expectedCandidates
+                manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty &&
+                    manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id)
+                    .isEmpty &&
+                    workspace.panelGitBranches[panelId] == nil
             }
         )
     }
@@ -557,8 +554,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             return
         }
 
-        workspace.updatePanelDirectory(panelId: panelId, directory: repoURL.path)
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+        manager.updateSurfaceGitBranch(tabId: workspace.id, surfaceId: panelId, branch: "main", isDirty: false)
 
         XCTAssertEqual(
             manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
@@ -604,9 +601,9 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             return
         }
 
-        workspace.updatePanelDirectory(panelId: panelId, directory: repoURL.path)
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
-        workspace.clearPanelGitBranch(panelId: panelId)
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+        manager.updateSurfaceGitBranch(tabId: workspace.id, surfaceId: panelId, branch: "main", isDirty: false)
+        manager.clearSurfaceGitBranch(tabId: workspace.id, surfaceId: panelId)
 
         XCTAssertNil(workspace.panelGitBranches[panelId])
 
@@ -618,6 +615,47 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             }
         )
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["main"])
+    }
+
+    func testRemoteSplitSkipsInitialGitMetadataProbe() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty
+            }
+        )
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+
+        guard let splitPanel = workspace.newTerminalSplit(from: panelId, orientation: .horizontal, focus: false) else {
+            XCTFail("Expected remote split terminal panel to be created")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(splitPanel.id))
+        XCTAssertEqual(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id), Set<UUID>())
     }
 
     func testResolvedCommandPathFallsBackOutsideAppPATH() throws {
