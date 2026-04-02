@@ -5632,6 +5632,14 @@ final class Workspace: Identifiable, ObservableObject {
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
     }()
 
+    lazy var sidebarSummaryObservationPublisher: AnyPublisher<Void, Never> = {
+        sidebarObservationPublisher
+    }()
+
+    lazy var sidebarDetailObservationPublisher: AnyPublisher<Void, Never> = {
+        sidebarObservationPublisher
+    }()
+
     private static func isProxyOnlyRemoteError(_ detail: String) -> Bool {
         let lowered = detail.lowercased()
         return lowered.contains("remote proxy")
