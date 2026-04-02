@@ -13908,6 +13908,8 @@ private struct SidebarWorkspaceDescriptionText: View {
         .multilineTextAlignment(.leading)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("SidebarWorkspaceDescriptionText")
+        .accessibilityLabel(accessibilityText)
         .onAppear(perform: renderMarkdown)
         .onChange(of: markdown) { _ in
             renderMarkdown()
@@ -13916,6 +13918,13 @@ private struct SidebarWorkspaceDescriptionText: View {
 
     private var foregroundColor: Color {
         isActive ? .white.opacity(0.84) : .secondary.opacity(0.95)
+    }
+
+    private var accessibilityText: String {
+        if let renderedMarkdown {
+            return String(renderedMarkdown.characters)
+        }
+        return markdown
     }
 
     private func renderMarkdown() {
