@@ -3389,7 +3389,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) ?? ""
             let renderedTokenCount = max(0, visibleText.components(separatedBy: displayToken).count - 1)
             let hasRenderedToken = renderedTokenCount >= 6
-            if hasRenderedToken, tokenPointPayload == nil {
+            if hasRenderedToken,
+               (tokenPointPayload?["tokenLayoutMatch"] as? String) != "1" {
                 tokenPointPayload = tokenPoints(in: terminalPanel, visibleText: visibleText)
             }
             let tokenLayoutReady = (tokenPointPayload?["tokenLayoutMatch"] as? String) == "1"
