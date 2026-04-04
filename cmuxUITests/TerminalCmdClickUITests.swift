@@ -2,6 +2,11 @@ import XCTest
 import Foundation
 
 final class TerminalCmdClickUITests: XCTestCase {
+    private enum DisplayMode: String {
+        case escaped
+        case raw
+    }
+
     private struct SetupData {
         let expectedPath: String
     }
@@ -82,7 +87,11 @@ final class TerminalCmdClickUITests: XCTestCase {
     }
 
     func testCmdClickEscapedPathWithSpacesOpensResolvedFile() throws {
-        let app = launchApp(captureOpenPaths: true, captureHoverDiagnostics: false)
+        let app = launchApp(
+            displayMode: .escaped,
+            captureOpenPaths: true,
+            captureHoverDiagnostics: false
+        )
         defer { app.terminate() }
 
         let fileName = "Cmd Click Fixture.txt"
@@ -114,7 +123,48 @@ final class TerminalCmdClickUITests: XCTestCase {
         )
     }
 
-    private func launchApp(captureOpenPaths: Bool, captureHoverDiagnostics: Bool) -> XCUIApplication {
+    func testCmdClickRawLsStylePathWithSpacesOpensResolvedFile() throws {
+        let app = launchApp(
+            displayMode: .raw,
+            captureOpenPaths: true,
+            captureHoverDiagnostics: false
+        )
+        defer { app.terminate() }
+
+        let fileName = "Cmd Click Fixture.txt"
+        let setup = try waitForReadySetup()
+        let expectedPath = fixtureDirectoryURL.appendingPathComponent(fileName).path
+
+        XCTAssertEqual(setup.expectedPath, expectedPath)
+
+        let result = try runCommand(action: "cmd_click_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected cmd-click harness to open the raw-space path. result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandOpenedPath"] as? String,
+            expectedPath,
+            "Expected cmd-click to resolve the raw-space path to the real file. result=\(result)"
+        )
+
+        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+            XCTFail("Expected cmd-click capture log after running the raw-space command harness. result=\(result)")
+            return
+        }
+
+        XCTAssertTrue(
+            openedPaths.contains(expectedPath),
+            "Expected cmd-click to resolve the raw-space path to the real file. opened=\(openedPaths) expected=\(expectedPath)"
+        )
+    }
+
+    private func launchApp(
+        displayMode: DisplayMode = .escaped,
+        captureOpenPaths: Bool,
+        captureHoverDiagnostics: Bool
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_TAG"] = "ui-test-terminal-cmd-click"
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
@@ -123,6 +173,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_COMMAND_PATH"] = commandPath
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_FIXTURE_DIR"] = fixtureDirectoryURL.path
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_FILE_NAME"] = "Cmd Click Fixture.txt"
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_MODE"] = displayMode.rawValue
         if captureOpenPaths {
             app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_PATH"] = openCapturePath
         }
@@ -130,7 +181,6 @@ final class TerminalCmdClickUITests: XCTestCase {
             app.launchEnvironment["CMUX_UI_TEST_CMD_HOVER_DIAGNOSTICS_PATH"] = hoverDiagnosticsPath
         }
         launchAndEnsureForeground(app)
-        app.activate()
         return app
     }
 
@@ -230,9 +280,19 @@ final class TerminalCmdClickUITests: XCTestCase {
             app.launch()
         }
 
-        if app.state == .runningForeground { return }
-        if app.state == .runningBackground { return }
-        XCTFail("App failed to start. state=\(app.state.rawValue)")
+        guard app.state == .runningForeground || app.state == .runningBackground else {
+            XCTFail("App failed to start. state=\(app.state.rawValue)")
+            return
+        }
+
+        app.activate()
+        let foregrounded = waitForCondition(timeout: timeout) {
+            app.state == .runningForeground || app.windows.firstMatch.exists
+        }
+        XCTAssertTrue(
+            foregrounded,
+            "Expected app activation before driving cmd-key harness. state=\(app.state.rawValue)"
+        )
     }
 
     private func waitForCondition(

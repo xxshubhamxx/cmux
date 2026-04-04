@@ -2997,15 +2997,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let commandPath = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_COMMAND_PATH"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayMode = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_MODE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         let fileName = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_FILE_NAME"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedFileName = (fileName?.isEmpty == false) ? fileName! : "Cmd Click Fixture.txt"
         let fixtureDirectoryURL = URL(fileURLWithPath: fixtureDirectory, isDirectory: true)
         let expectedFileURL = fixtureDirectoryURL.appendingPathComponent(resolvedFileName)
+        let siblingFileURL = fixtureDirectoryURL.appendingPathComponent("OtherFile")
         let escapedToken = resolvedFileName.replacingOccurrences(of: " ", with: "\\ ")
-        let blockLine = Array(repeating: escapedToken, count: 3).joined(separator: " ")
-        let shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(blockLine)'; done\r"
+        let resolvedDisplayMode = (displayMode == "raw") ? "raw" : "escaped"
+        let displayToken: String
+        let shellCommand: String
+        switch resolvedDisplayMode {
+        case "raw":
+            displayToken = resolvedFileName
+            let blockLine = "\(resolvedFileName)    OtherFile"
+            shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(blockLine)'; done\r"
+        default:
+            displayToken = escapedToken
+            let blockLine = Array(repeating: escapedToken, count: 3).joined(separator: " ")
+            shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(blockLine)'; done\r"
+        }
         let deadline = Date().addingTimeInterval((commandPath?.isEmpty == false) ? 60.0 : 20.0)
         var seeded = false
         var resolved = false
@@ -3093,7 +3107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 var searchStart = line.startIndex
                 var ranges: [Range<String.Index>] = []
                 while searchStart < line.endIndex,
-                      let range = line.range(of: escapedToken, range: searchStart..<line.endIndex) {
+                      let range = line.range(of: displayToken, range: searchStart..<line.endIndex) {
                     ranges.append(range)
                     searchStart = range.upperBound
                 }
@@ -3140,7 +3154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "tokenHitPointInTerminal": pointPayload(x: hitX, yFromTop: yFromTop),
                 "tokenSelectionStartInTerminal": pointPayload(x: startX, yFromTop: yFromTop),
                 "tokenSelectionEndInTerminal": pointPayload(x: endX, yFromTop: yFromTop),
-                "tokenQuicklookWord": escapedToken,
+                "tokenQuicklookWord": displayToken,
                 "tokenLayoutMatch": "1",
                 "tokenCellMetrics": [
                     "cellWidth": cellWidth,
@@ -3177,6 +3191,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             var payload: [String: Any] = [
                 "ready": ready ? "1" : "0",
                 "escapedToken": escapedToken,
+                "displayMode": resolvedDisplayMode,
+                "displayToken": displayToken,
                 "fileName": resolvedFileName,
                 "expectedPath": expectedFileURL.path,
                 "fixtureDirectory": fixtureDirectoryURL.path
@@ -3298,15 +3314,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         @MainActor
         func evaluate() {
             guard !resolved else { return }
+            let workspace = currentTabManager.selectedWorkspace ?? currentTabManager.tabs.first
+            let terminalPanel = workspace?.focusedTerminalPanel
+            let mainWindow = terminalPanel?.hostedView.window
+                ?? self.windowId(for: currentTabManager).flatMap { self.mainWindow(for: $0) }
             if Date() >= deadline {
-                let textSnapshot = tabManager?.selectedWorkspace?.focusedTerminalPanel
+                let textSnapshot = terminalPanel
                     .flatMap { TerminalController.shared.readTerminalTextForSnapshot(terminalPanel: $0, lineLimit: 200) } ?? ""
                 writeState(
-                    terminalPanel: tabManager?.selectedWorkspace?.focusedTerminalPanel,
-                    window: NSApp.windows.first(where: { window in
-                        guard let raw = window.identifier?.rawValue else { return false }
-                        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-                    }),
+                    terminalPanel: terminalPanel,
+                    window: mainWindow,
                     ready: false,
                     setupError: "Timed out waiting for terminal cmd-click setup. text=\(textSnapshot)"
                 )
@@ -3315,13 +3332,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            guard let tabManager = self.tabManager,
-                  let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first,
-                  let terminalPanel = workspace.focusedTerminalPanel,
-                  let mainWindow = NSApp.windows.first(where: { window in
-                      guard let raw = window.identifier?.rawValue else { return false }
-                      return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-                  }) else {
+            guard let workspace,
+                  let terminalPanel,
+                  let mainWindow else {
                 return
             }
 
@@ -3337,6 +3350,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if !FileManager.default.fileExists(atPath: expectedFileURL.path) {
                     try "fixture\n".write(to: expectedFileURL, atomically: true, encoding: .utf8)
+                }
+                if !FileManager.default.fileExists(atPath: siblingFileURL.path) {
+                    try "fixture\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
                 }
             } catch {
                 writeState(
@@ -3371,7 +3387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 terminalPanel: terminalPanel,
                 lineLimit: 200
             ) ?? ""
-            let renderedTokenCount = max(0, visibleText.components(separatedBy: escapedToken).count - 1)
+            let renderedTokenCount = max(0, visibleText.components(separatedBy: displayToken).count - 1)
             let hasRenderedToken = renderedTokenCount >= 6
             if hasRenderedToken, tokenPointPayload == nil {
                 tokenPointPayload = tokenPoints(in: terminalPanel, visibleText: visibleText)
