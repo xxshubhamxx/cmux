@@ -265,8 +265,6 @@ func TestUnixSocketAcceptsFragmentedJSONRequestLines(t *testing.T) {
 }
 
 func TestUnixServeStartsWebSocketListenerWhenConfigured(t *testing.T) {
-	t.Parallel()
-
 	bin := daemonBinary(t)
 	const wsSecret = "compat-ws-secret"
 	_, wsAddr := startUnixDaemonWithWS(t, bin, wsSecret)
