@@ -6081,6 +6081,19 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.prepareForWindowPortalHosting()
         host.setLocalInlineSlotHidden(true)
         host.releaseHostedWebViewConstraints()
+        if panel.shouldUseLocalInlineDeveloperToolsHosting() {
+            let hostId = ObjectIdentifier(host)
+            if panel.releasePortalHostIfOwned(
+                hostId: hostId,
+                reason: "windowPortalSuppressedForLocalInlineHosting"
+            ) {
+                BrowserWindowPortalRegistry.hide(
+                    webView: webView,
+                    source: "viewStateChanged.windowPortalSuppressedForLocalInlineHosting"
+                )
+            }
+            return false
+        }
         let shouldPreserveExternalFullscreenHost = Self.shouldPreserveExternalFullscreenHost(
             for: webView,
             relativeTo: host.window
