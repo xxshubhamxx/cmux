@@ -3979,7 +3979,6 @@ private func openCmuxSettingsFileInTextEdit() {
 }
 
 struct SettingsView: View {
-    private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
@@ -4065,8 +4064,6 @@ struct SettingsView: View {
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var shortcutResetToken = UUID()
-    @State private var topBlurOpacity: Double = 0
-    @State private var topBlurBaselineOffset: CGFloat?
     @State private var showClearBrowserHistoryConfirmation = false
     @State private var showOpenAccessConfirmation = false
     @State private var pendingOpenAccessMode: SocketControlMode?
@@ -4390,12 +4387,6 @@ struct SettingsView: View {
         }
     }
 
-    private func blurOpacity(forContentOffset offset: CGFloat) -> Double {
-        guard let baseline = topBlurBaselineOffset else { return 0 }
-        let reveal = (baseline - offset) / 24
-        return Double(min(max(reveal, 0), 1))
-    }
-
     private func previewNotificationSound() {
         if notificationSound == NotificationSoundSettings.customFileValue {
             NotificationSoundSettings.playCustomFileSound(path: notificationSoundCustomFilePath)
@@ -4585,7 +4576,6 @@ struct SettingsView: View {
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
         } detail: {
         ScrollViewReader { proxy in
-            ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if sectionVisible(.app) {
@@ -5825,94 +5815,31 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
-                .padding(.top, contentTopInset)
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: SettingsTopOffsetPreferenceKey.self,
-                            value: proxy.frame(in: .named("SettingsScrollArea")).minY
-                        )
-                    }
-                )
+                .padding(.top, 8)
             }
             .coordinateSpace(name: "SettingsScrollArea")
-            .onPreferenceChange(SettingsTopOffsetPreferenceKey.self) { value in
-                if topBlurBaselineOffset == nil {
-                    topBlurBaselineOffset = value
-                }
-                topBlurOpacity = blurOpacity(forContentOffset: value)
-            }
             .onPreferenceChange(SettingsSectionOffsetsPreferenceKey.self) { offsets in
                 guard !isUserNavigating else { return }
-                let headerHeight: CGFloat = 62
                 let closest = offsets
-                    .filter { $0.value <= headerHeight + 20 }
+                    .filter { $0.value <= 20 }
                     .max(by: { $0.value < $1.value })
                 let resolved = closest?.key ?? offsets.min(by: { $0.value < $1.value })?.key
                 if selectedSection != resolved {
                     selectedSection = resolved
                 }
             }
-
-            ZStack(alignment: .top) {
-                AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
-                    .mask(
-                        LinearGradient(
-                            colors: [
-                                Color.black.opacity(0.9),
-                                Color.black.opacity(0.64),
-                                Color.black.opacity(0.36),
-                                Color.clear
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .opacity(0.52)
-
-                AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
-                    .mask(
-                        LinearGradient(
-                            colors: [
-                                Color.black.opacity(0.98),
-                                Color.black.opacity(0.78),
-                                Color.black.opacity(0.42),
-                                Color.clear
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .opacity(0.14 + (topBlurOpacity * 0.86))
-
-                HStack {
-                    Text(String(localized: "settings.title", defaultValue: "Settings"))
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.primary.opacity(0.92))
-                    Spacer(minLength: 0)
-                    HStack(spacing: 6) {
-                        SettingsHeaderActionButton(
-                            title: String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json"),
-                            helpText: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath(),
-                            accessibilityIdentifier: "SettingsFileOpenButton",
-                            action: openCmuxSettingsFileInTextEdit
-                        )
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        openCmuxSettingsFileInTextEdit()
+                    } label: {
+                        Text(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json"))
+                            .font(.system(size: 11.5, weight: .medium))
                     }
+                    .help(KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath())
+                    .accessibilityIdentifier("SettingsFileOpenButton")
                 }
-                .padding(.leading, 20)
-                .padding(.trailing, 20)
-                .padding(.top, 12)
             }
-                .frame(height: 62)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .ignoresSafeArea(.container, edges: .top)
-                .overlay(
-                    Rectangle()
-                        .fill(Color(nsColor: .separatorColor).opacity(0.07))
-                        .frame(height: 1),
-                    alignment: .bottom
-                )
-        } // end ZStack (main content)
         .onChange(of: selectedSection) { _, newValue in
             guard let section = newValue else { return }
             isUserNavigating = true
@@ -6166,13 +6093,6 @@ struct SettingsView: View {
     }
 }
 
-private struct SettingsTopOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
 
 private struct SettingsSectionOffsetsPreferenceKey: PreferenceKey {
     static var defaultValue: [SettingsSection: CGFloat] = [:]
@@ -6226,35 +6146,6 @@ private struct SettingsCard<Content: View>: View {
                         .stroke(Color(nsColor: NSColor.separatorColor).opacity(0.5), lineWidth: 1)
                 )
         )
-    }
-}
-
-private struct SettingsHeaderActionButton: View {
-    let title: String
-    let helpText: String
-    let accessibilityIdentifier: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color(nsColor: NSColor.controlBackgroundColor).opacity(0.34))
-                )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(Color(nsColor: NSColor.separatorColor).opacity(0.22), lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .controlSize(.small)
-        .help(helpText)
-        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 
