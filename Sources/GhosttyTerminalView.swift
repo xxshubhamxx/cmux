@@ -650,10 +650,10 @@ private func cmuxIsHardPathDelimiter(
     return previousIsWhitespace || nextIsWhitespace
 }
 
-private func cmuxRawPathSegmentContainingColumn(
+private func cmuxRawPathSegmentBoundsContainingColumn(
     in line: String,
     column: Int
-) -> String? {
+) -> (characters: [Character], start: Int, end: Int)? {
     let characters = Array(line)
     guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
     guard !cmuxIsHardPathDelimiter(in: characters, at: column) else { return nil }
@@ -668,8 +668,59 @@ private func cmuxRawPathSegmentContainingColumn(
         end += 1
     }
 
-    let candidate = String(characters[start...end]).trimmingCharacters(in: .whitespacesAndNewlines)
-    return candidate.isEmpty ? nil : candidate
+    return (characters, start, end)
+}
+
+private func cmuxRawPathCandidatesContainingColumn(
+    in line: String,
+    column: Int
+) -> [String] {
+    guard let segment = cmuxRawPathSegmentBoundsContainingColumn(in: line, column: column) else {
+        return []
+    }
+
+    let characters = segment.characters
+    let start = segment.start
+    let end = segment.end
+    var candidates: [String] = []
+
+    func appendCandidate(start candidateStart: Int, end candidateEnd: Int) {
+        guard candidateStart <= column, column <= candidateEnd else { return }
+        let candidate = String(characters[candidateStart...candidateEnd])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty, !candidates.contains(candidate) else { return }
+        candidates.append(candidate)
+    }
+
+    appendCandidate(start: start, end: end)
+
+    var wordRanges: [ClosedRange<Int>] = []
+    var index = start
+    while index <= end {
+        while index <= end, characters[index].isWhitespace {
+            index += 1
+        }
+        let wordStart = index
+        while index <= end, !characters[index].isWhitespace {
+            index += 1
+        }
+        if wordStart < index {
+            wordRanges.append(wordStart...(index - 1))
+        }
+    }
+
+    guard !wordRanges.isEmpty else { return candidates }
+
+    for startIndex in wordRanges.indices {
+        for endIndex in stride(from: wordRanges.count - 1, through: startIndex, by: -1) {
+            appendCandidate(
+                start: wordRanges[startIndex].lowerBound,
+                end: wordRanges[endIndex].upperBound
+            )
+        }
+    }
+
+    return candidates
 }
 
 private func cmuxPathCandidatesContainingColumn(
@@ -685,7 +736,9 @@ private func cmuxPathCandidatesContainingColumn(
         candidates.append(trimmed)
     }
 
-    append(cmuxRawPathSegmentContainingColumn(in: line, column: column))
+    for candidate in cmuxRawPathCandidatesContainingColumn(in: line, column: column) {
+        append(candidate)
+    }
     append(cmuxShellEscapedTokenContainingColumn(in: line, column: column))
 
     return candidates
