@@ -1147,7 +1147,14 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
 
 @MainActor
 final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
-    private func makeHostedTerminalWindow() throws -> (window: NSWindow, hostedView: GhosttySurfaceScrollView, surfaceView: GhosttyNSView) {
+    private struct HostedTerminalWindow {
+        let surface: TerminalSurface
+        let window: NSWindow
+        let hostedView: GhosttySurfaceScrollView
+        let surfaceView: GhosttyNSView
+    }
+
+    private func makeHostedTerminalWindow() throws -> HostedTerminalWindow {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -1178,14 +1185,22 @@ final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         let surfaceView = try XCTUnwrap(findGhosttyNSView(in: hostedView))
-        return (window, hostedView, surfaceView)
+        return HostedTerminalWindow(
+            surface: surface,
+            window: window,
+            hostedView: hostedView,
+            surfaceView: surfaceView
+        )
     }
 
     func testShiftSlashPrintableKeyEquivalentBypassesShortcutPath() throws {
-        let (window, _, surfaceView) = try makeHostedTerminalWindow()
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
         defer { window.orderOut(nil) }
 
         window.makeFirstResponder(surfaceView)
+        XCTAssertNotNil(surfaceView.terminalSurface)
 
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
@@ -1203,17 +1218,22 @@ final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
             return
         }
 
-        XCTAssertFalse(
-            window.performKeyEquivalent(with: event),
-            "Printable Shift+/ should continue through keyDown instead of being consumed as a key equivalent"
-        )
+        withExtendedLifetime(hostedTerminal.surface) {
+            XCTAssertFalse(
+                window.performKeyEquivalent(with: event),
+                "Printable Shift+/ should continue through keyDown instead of being consumed as a key equivalent"
+            )
+        }
     }
 
     func testShiftQuestionMarkPrintableKeyEquivalentBypassesShortcutPath() throws {
-        let (window, _, surfaceView) = try makeHostedTerminalWindow()
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
         defer { window.orderOut(nil) }
 
         window.makeFirstResponder(surfaceView)
+        XCTAssertNotNil(surfaceView.terminalSurface)
 
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
@@ -1231,10 +1251,12 @@ final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
             return
         }
 
-        XCTAssertFalse(
-            window.performKeyEquivalent(with: event),
-            "Printable Shift+? should continue through keyDown instead of being consumed as a key equivalent"
-        )
+        withExtendedLifetime(hostedTerminal.surface) {
+            XCTAssertFalse(
+                window.performKeyEquivalent(with: event),
+                "Printable Shift+? should continue through keyDown instead of being consumed as a key equivalent"
+            )
+        }
     }
 }
 
