@@ -3006,6 +3006,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let lineFormat = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let linePrefix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_PREFIX"] ?? ""
+        let renderTokenOverride = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_RENDER_TOKEN"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let extraFileNamesJSON = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_EXTRA_FILE_NAMES_JSON"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -3024,6 +3026,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             extraFileNames = []
         }
         let escapedToken = resolvedFileName.replacingOccurrences(of: " ", with: "\\ ")
+        let resolvedRenderTokenOverride = (renderTokenOverride?.isEmpty == false) ? renderTokenOverride! : nil
         let resolvedDisplayMode = (displayMode == "raw") ? "raw" : "escaped"
         let resolvedLineFormat: String
         switch lineFormat {
@@ -3047,26 +3050,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shellCommand: String
         switch resolvedLineFormat {
         case "log":
-            displayToken = resolvedFileName
-            let blockLine = "\(linePrefix)\(resolvedFileName)"
-            let shellBlockLine = singleQuotedShellLiteral(blockLine)
+            displayToken = resolvedRenderTokenOverride ?? resolvedFileName
+            let renderedLine = "\(linePrefix)\(displayToken)"
+            let shellBlockLine = singleQuotedShellLiteral(renderedLine)
             shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         case "alt_screen_log":
-            displayToken = resolvedFileName
-            let blockLine = "\(linePrefix)\(resolvedFileName)"
-            let shellBlockLine = singleQuotedShellLiteral(blockLine)
+            displayToken = resolvedRenderTokenOverride ?? resolvedFileName
+            let renderedLine = "\(linePrefix)\(displayToken)"
+            let shellBlockLine = singleQuotedShellLiteral(renderedLine)
             shellCommand = "clear\rprintf '\\033[?1049h\\033[H\\033[2J'; for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         default:
             switch resolvedDisplayMode {
             case "raw":
-                displayToken = resolvedFileName
-                let blockLine = "\(resolvedFileName)    OtherFile"
-                let shellBlockLine = singleQuotedShellLiteral(blockLine)
+                displayToken = resolvedRenderTokenOverride ?? resolvedFileName
+                let renderedLine = "\(displayToken)    OtherFile"
+                let shellBlockLine = singleQuotedShellLiteral(renderedLine)
                 shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
             default:
-                displayToken = escapedToken
-                let blockLine = Array(repeating: escapedToken, count: 3).joined(separator: " ")
-                let shellBlockLine = singleQuotedShellLiteral(blockLine)
+                displayToken = resolvedRenderTokenOverride ?? escapedToken
+                let renderedLine = Array(repeating: displayToken, count: 3).joined(separator: " ")
+                let shellBlockLine = singleQuotedShellLiteral(renderedLine)
                 shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
             }
         }

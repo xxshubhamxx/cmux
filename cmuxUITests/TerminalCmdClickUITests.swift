@@ -23,6 +23,7 @@ final class TerminalCmdClickUITests: XCTestCase {
     private var setupDataPath = ""
     private var commandPath = ""
     private var fixtureDirectoryURL: URL!
+    private var displayFixtureDirectoryURL: URL!
 
     override func setUp() {
         super.setUp()
@@ -30,6 +31,7 @@ final class TerminalCmdClickUITests: XCTestCase {
 
         fixtureDirectoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ui-test-terminal-cmd-click-\(UUID().uuidString)", isDirectory: true)
+        displayFixtureDirectoryURL = URL(fileURLWithPath: "/tmp/cmux-ui-test-terminal-cmd-click-\(UUID().uuidString.prefix(8))", isDirectory: true)
         hoverDiagnosticsPath = fixtureDirectoryURL.appendingPathComponent("hover.json").path
         openCapturePath = fixtureDirectoryURL.appendingPathComponent("open.log").path
         setupDataPath = fixtureDirectoryURL.appendingPathComponent("setup.json").path
@@ -39,7 +41,9 @@ final class TerminalCmdClickUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: openCapturePath)
         try? FileManager.default.removeItem(atPath: setupDataPath)
         try? FileManager.default.removeItem(atPath: commandPath)
+        try? FileManager.default.removeItem(at: displayFixtureDirectoryURL)
         try? FileManager.default.createDirectory(at: fixtureDirectoryURL, withIntermediateDirectories: true)
+        try? FileManager.default.createSymbolicLink(at: displayFixtureDirectoryURL, withDestinationURL: fixtureDirectoryURL)
         XCTAssertTrue(
             FileManager.default.createFile(
                 atPath: commandPath,
@@ -55,6 +59,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: setupDataPath)
         try? FileManager.default.removeItem(atPath: commandPath)
         try? FileManager.default.removeItem(at: fixtureDirectoryURL)
+        try? FileManager.default.removeItem(at: displayFixtureDirectoryURL)
         super.tearDown()
     }
 
@@ -280,7 +285,7 @@ final class TerminalCmdClickUITests: XCTestCase {
     }
 
     func testCmdHoverLsStylePathResolvesFullConsultantAgreementDocx() throws {
-        try assertCommandHoverResolves(
+        try assertCommandHoverResolvesAcrossEveryCharacter(
             fileName: "Standard - Consultant Agreement - Form of Consulting Agreement.docx",
             lineFormat: .grid,
             linePrefix: "",
@@ -300,7 +305,7 @@ final class TerminalCmdClickUITests: XCTestCase {
     }
 
     func testCmdHoverLsStylePathResolvesFullNintendoMkv() throws {
-        try assertCommandHoverResolves(
+        try assertCommandHoverResolvesAcrossEveryCharacter(
             fileName: "(NINTENDO) BOTW Guardian Sound Effect.mkv",
             lineFormat: .grid,
             linePrefix: ""
@@ -329,6 +334,50 @@ final class TerminalCmdClickUITests: XCTestCase {
             fileName: "(NINTENDO) BOTW Guardian Sound Effect.mkv",
             lineFormat: .grid,
             linePrefix: ""
+        )
+    }
+
+    func testCmdHoverEscapedAbsolutePathResolvesFullConsultantAgreementDocxAcrossEveryCharacter() throws {
+        try assertCommandHoverResolvesAcrossEveryCharacter(
+            fileName: "Standard - Consultant Agreement - Form of Consulting Agreement.docx",
+            lineFormat: .grid,
+            linePrefix: "",
+            renderTokenOverride: shellEscapedPath(displayAbsolutePath(for: "Standard - Consultant Agreement - Form of Consulting Agreement.docx")),
+            extraFileNames: ["Agreement.docx"],
+            disallowedFileName: "Agreement.docx",
+            expectedResolvedPath: displayAbsolutePath(for: "Standard - Consultant Agreement - Form of Consulting Agreement.docx")
+        )
+    }
+
+    func testCmdClickEscapedAbsolutePathOpensFullConsultantAgreementDocxAcrossEveryCharacter() throws {
+        try assertCommandClickOpensAcrossEveryCharacter(
+            fileName: "Standard - Consultant Agreement - Form of Consulting Agreement.docx",
+            lineFormat: .grid,
+            linePrefix: "",
+            renderTokenOverride: shellEscapedPath(displayAbsolutePath(for: "Standard - Consultant Agreement - Form of Consulting Agreement.docx")),
+            extraFileNames: ["Agreement.docx"],
+            disallowedFileName: "Agreement.docx",
+            expectedResolvedPath: displayAbsolutePath(for: "Standard - Consultant Agreement - Form of Consulting Agreement.docx")
+        )
+    }
+
+    func testCmdHoverEscapedAbsolutePathResolvesFullNintendoMkvAcrossEveryCharacter() throws {
+        try assertCommandHoverResolvesAcrossEveryCharacter(
+            fileName: "(NINTENDO) BOTW Guardian Sound Effect.mkv",
+            lineFormat: .grid,
+            linePrefix: "",
+            renderTokenOverride: shellEscapedPath(displayAbsolutePath(for: "(NINTENDO) BOTW Guardian Sound Effect.mkv")),
+            expectedResolvedPath: displayAbsolutePath(for: "(NINTENDO) BOTW Guardian Sound Effect.mkv")
+        )
+    }
+
+    func testCmdClickEscapedAbsolutePathOpensFullNintendoMkvAcrossEveryCharacter() throws {
+        try assertCommandClickOpensAcrossEveryCharacter(
+            fileName: "(NINTENDO) BOTW Guardian Sound Effect.mkv",
+            lineFormat: .grid,
+            linePrefix: "",
+            renderTokenOverride: shellEscapedPath(displayAbsolutePath(for: "(NINTENDO) BOTW Guardian Sound Effect.mkv")),
+            expectedResolvedPath: displayAbsolutePath(for: "(NINTENDO) BOTW Guardian Sound Effect.mkv")
         )
     }
 
@@ -408,14 +457,17 @@ final class TerminalCmdClickUITests: XCTestCase {
         fileName: String,
         lineFormat: LineFormat,
         linePrefix: String,
+        renderTokenOverride: String? = nil,
         extraFileNames: [String] = [],
-        disallowedFileName: String? = nil
+        disallowedFileName: String? = nil,
+        expectedResolvedPath: String? = nil
     ) throws {
         let app = launchApp(
             displayMode: .raw,
             lineFormat: lineFormat,
             fileName: fileName,
             linePrefix: linePrefix,
+            renderTokenOverride: renderTokenOverride,
             extraFileNames: extraFileNames,
             captureOpenPaths: false,
             captureHoverDiagnostics: false
@@ -423,8 +475,8 @@ final class TerminalCmdClickUITests: XCTestCase {
         defer { app.terminate() }
 
         let setup = try waitForReadySetup()
-        let expectedResolvedPath = expectedPath(for: fileName)
-        XCTAssertEqual(setup.expectedPath, expectedResolvedPath)
+        let expectedResolvedPath = expectedResolvedPath ?? expectedPath(for: fileName)
+        XCTAssertEqual(setup.expectedPath, expectedPath(for: fileName))
 
         let result = try runCommand(action: "hover_token")
         XCTAssertEqual(
@@ -456,14 +508,17 @@ final class TerminalCmdClickUITests: XCTestCase {
         fileName: String,
         lineFormat: LineFormat,
         linePrefix: String,
+        renderTokenOverride: String? = nil,
         extraFileNames: [String] = [],
-        disallowedFileName: String? = nil
+        disallowedFileName: String? = nil,
+        expectedResolvedPath: String? = nil
     ) throws {
         let app = launchApp(
             displayMode: .raw,
             lineFormat: lineFormat,
             fileName: fileName,
             linePrefix: linePrefix,
+            renderTokenOverride: renderTokenOverride,
             extraFileNames: extraFileNames,
             captureOpenPaths: true,
             captureHoverDiagnostics: false
@@ -471,8 +526,8 @@ final class TerminalCmdClickUITests: XCTestCase {
         defer { app.terminate() }
 
         let setup = try waitForReadySetup()
-        let expectedResolvedPath = expectedPath(for: fileName)
-        XCTAssertEqual(setup.expectedPath, expectedResolvedPath)
+        let expectedResolvedPath = expectedResolvedPath ?? expectedPath(for: fileName)
+        XCTAssertEqual(setup.expectedPath, expectedPath(for: fileName))
 
         let result = try runCommand(action: "cmd_click_token")
         XCTAssertEqual(
@@ -505,18 +560,77 @@ final class TerminalCmdClickUITests: XCTestCase {
         }
     }
 
-    private func assertCommandClickOpensAcrossEveryCharacter(
+    private func assertCommandHoverResolvesAcrossEveryCharacter(
         fileName: String,
         lineFormat: LineFormat,
         linePrefix: String,
+        renderTokenOverride: String? = nil,
         extraFileNames: [String] = [],
-        disallowedFileName: String? = nil
+        disallowedFileName: String? = nil,
+        expectedResolvedPath: String? = nil
     ) throws {
         let app = launchApp(
             displayMode: .raw,
             lineFormat: lineFormat,
             fileName: fileName,
             linePrefix: linePrefix,
+            renderTokenOverride: renderTokenOverride,
+            extraFileNames: extraFileNames,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        let expectedResolvedPath = expectedResolvedPath ?? expectedPath(for: fileName)
+        XCTAssertEqual(setup.expectedPath, expectedPath(for: fileName))
+
+        for tokenColumnOffset in 0..<renderedTokenLength(fileName: fileName, renderTokenOverride: renderTokenOverride) {
+            let result = try runCommand(
+                action: "hover_token",
+                additionalPayload: ["tokenColumnOffset": tokenColumnOffset]
+            )
+            XCTAssertEqual(
+                result["lastCommandSucceeded"] as? String,
+                "1",
+                "Expected cmd-hover to resolve the full spaced path from token column \(tokenColumnOffset). result=\(result)"
+            )
+            XCTAssertEqual(
+                result["lastCommandHoverActive"] as? String,
+                "1",
+                "Expected cmd-hover to stay active at token column \(tokenColumnOffset). result=\(result)"
+            )
+            XCTAssertEqual(
+                result["lastCommandResolvedPath"] as? String,
+                expectedResolvedPath,
+                "Expected cmd-hover at token column \(tokenColumnOffset) to resolve the full spaced path. result=\(result)"
+            )
+
+            if let disallowedFileName {
+                XCTAssertNotEqual(
+                    result["lastCommandResolvedPath"] as? String,
+                    expectedPath(for: disallowedFileName),
+                    "Expected cmd-hover at token column \(tokenColumnOffset) to reject suffix-token decoys. result=\(result)"
+                )
+            }
+        }
+    }
+
+    private func assertCommandClickOpensAcrossEveryCharacter(
+        fileName: String,
+        lineFormat: LineFormat,
+        linePrefix: String,
+        renderTokenOverride: String? = nil,
+        extraFileNames: [String] = [],
+        disallowedFileName: String? = nil,
+        expectedResolvedPath: String? = nil
+    ) throws {
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: lineFormat,
+            fileName: fileName,
+            linePrefix: linePrefix,
+            renderTokenOverride: renderTokenOverride,
             extraFileNames: extraFileNames,
             captureOpenPaths: true,
             captureHoverDiagnostics: false
@@ -524,8 +638,8 @@ final class TerminalCmdClickUITests: XCTestCase {
         defer { app.terminate() }
 
         let setup = try waitForReadySetup()
-        let expectedResolvedPath = expectedPath(for: fileName)
-        XCTAssertEqual(setup.expectedPath, expectedResolvedPath)
+        let expectedResolvedPath = expectedResolvedPath ?? expectedPath(for: fileName)
+        XCTAssertEqual(setup.expectedPath, expectedPath(for: fileName))
 
         var previousOpenCount = loadCapturedOpenPaths().count
         for tokenColumnOffset in 0..<fileName.count {
@@ -567,6 +681,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         fileName: String,
         lineFormat: LineFormat,
         linePrefix: String,
+        renderTokenOverride: String? = nil,
         extraFileNames: [String] = []
     ) throws {
         let app = launchApp(
@@ -574,6 +689,7 @@ final class TerminalCmdClickUITests: XCTestCase {
             lineFormat: lineFormat,
             fileName: fileName,
             linePrefix: linePrefix,
+            renderTokenOverride: renderTokenOverride,
             extraFileNames: extraFileNames,
             captureOpenPaths: true,
             captureHoverDiagnostics: false
@@ -584,7 +700,9 @@ final class TerminalCmdClickUITests: XCTestCase {
         let expectedResolvedPath = expectedPath(for: fileName)
         XCTAssertEqual(setup.expectedPath, expectedResolvedPath)
 
-        let invalidOffsets = invalidTokenColumnOffsets(for: fileName)
+        let invalidOffsets = invalidTokenColumnOffsets(
+            tokenLength: renderedTokenLength(fileName: fileName, renderTokenOverride: renderTokenOverride)
+        )
         let previousOpenCount = loadCapturedOpenPaths().count
         for tokenColumnOffset in invalidOffsets {
             let result = try runCommand(
@@ -611,8 +729,24 @@ final class TerminalCmdClickUITests: XCTestCase {
         fixtureDirectoryURL.appendingPathComponent(fileName).path
     }
 
-    private func invalidTokenColumnOffsets(for fileName: String) -> [Int] {
-        let separatorStart = fileName.count
+    private func displayAbsolutePath(for fileName: String) -> String {
+        displayFixtureDirectoryURL.appendingPathComponent(fileName).path
+    }
+
+    private func shellEscapedPath(_ path: String) -> String {
+        path
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "(", with: "\\(")
+            .replacingOccurrences(of: ")", with: "\\)")
+            .replacingOccurrences(of: " ", with: "\\ ")
+    }
+
+    private func renderedTokenLength(fileName: String, renderTokenOverride: String?) -> Int {
+        (renderTokenOverride ?? fileName).count
+    }
+
+    private func invalidTokenColumnOffsets(tokenLength: Int) -> [Int] {
+        let separatorStart = tokenLength
         let separatorOffsets = Array(separatorStart..<(separatorStart + 4))
         let trailingBlankOffset = separatorStart + 4 + "OtherFile".count + 2
         return separatorOffsets + [trailingBlankOffset]
@@ -623,6 +757,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         lineFormat: LineFormat = .grid,
         fileName: String = "Cmd Click Fixture.txt",
         linePrefix: String = "",
+        renderTokenOverride: String? = nil,
         extraFileNames: [String] = [],
         captureOpenPaths: Bool,
         captureHoverDiagnostics: Bool,
@@ -641,6 +776,9 @@ final class TerminalCmdClickUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"] = lineFormat.rawValue
         if !linePrefix.isEmpty {
             app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_PREFIX"] = linePrefix
+        }
+        if let renderTokenOverride, !renderTokenOverride.isEmpty {
+            app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_RENDER_TOKEN"] = renderTokenOverride
         }
         if !extraFileNames.isEmpty,
            let data = try? JSONSerialization.data(withJSONObject: extraFileNames, options: [.sortedKeys]),
