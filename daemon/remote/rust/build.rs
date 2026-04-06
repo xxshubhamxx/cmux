@@ -4,12 +4,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
+    let manifest_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set"));
     let shim_dir = manifest_dir.join("ghostty-shim");
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is set"));
     let install_dir = out_dir.join("ghostty-shim-install");
     let rust_target = env::var("TARGET").expect("TARGET is set");
-    let macos_deployment = env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| "11.0".to_string());
+    let macos_deployment =
+        env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| "11.0".to_string());
 
     let ghostty_source = env::var_os("GHOSTTY_SOURCE_DIR")
         .map(PathBuf::from)
@@ -22,12 +24,13 @@ fn main() {
     }
 
     let shim_link = shim_dir.join("ghostty");
-    ensure_symlink(&ghostty_source, &shim_link).expect("failed to link Ghostty source into shim workspace");
+    ensure_symlink(&ghostty_source, &shim_link)
+        .expect("failed to link Ghostty source into shim workspace");
 
     // The embedded Ghostty VT hits debug-only assertions on real shell output.
     // Build the shim in release mode by default so the daemon stays alive.
-    let optimize = env::var("CMUX_GHOSTTY_SHIM_OPTIMIZE")
-        .unwrap_or_else(|_| "ReleaseFast".to_string());
+    let optimize =
+        env::var("CMUX_GHOSTTY_SHIM_OPTIMIZE").unwrap_or_else(|_| "ReleaseFast".to_string());
     let mut command = Command::new("zig");
     command
         .current_dir(&shim_dir)
@@ -38,7 +41,9 @@ fn main() {
     if let Some(zig_target) = zig_target_for_rust(&rust_target, &macos_deployment) {
         command.arg(format!("-Dtarget={zig_target}"));
     }
-    let status = command.status().expect("failed to run zig build for cmux Ghostty shim");
+    let status = command
+        .status()
+        .expect("failed to run zig build for cmux Ghostty shim");
     if !status.success() {
         panic!("zig build failed for cmux Ghostty shim");
     }
@@ -55,7 +60,10 @@ fn main() {
     );
     println!("cargo:rerun-if-env-changed=GHOSTTY_SOURCE_DIR");
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SHIM_OPTIMIZE");
-    println!("cargo:rerun-if-changed={}", manifest_dir.join("build.rs").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest_dir.join("build.rs").display()
+    );
     println!(
         "cargo:rerun-if-changed={}",
         manifest_dir.join("ghostty-shim/build.zig").display()
@@ -82,7 +90,9 @@ fn ensure_symlink(target: &Path, link: &Path) -> Result<(), String> {
         let resolved = if existing.is_absolute() {
             existing
         } else {
-            link.parent().unwrap_or_else(|| Path::new(".")).join(existing)
+            link.parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(existing)
         };
         if resolved == target {
             return Ok(());
@@ -94,7 +104,8 @@ fn ensure_symlink(target: &Path, link: &Path) -> Result<(), String> {
             fs::remove_dir_all(link)
                 .map_err(|err| format!("remove_dir_all {}: {err}", link.display()))?;
         } else {
-            fs::remove_file(link).map_err(|err| format!("remove_file {}: {err}", link.display()))?;
+            fs::remove_file(link)
+                .map_err(|err| format!("remove_file {}: {err}", link.display()))?;
         }
     }
 

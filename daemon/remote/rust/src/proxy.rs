@@ -44,15 +44,24 @@ impl ProxyManager {
             .to_socket_addrs()
             .map_err(ProxyError::Io)?
             .next()
-            .ok_or_else(|| ProxyError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "address not found")))?;
-        let stream = TcpStream::connect_timeout(&addr, Duration::from_millis(timeout_ms)).map_err(ProxyError::Io)?;
+            .ok_or_else(|| {
+                ProxyError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "address not found",
+                ))
+            })?;
+        let stream = TcpStream::connect_timeout(&addr, Duration::from_millis(timeout_ms))
+            .map_err(ProxyError::Io)?;
         let stream_id = {
             let mut next = self.next_id.lock().unwrap();
             let value = format!("stream-{next}");
             *next += 1;
             value
         };
-        self.streams.lock().unwrap().insert(stream_id.clone(), stream);
+        self.streams
+            .lock()
+            .unwrap()
+            .insert(stream_id.clone(), stream);
         Ok(stream_id)
     }
 
@@ -72,7 +81,12 @@ impl ProxyManager {
         Ok(data.len())
     }
 
-    pub fn read(&self, stream_id: &str, max_bytes: usize, timeout_ms: i32) -> Result<ProxyReadResult, ProxyError> {
+    pub fn read(
+        &self,
+        stream_id: &str,
+        max_bytes: usize,
+        timeout_ms: i32,
+    ) -> Result<ProxyReadResult, ProxyError> {
         let mut streams = self.streams.lock().unwrap();
         let stream = streams.get_mut(stream_id).ok_or(ProxyError::NotFound)?;
         if timeout_ms >= 0 {
@@ -89,7 +103,10 @@ impl ProxyManager {
             }),
             Ok(len) => {
                 buf.truncate(len);
-                Ok(ProxyReadResult { data: buf, eof: false })
+                Ok(ProxyReadResult {
+                    data: buf,
+                    eof: false,
+                })
             }
             Err(err)
                 if err.kind() == std::io::ErrorKind::WouldBlock

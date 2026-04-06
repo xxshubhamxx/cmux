@@ -44,7 +44,11 @@ impl std::fmt::Display for TicketError {
 
 impl std::error::Error for TicketError {}
 
-pub fn verify_ticket(token: &str, secret: &[u8], expected_server_id: &str) -> Result<TicketClaims, TicketError> {
+pub fn verify_ticket(
+    token: &str,
+    secret: &[u8],
+    expected_server_id: &str,
+) -> Result<TicketClaims, TicketError> {
     let mut parts = token.split('.');
     let encoded_payload = parts.next().ok_or(TicketError::Malformed)?;
     let encoded_signature = parts.next().ok_or(TicketError::Malformed)?;
@@ -63,7 +67,8 @@ pub fn verify_ticket(token: &str, secret: &[u8], expected_server_id: &str) -> Re
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(encoded_payload)
         .map_err(|_| TicketError::Malformed)?;
-    let claims: TicketClaims = serde_json::from_slice(&payload).map_err(|_| TicketError::Malformed)?;
+    let claims: TicketClaims =
+        serde_json::from_slice(&payload).map_err(|_| TicketError::Malformed)?;
     if claims.exp <= now_unix() {
         return Err(TicketError::Expired);
     }

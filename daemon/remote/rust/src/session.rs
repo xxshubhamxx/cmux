@@ -120,7 +120,12 @@ impl Session {
         Ok(())
     }
 
-    pub fn resize_attachment(&self, attachment_id: &str, cols: u16, rows: u16) -> Result<(), SessionError> {
+    pub fn resize_attachment(
+        &self,
+        attachment_id: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<(), SessionError> {
         let (cols, rows) = normalize_size(cols, rows);
         if cols == 0 || rows == 0 {
             return Err(SessionError::InvalidSize);

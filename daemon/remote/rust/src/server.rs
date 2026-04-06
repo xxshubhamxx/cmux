@@ -16,7 +16,9 @@ use serde_json::{Value, json};
 use crate::auth::{TicketClaims, has_session_capability, verify_ticket};
 use crate::pane::{EventCallback, PaneHandle, PaneRuntimeEvent};
 use crate::proxy::{ProxyError, ProxyManager};
-use crate::rpc::{FrameRead, Request, Response, error as rpc_error, ok as rpc_ok, read_frame, write_response};
+use crate::rpc::{
+    FrameRead, Request, Response, error as rpc_error, ok as rpc_ok, read_frame, write_response,
+};
 use crate::session::{PaneSlot, Session, SessionError, SessionListEntry, SessionSnapshot, Window};
 
 #[derive(Default)]
@@ -90,7 +92,11 @@ impl Daemon {
         loop {
             let response = match read_frame(&mut reader) {
                 Ok(FrameRead::Eof) => return Ok(()),
-                Ok(FrameRead::Oversized) => rpc_error(None, "invalid_request", "request frame exceeds maximum size"),
+                Ok(FrameRead::Oversized) => rpc_error(
+                    None,
+                    "invalid_request",
+                    "request frame exceeds maximum size",
+                ),
                 Ok(FrameRead::Frame(frame)) => self.parse_and_dispatch(&frame, None),
                 Err(err) => return Err(err.to_string()),
             };
@@ -131,7 +137,10 @@ impl Daemon {
             || cfg.cert_file.is_empty()
             || cfg.key_file.is_empty()
         {
-            return Err("tls listener requires listen address, cert, key, server id, and ticket secret".to_string());
+            return Err(
+                "tls listener requires listen address, cert, key, server id, and ticket secret"
+                    .to_string(),
+            );
         }
 
         let cert_chain = load_certs(&cfg.cert_file)?;
@@ -151,10 +160,15 @@ impl Daemon {
                     let server_id = cfg.server_id.clone();
                     let ticket_secret = cfg.ticket_secret.clone();
                     thread::spawn(move || {
-                        let connection = rustls::ServerConnection::new(config).map_err(|err| err.to_string());
+                        let connection =
+                            rustls::ServerConnection::new(config).map_err(|err| err.to_string());
                         if let Ok(connection) = connection {
                             let stream = rustls::StreamOwned::new(connection, stream);
-                            let _ = daemon.serve_tls_stream(stream, &server_id, ticket_secret.as_bytes());
+                            let _ = daemon.serve_tls_stream(
+                                stream,
+                                &server_id,
+                                ticket_secret.as_bytes(),
+                            );
                         }
                     });
                 }
@@ -186,7 +200,11 @@ impl Daemon {
         let mut state = self.inner.state.lock().unwrap();
         let next = state.wait_signals.get(name).copied().unwrap_or(0) + 1;
         state.wait_signals.insert(name.to_string(), next);
-        self.emit_event_locked(&mut state, "wait.signal", json!({ "name": name, "generation": next }));
+        self.emit_event_locked(
+            &mut state,
+            "wait.signal",
+            json!({ "name": name, "generation": next }),
+        );
         self.inner.state_cv.notify_all();
         next
     }
@@ -203,16 +221,29 @@ impl Daemon {
     }
 
     pub fn find_session(&self, session_id: &str) -> Option<Arc<Session>> {
-        self.inner.state.lock().unwrap().sessions.get(session_id).cloned()
+        self.inner
+            .state
+            .lock()
+            .unwrap()
+            .sessions
+            .get(session_id)
+            .cloned()
     }
 
-    pub fn find_pane_by_id(&self, pane_id: &str) -> Option<(Arc<Session>, String, Arc<PaneHandle>)> {
+    pub fn find_pane_by_id(
+        &self,
+        pane_id: &str,
+    ) -> Option<(Arc<Session>, String, Arc<PaneHandle>)> {
         for session in self.sessions() {
             let inner = session.inner.lock().unwrap();
             for window in &inner.windows {
                 for pane in &window.panes {
                     if pane.pane_id == pane_id {
-                        return Some((Arc::clone(&session), window.id.clone(), Arc::clone(&pane.handle)));
+                        return Some((
+                            Arc::clone(&session),
+                            window.id.clone(),
+                            Arc::clone(&pane.handle),
+                        ));
                     }
                 }
             }
@@ -220,13 +251,21 @@ impl Daemon {
         None
     }
 
-    fn serve_stream<S: Read + Write>(&self, stream: S, authorizer: Option<DirectAuthorizer>) -> Result<(), String> {
+    fn serve_stream<S: Read + Write>(
+        &self,
+        stream: S,
+        authorizer: Option<DirectAuthorizer>,
+    ) -> Result<(), String> {
         let mut reader = BufReader::new(stream);
         let mut authorizer = authorizer;
         loop {
             let response = match read_frame(&mut reader) {
                 Ok(FrameRead::Eof) => return Ok(()),
-                Ok(FrameRead::Oversized) => rpc_error(None, "invalid_request", "request frame exceeds maximum size"),
+                Ok(FrameRead::Oversized) => rpc_error(
+                    None,
+                    "invalid_request",
+                    "request frame exceeds maximum size",
+                ),
                 Ok(FrameRead::Frame(frame)) => self.parse_and_dispatch(&frame, authorizer.as_mut()),
                 Err(err) => return Err(err.to_string()),
             };
@@ -246,7 +285,11 @@ impl Daemon {
             Ok(FrameRead::Oversized) => {
                 write_response(
                     reader.get_mut(),
-                    &rpc_error(None, "invalid_request", "handshake frame exceeds maximum size"),
+                    &rpc_error(
+                        None,
+                        "invalid_request",
+                        "handshake frame exceeds maximum size",
+                    ),
                 )
                 .map_err(|err| err.to_string())?;
                 return Ok(());
@@ -254,12 +297,14 @@ impl Daemon {
             Ok(FrameRead::Eof) => return Ok(()),
             Err(err) => return Err(err.to_string()),
         };
-        let value: Value = serde_json::from_slice(trim_crlf(&frame)).map_err(|_| "invalid JSON handshake".to_string())?;
+        let value: Value = serde_json::from_slice(trim_crlf(&frame))
+            .map_err(|_| "invalid JSON handshake".to_string())?;
         let ticket = value
             .get("ticket")
             .and_then(Value::as_str)
             .ok_or_else(|| "ticket is required".to_string())?;
-        let claims = verify_ticket(ticket, ticket_secret, expected_server_id).map_err(|err| err.to_string())?;
+        let claims = verify_ticket(ticket, ticket_secret, expected_server_id)
+            .map_err(|err| err.to_string())?;
         if !has_session_capability(&claims.capabilities) {
             write_response(
                 reader.get_mut(),
@@ -281,12 +326,19 @@ impl Daemon {
                 .map_err(|err| err.to_string())?;
             return Ok(());
         }
-        write_response(reader.get_mut(), &rpc_ok(None, json!({ "authenticated": true })))
-            .map_err(|err| err.to_string())?;
+        write_response(
+            reader.get_mut(),
+            &rpc_ok(None, json!({ "authenticated": true })),
+        )
+        .map_err(|err| err.to_string())?;
         self.serve_stream(reader.into_inner(), Some(DirectAuthorizer::new(claims)))
     }
 
-    fn parse_and_dispatch(&self, frame: &[u8], authorizer: Option<&mut DirectAuthorizer>) -> Response {
+    fn parse_and_dispatch(
+        &self,
+        frame: &[u8],
+        authorizer: Option<&mut DirectAuthorizer>,
+    ) -> Response {
         let request = match serde_json::from_slice::<Request>(trim_crlf(frame)) {
             Ok(value) => value,
             Err(_) => return rpc_error(None, "invalid_request", "invalid JSON request"),
@@ -348,12 +400,21 @@ impl Daemon {
 
     fn handle_proxy_open(&self, request: &Request) -> Response {
         let Some(host) = get_string(&request.params, "host") else {
-            return rpc_error(request.id.clone(), "invalid_params", "proxy.open requires host");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "proxy.open requires host",
+            );
         };
         let Some(port) = get_positive_u16(&request.params, "port") else {
-            return rpc_error(request.id.clone(), "invalid_params", "proxy.open requires port in range 1-65535");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "proxy.open requires port in range 1-65535",
+            );
         };
-        let timeout_ms = get_non_negative_i64(&request.params, "timeout_ms").unwrap_or(10_000) as u64;
+        let timeout_ms =
+            get_non_negative_i64(&request.params, "timeout_ms").unwrap_or(10_000) as u64;
         match self.inner.proxies.open(host, port, timeout_ms) {
             Ok(stream_id) => rpc_ok(request.id.clone(), json!({ "stream_id": stream_id })),
             Err(err) => rpc_error(request.id.clone(), "open_failed", err.to_string()),
@@ -362,7 +423,11 @@ impl Daemon {
 
     fn handle_proxy_close(&self, request: &Request) -> Response {
         let Some(stream_id) = get_string(&request.params, "stream_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "proxy.close requires stream_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "proxy.close requires stream_id",
+            );
         };
         match self.inner.proxies.close(stream_id) {
             Ok(()) => rpc_ok(request.id.clone(), json!({ "closed": true })),
@@ -372,29 +437,53 @@ impl Daemon {
 
     fn handle_proxy_write(&self, request: &Request) -> Response {
         let Some(stream_id) = get_string(&request.params, "stream_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "proxy.write requires stream_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "proxy.write requires stream_id",
+            );
         };
         let Some(encoded) = get_string(&request.params, "data_base64") else {
-            return rpc_error(request.id.clone(), "invalid_params", "proxy.write requires data_base64");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "proxy.write requires data_base64",
+            );
         };
         let data = match base64::engine::general_purpose::STANDARD.decode(encoded) {
             Ok(value) => value,
-            Err(_) => return rpc_error(request.id.clone(), "invalid_params", "data_base64 must be valid base64"),
+            Err(_) => {
+                return rpc_error(
+                    request.id.clone(),
+                    "invalid_params",
+                    "data_base64 must be valid base64",
+                );
+            }
         };
         match self.inner.proxies.write(stream_id, &data) {
             Ok(written) => rpc_ok(request.id.clone(), json!({ "written": written })),
-            Err(ProxyError::NotFound) => rpc_error(request.id.clone(), "not_found", "stream not found"),
+            Err(ProxyError::NotFound) => {
+                rpc_error(request.id.clone(), "not_found", "stream not found")
+            }
             Err(err) => rpc_error(request.id.clone(), "stream_error", err.to_string()),
         }
     }
 
     fn handle_proxy_read(&self, request: &Request) -> Response {
         let Some(stream_id) = get_string(&request.params, "stream_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "proxy.read requires stream_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "proxy.read requires stream_id",
+            );
         };
         let max_bytes = get_positive_usize(&request.params, "max_bytes").unwrap_or(32_768);
         if max_bytes > 262_144 {
-            return rpc_error(request.id.clone(), "invalid_params", "max_bytes must be in range 1-262144");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "max_bytes must be in range 1-262144",
+            );
         }
         let timeout_ms = get_non_negative_i64(&request.params, "timeout_ms").unwrap_or(50) as i32;
         match self.inner.proxies.read(stream_id, max_bytes, timeout_ms) {
@@ -405,7 +494,9 @@ impl Daemon {
                     "eof": read.eof,
                 }),
             ),
-            Err(ProxyError::NotFound) => rpc_error(request.id.clone(), "not_found", "stream not found"),
+            Err(ProxyError::NotFound) => {
+                rpc_error(request.id.clone(), "not_found", "stream not found")
+            }
             Err(err) => rpc_error(request.id.clone(), "stream_error", err.to_string()),
         }
     }
@@ -420,77 +511,155 @@ impl Daemon {
 
     fn handle_session_close(&self, request: &Request) -> Response {
         let Some(session_id) = get_string(&request.params, "session_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.close requires session_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.close requires session_id",
+            );
         };
         match self.close_session(session_id) {
-            Ok(()) => rpc_ok(request.id.clone(), json!({ "session_id": session_id, "closed": true })),
+            Ok(()) => rpc_ok(
+                request.id.clone(),
+                json!({ "session_id": session_id, "closed": true }),
+            ),
             Err(_) => rpc_error(request.id.clone(), "not_found", "session not found"),
         }
     }
 
     fn handle_session_attach(&self, request: &Request) -> Response {
         let Some(session_id) = get_string(&request.params, "session_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.attach requires session_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.attach requires session_id",
+            );
         };
         let Some(attachment_id) = get_string(&request.params, "attachment_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.attach requires attachment_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.attach requires attachment_id",
+            );
         };
         let Some(cols) = get_positive_u16(&request.params, "cols") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.attach requires cols > 0");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.attach requires cols > 0",
+            );
         };
         let Some(rows) = get_positive_u16(&request.params, "rows") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.attach requires rows > 0");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.attach requires rows > 0",
+            );
         };
         match self.attach_session(session_id, attachment_id, cols, rows) {
             Ok(snapshot) => rpc_ok(request.id.clone(), snapshot_value(snapshot, None, None)),
-            Err(SessionError::NotFound) => rpc_error(request.id.clone(), "not_found", "session not found"),
-            Err(SessionError::AttachmentNotFound) => rpc_error(request.id.clone(), "not_found", "attachment not found"),
-            Err(SessionError::InvalidSize) => rpc_error(request.id.clone(), "invalid_params", "cols and rows must be greater than zero"),
+            Err(SessionError::NotFound) => {
+                rpc_error(request.id.clone(), "not_found", "session not found")
+            }
+            Err(SessionError::AttachmentNotFound) => {
+                rpc_error(request.id.clone(), "not_found", "attachment not found")
+            }
+            Err(SessionError::InvalidSize) => rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "cols and rows must be greater than zero",
+            ),
         }
     }
 
     fn handle_session_resize(&self, request: &Request) -> Response {
         let Some(session_id) = get_string(&request.params, "session_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.resize requires session_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.resize requires session_id",
+            );
         };
         let Some(attachment_id) = get_string(&request.params, "attachment_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.resize requires attachment_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.resize requires attachment_id",
+            );
         };
         let Some(cols) = get_positive_u16(&request.params, "cols") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.resize requires cols > 0");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.resize requires cols > 0",
+            );
         };
         let Some(rows) = get_positive_u16(&request.params, "rows") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.resize requires rows > 0");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.resize requires rows > 0",
+            );
         };
         match self.resize_session(session_id, attachment_id, cols, rows) {
             Ok(snapshot) => rpc_ok(request.id.clone(), snapshot_value(snapshot, None, None)),
-            Err(SessionError::NotFound) => rpc_error(request.id.clone(), "not_found", "session not found"),
-            Err(SessionError::AttachmentNotFound) => rpc_error(request.id.clone(), "not_found", "attachment not found"),
-            Err(SessionError::InvalidSize) => rpc_error(request.id.clone(), "invalid_params", "cols and rows must be greater than zero"),
+            Err(SessionError::NotFound) => {
+                rpc_error(request.id.clone(), "not_found", "session not found")
+            }
+            Err(SessionError::AttachmentNotFound) => {
+                rpc_error(request.id.clone(), "not_found", "attachment not found")
+            }
+            Err(SessionError::InvalidSize) => rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "cols and rows must be greater than zero",
+            ),
         }
     }
 
     fn handle_session_detach(&self, request: &Request) -> Response {
         let Some(session_id) = get_string(&request.params, "session_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.detach requires session_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.detach requires session_id",
+            );
         };
         let Some(attachment_id) = get_string(&request.params, "attachment_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.detach requires attachment_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.detach requires attachment_id",
+            );
         };
         match self.detach_session(session_id, attachment_id) {
             Ok(snapshot) => rpc_ok(request.id.clone(), snapshot_value(snapshot, None, None)),
-            Err(SessionError::NotFound) => rpc_error(request.id.clone(), "not_found", "session not found"),
-            Err(SessionError::AttachmentNotFound) => rpc_error(request.id.clone(), "not_found", "attachment not found"),
-            Err(SessionError::InvalidSize) => rpc_error(request.id.clone(), "invalid_params", "cols and rows must be greater than zero"),
+            Err(SessionError::NotFound) => {
+                rpc_error(request.id.clone(), "not_found", "session not found")
+            }
+            Err(SessionError::AttachmentNotFound) => {
+                rpc_error(request.id.clone(), "not_found", "attachment not found")
+            }
+            Err(SessionError::InvalidSize) => rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "cols and rows must be greater than zero",
+            ),
         }
     }
 
     fn handle_session_status(&self, request: &Request) -> Response {
         let Some(session_id) = get_string(&request.params, "session_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.status requires session_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.status requires session_id",
+            );
         };
         match self.find_session(session_id) {
-            Some(session) => rpc_ok(request.id.clone(), snapshot_value(session.snapshot(), None, None)),
+            Some(session) => rpc_ok(
+                request.id.clone(),
+                snapshot_value(session.snapshot(), None, None),
+            ),
             None => rpc_error(request.id.clone(), "not_found", "session not found"),
         }
     }
@@ -506,15 +675,26 @@ impl Daemon {
 
     fn handle_session_history(&self, request: &Request) -> Response {
         let Some(session_id) = get_string(&request.params, "session_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "session.history requires session_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "session.history requires session_id",
+            );
         };
         let Some((_, _, pane)) = self.resolve_active_pane(session_id) else {
-            return rpc_error(request.id.clone(), "not_found", "terminal session not found");
+            return rpc_error(
+                request.id.clone(),
+                "not_found",
+                "terminal session not found",
+            );
         };
         match pane.capture(true) {
             Ok(capture) => {
                 let history = join_history(&capture.capture.history, &capture.capture.visible);
-                rpc_ok(request.id.clone(), json!({ "session_id": session_id, "history": history }))
+                rpc_ok(
+                    request.id.clone(),
+                    json!({ "session_id": session_id, "history": history }),
+                )
             }
             Err(err) => rpc_error(request.id.clone(), "internal_error", err),
         }
@@ -522,38 +702,67 @@ impl Daemon {
 
     fn handle_terminal_open(&self, request: &Request) -> Response {
         let Some(command) = get_string(&request.params, "command") else {
-            return rpc_error(request.id.clone(), "invalid_params", "terminal.open requires command");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "terminal.open requires command",
+            );
         };
         let Some(cols) = get_positive_u16(&request.params, "cols") else {
-            return rpc_error(request.id.clone(), "invalid_params", "terminal.open requires cols > 0");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "terminal.open requires cols > 0",
+            );
         };
         let Some(rows) = get_positive_u16(&request.params, "rows") else {
-            return rpc_error(request.id.clone(), "invalid_params", "terminal.open requires rows > 0");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "terminal.open requires rows > 0",
+            );
         };
         let requested_session_id = get_string(&request.params, "session_id");
 
         match self.open_terminal(requested_session_id, command, cols, rows) {
-            Ok((snapshot, attachment_id)) => {
-                rpc_ok(request.id.clone(), snapshot_value(snapshot, Some(attachment_id), Some(0)))
+            Ok((snapshot, attachment_id)) => rpc_ok(
+                request.id.clone(),
+                snapshot_value(snapshot, Some(attachment_id), Some(0)),
+            ),
+            Err(OpenTerminalError::AlreadyExists) => rpc_error(
+                request.id.clone(),
+                "already_exists",
+                "session already exists",
+            ),
+            Err(OpenTerminalError::Other(err)) => {
+                rpc_error(request.id.clone(), "internal_error", err)
             }
-            Err(OpenTerminalError::AlreadyExists) => {
-                rpc_error(request.id.clone(), "already_exists", "session already exists")
-            }
-            Err(OpenTerminalError::Other(err)) => rpc_error(request.id.clone(), "internal_error", err),
         }
     }
 
     fn handle_terminal_read(&self, request: &Request) -> Response {
         let Some(session_id) = get_string(&request.params, "session_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "terminal.read requires session_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "terminal.read requires session_id",
+            );
         };
         let Some(offset) = get_non_negative_u64(&request.params, "offset") else {
-            return rpc_error(request.id.clone(), "invalid_params", "terminal.read requires offset >= 0");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "terminal.read requires offset >= 0",
+            );
         };
         let max_bytes = get_positive_usize(&request.params, "max_bytes").unwrap_or(65_536);
         let timeout_ms = get_non_negative_i64(&request.params, "timeout_ms").unwrap_or(0) as i32;
         let Some((_, _, pane)) = self.resolve_active_pane(session_id) else {
-            return rpc_error(request.id.clone(), "not_found", "terminal session not found");
+            return rpc_error(
+                request.id.clone(),
+                "not_found",
+                "terminal session not found",
+            );
         };
         match pane.read(offset, max_bytes, timeout_ms) {
             Ok(read) => rpc_ok(
@@ -567,29 +776,52 @@ impl Daemon {
                     "data": base64::engine::general_purpose::STANDARD.encode(read.data),
                 }),
             ),
-            Err(err) if err == "timeout" => {
-                rpc_error(request.id.clone(), "deadline_exceeded", "terminal read timed out")
-            }
+            Err(err) if err == "timeout" => rpc_error(
+                request.id.clone(),
+                "deadline_exceeded",
+                "terminal read timed out",
+            ),
             Err(err) => rpc_error(request.id.clone(), "internal_error", err),
         }
     }
 
     fn handle_terminal_write(&self, request: &Request) -> Response {
         let Some(session_id) = get_string(&request.params, "session_id") else {
-            return rpc_error(request.id.clone(), "invalid_params", "terminal.write requires session_id");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "terminal.write requires session_id",
+            );
         };
         let Some(encoded) = get_string(&request.params, "data") else {
-            return rpc_error(request.id.clone(), "invalid_params", "terminal.write requires data");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "terminal.write requires data",
+            );
         };
         let data = match base64::engine::general_purpose::STANDARD.decode(encoded) {
             Ok(value) => value,
-            Err(_) => return rpc_error(request.id.clone(), "invalid_params", "terminal.write data must be base64"),
+            Err(_) => {
+                return rpc_error(
+                    request.id.clone(),
+                    "invalid_params",
+                    "terminal.write data must be base64",
+                );
+            }
         };
         let Some((_, _, pane)) = self.resolve_active_pane(session_id) else {
-            return rpc_error(request.id.clone(), "not_found", "terminal session not found");
+            return rpc_error(
+                request.id.clone(),
+                "not_found",
+                "terminal session not found",
+            );
         };
         match pane.write(data.clone()) {
-            Ok(written) => rpc_ok(request.id.clone(), json!({ "session_id": session_id, "written": written })),
+            Ok(written) => rpc_ok(
+                request.id.clone(),
+                json!({ "session_id": session_id, "written": written }),
+            ),
             Err(err) => rpc_error(request.id.clone(), "internal_error", err),
         }
     }
@@ -607,31 +839,54 @@ impl Daemon {
             return rpc_error(request.id.clone(), "not_found", "pane not found");
         };
         match pane.capture(include_history) {
-            Ok(capture) => rpc_ok(request.id.clone(), serde_json::to_value(capture).unwrap_or_else(|_| json!({}))),
+            Ok(capture) => rpc_ok(
+                request.id.clone(),
+                serde_json::to_value(capture).unwrap_or_else(|_| json!({})),
+            ),
             Err(err) => rpc_error(request.id.clone(), "internal_error", err),
         }
     }
 
     fn handle_amux_wait(&self, request: &Request) -> Response {
         let Some(kind) = get_string(&request.params, "kind") else {
-            return rpc_error(request.id.clone(), "invalid_params", "amux.wait requires kind");
+            return rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "amux.wait requires kind",
+            );
         };
-        let timeout_ms = get_non_negative_i64(&request.params, "timeout_ms").unwrap_or(30_000) as u64;
+        let timeout_ms =
+            get_non_negative_i64(&request.params, "timeout_ms").unwrap_or(30_000) as u64;
         match kind {
             "signal" => {
                 let Some(name) = get_string(&request.params, "name") else {
-                    return rpc_error(request.id.clone(), "invalid_params", "signal wait requires name");
+                    return rpc_error(
+                        request.id.clone(),
+                        "invalid_params",
+                        "signal wait requires name",
+                    );
                 };
                 let after_generation = get_non_negative_u64(&request.params, "after_generation")
                     .unwrap_or_else(|| self.current_signal_generation(name));
-                match self.wait_for_signal(name, after_generation, Duration::from_millis(timeout_ms)) {
-                    Ok(generation) => rpc_ok(request.id.clone(), json!({ "name": name, "generation": generation })),
+                match self.wait_for_signal(
+                    name,
+                    after_generation,
+                    Duration::from_millis(timeout_ms),
+                ) {
+                    Ok(generation) => rpc_ok(
+                        request.id.clone(),
+                        json!({ "name": name, "generation": generation }),
+                    ),
                     Err(err) => rpc_error(request.id.clone(), "deadline_exceeded", err),
                 }
             }
             "content" => {
                 let Some(needle) = get_string(&request.params, "needle") else {
-                    return rpc_error(request.id.clone(), "invalid_params", "content wait requires needle");
+                    return rpc_error(
+                        request.id.clone(),
+                        "invalid_params",
+                        "content wait requires needle",
+                    );
                 };
                 let pane = if let Some(pane_id) = get_string(&request.params, "pane_id") {
                     self.find_pane_by_id(pane_id)
@@ -675,7 +930,12 @@ impl Daemon {
                 let Some((session, _window, pane)) = pane else {
                     return rpc_error(request.id.clone(), "not_found", "pane not found");
                 };
-                match self.wait_for_busy(&session.id, &pane.pane_id, &pane, Duration::from_millis(timeout_ms)) {
+                match self.wait_for_busy(
+                    &session.id,
+                    &pane.pane_id,
+                    &pane,
+                    Duration::from_millis(timeout_ms),
+                ) {
                     Ok(()) => rpc_ok(request.id.clone(), json!({ "busy": true })),
                     Err(err) => rpc_error(request.id.clone(), "deadline_exceeded", err),
                 }
@@ -712,7 +972,11 @@ impl Daemon {
                     Err(err) => rpc_error(request.id.clone(), "deadline_exceeded", err),
                 }
             }
-            _ => rpc_error(request.id.clone(), "invalid_params", "unsupported wait kind"),
+            _ => rpc_error(
+                request.id.clone(),
+                "invalid_params",
+                "unsupported wait kind",
+            ),
         }
     }
 
@@ -722,7 +986,13 @@ impl Daemon {
         let filters = get_filters(&request.params);
         let session_id = get_string(&request.params, "session_id").map(ToString::to_string);
         let pane_id = get_string(&request.params, "pane_id").map(ToString::to_string);
-        let (next_cursor, events) = self.read_events(cursor, Duration::from_millis(timeout_ms), &filters, session_id.as_deref(), pane_id.as_deref());
+        let (next_cursor, events) = self.read_events(
+            cursor,
+            Duration::from_millis(timeout_ms),
+            &filters,
+            session_id.as_deref(),
+            pane_id.as_deref(),
+        );
         rpc_ok(
             request.id.clone(),
             json!({
@@ -738,13 +1008,23 @@ impl Daemon {
                 let mut argv = Vec::with_capacity(values.len());
                 for value in values {
                     let Some(value) = value.as_str() else {
-                        return rpc_error(request.id.clone(), "invalid_params", "tmux.exec argv entries must be strings");
+                        return rpc_error(
+                            request.id.clone(),
+                            "invalid_params",
+                            "tmux.exec argv entries must be strings",
+                        );
                     };
                     argv.push(value.to_string());
                 }
                 argv
             }
-            None => return rpc_error(request.id.clone(), "invalid_params", "tmux.exec requires argv"),
+            None => {
+                return rpc_error(
+                    request.id.clone(),
+                    "invalid_params",
+                    "tmux.exec requires argv",
+                );
+            }
         };
         match self.tmux_exec(&argv) {
             Ok(result) => rpc_ok(request.id.clone(), result),
@@ -779,7 +1059,15 @@ impl Daemon {
         cols: u16,
         rows: u16,
     ) -> Result<(SessionSnapshot, String), OpenTerminalError> {
-        let (session, session_id, attachment_id, window_id, pane_id, effective_cols, effective_rows) = {
+        let (
+            session,
+            session_id,
+            attachment_id,
+            window_id,
+            pane_id,
+            effective_cols,
+            effective_rows,
+        ) = {
             let mut state = self.inner.state.lock().unwrap();
             let session_id = match requested_session_id {
                 Some(value) => {
@@ -806,12 +1094,23 @@ impl Daemon {
                 .attach(attachment_id.clone(), cols, rows)
                 .map_err(|err| OpenTerminalError::Other(format!("{err:?}")))?;
             let (effective_cols, effective_rows) = session.effective_size();
-            state.sessions.insert(session_id.clone(), Arc::clone(&session));
-            (session, session_id, attachment_id, window_id, pane_id, effective_cols, effective_rows)
+            state
+                .sessions
+                .insert(session_id.clone(), Arc::clone(&session));
+            (
+                session,
+                session_id,
+                attachment_id,
+                window_id,
+                pane_id,
+                effective_cols,
+                effective_rows,
+            )
         };
 
         let event_daemon = self.clone();
-        let pane_events: EventCallback = Arc::new(move |event| event_daemon.handle_pane_event(event));
+        let pane_events: EventCallback =
+            Arc::new(move |event| event_daemon.handle_pane_event(event));
         let handle = PaneHandle::spawn(
             &session_id,
             &pane_id,
@@ -839,9 +1138,21 @@ impl Daemon {
         }
 
         let mut state = self.inner.state.lock().unwrap();
-        self.emit_event_locked(&mut state, "session.open", json!({ "session_id": session_id }));
-        self.emit_event_locked(&mut state, "window.open", json!({ "session_id": session_id, "window_id": window_id }));
-        self.emit_event_locked(&mut state, "pane.open", json!({ "session_id": session_id, "pane_id": pane_id }));
+        self.emit_event_locked(
+            &mut state,
+            "session.open",
+            json!({ "session_id": session_id }),
+        );
+        self.emit_event_locked(
+            &mut state,
+            "window.open",
+            json!({ "session_id": session_id, "window_id": window_id }),
+        );
+        self.emit_event_locked(
+            &mut state,
+            "pane.open",
+            json!({ "session_id": session_id, "pane_id": pane_id }),
+        );
         self.inner.state_cv.notify_all();
         Ok((session.snapshot(), attachment_id))
     }
@@ -849,19 +1160,40 @@ impl Daemon {
     fn close_session(&self, session_id: &str) -> Result<(), SessionError> {
         let session = {
             let mut state = self.inner.state.lock().unwrap();
-            let removed = state.sessions.remove(session_id).ok_or(SessionError::NotFound)?;
-            self.emit_event_locked(&mut state, "session.close", json!({ "session_id": session_id }));
-            self.inner.state_cv.notify_all();
-            removed
+            state
+                .sessions
+                .remove(session_id)
+                .ok_or(SessionError::NotFound)?
         };
+        let close_events = self.session_close_events(&session);
+        {
+            let mut state = self.inner.state.lock().unwrap();
+            for (kind, payload) in close_events {
+                self.emit_event_locked(&mut state, kind, payload);
+            }
+            self.emit_event_locked(
+                &mut state,
+                "session.close",
+                json!({ "session_id": session_id }),
+            );
+            self.inner.state_cv.notify_all();
+        }
         for pane in collect_panes(&session) {
             pane.close();
         }
         Ok(())
     }
 
-    fn attach_session(&self, session_id: &str, attachment_id: &str, cols: u16, rows: u16) -> Result<SessionSnapshot, SessionError> {
-        let session = self.find_session(session_id).ok_or(SessionError::NotFound)?;
+    fn attach_session(
+        &self,
+        session_id: &str,
+        attachment_id: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<SessionSnapshot, SessionError> {
+        let session = self
+            .find_session(session_id)
+            .ok_or(SessionError::NotFound)?;
         session.attach(attachment_id.to_string(), cols, rows)?;
         self.resize_session_panes(&session);
         let snapshot = session.snapshot();
@@ -875,8 +1207,16 @@ impl Daemon {
         Ok(snapshot)
     }
 
-    fn resize_session(&self, session_id: &str, attachment_id: &str, cols: u16, rows: u16) -> Result<SessionSnapshot, SessionError> {
-        let session = self.find_session(session_id).ok_or(SessionError::NotFound)?;
+    fn resize_session(
+        &self,
+        session_id: &str,
+        attachment_id: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<SessionSnapshot, SessionError> {
+        let session = self
+            .find_session(session_id)
+            .ok_or(SessionError::NotFound)?;
         session.resize_attachment(attachment_id, cols, rows)?;
         self.resize_session_panes(&session);
         let snapshot = session.snapshot();
@@ -890,8 +1230,14 @@ impl Daemon {
         Ok(snapshot)
     }
 
-    fn detach_session(&self, session_id: &str, attachment_id: &str) -> Result<SessionSnapshot, SessionError> {
-        let session = self.find_session(session_id).ok_or(SessionError::NotFound)?;
+    fn detach_session(
+        &self,
+        session_id: &str,
+        attachment_id: &str,
+    ) -> Result<SessionSnapshot, SessionError> {
+        let session = self
+            .find_session(session_id)
+            .ok_or(SessionError::NotFound)?;
         session.detach(attachment_id)?;
         self.resize_session_panes(&session);
         let snapshot = session.snapshot();
@@ -905,7 +1251,10 @@ impl Daemon {
         Ok(snapshot)
     }
 
-    fn resolve_active_pane(&self, session_id: &str) -> Option<(Arc<Session>, String, Arc<PaneHandle>)> {
+    fn resolve_active_pane(
+        &self,
+        session_id: &str,
+    ) -> Option<(Arc<Session>, String, Arc<PaneHandle>)> {
         let session = self.find_session(session_id)?;
         let inner = session.inner.lock().unwrap();
         let window = inner.windows.get(inner.active_window)?;
@@ -935,17 +1284,26 @@ impl Daemon {
                 "pane.output",
                 json!({ "session_id": session_id, "pane_id": pane_id, "len": len }),
             ),
-            PaneRuntimeEvent::Busy { session_id, pane_id } => self.emit_event_locked(
+            PaneRuntimeEvent::Busy {
+                session_id,
+                pane_id,
+            } => self.emit_event_locked(
                 &mut state,
                 "busy",
                 json!({ "session_id": session_id, "pane_id": pane_id }),
             ),
-            PaneRuntimeEvent::Idle { session_id, pane_id } => self.emit_event_locked(
+            PaneRuntimeEvent::Idle {
+                session_id,
+                pane_id,
+            } => self.emit_event_locked(
                 &mut state,
                 "idle",
                 json!({ "session_id": session_id, "pane_id": pane_id }),
             ),
-            PaneRuntimeEvent::Exit { session_id, pane_id } => self.emit_event_locked(
+            PaneRuntimeEvent::Exit {
+                session_id,
+                pane_id,
+            } => self.emit_event_locked(
                 &mut state,
                 "exited",
                 json!({ "session_id": session_id, "pane_id": pane_id }),
@@ -965,7 +1323,12 @@ impl Daemon {
             .unwrap_or(0)
     }
 
-    fn wait_for_signal(&self, name: &str, after_generation: u64, timeout: Duration) -> Result<u64, String> {
+    fn wait_for_signal(
+        &self,
+        name: &str,
+        after_generation: u64,
+        timeout: Duration,
+    ) -> Result<u64, String> {
         let deadline = Instant::now() + timeout;
         let mut state = self.inner.state.lock().unwrap();
         loop {
@@ -978,7 +1341,11 @@ impl Daemon {
             if now >= deadline {
                 return Err(format!("wait timed out waiting for '{name}'"));
             }
-            let (next_state, wait_result) = self.inner.state_cv.wait_timeout(state, deadline - now).unwrap();
+            let (next_state, wait_result) = self
+                .inner
+                .state_cv
+                .wait_timeout(state, deadline - now)
+                .unwrap();
             state = next_state;
             if wait_result.timed_out() {
                 return Err(format!("wait timed out waiting for '{name}'"));
@@ -986,7 +1353,12 @@ impl Daemon {
         }
     }
 
-    fn wait_for_content(&self, pane: &PaneHandle, needle: &str, timeout: Duration) -> Result<(), String> {
+    fn wait_for_content(
+        &self,
+        pane: &PaneHandle,
+        needle: &str,
+        timeout: Duration,
+    ) -> Result<(), String> {
         let deadline = Instant::now() + timeout;
         loop {
             let capture = pane.capture(true)?;
@@ -1014,7 +1386,8 @@ impl Daemon {
             if now >= deadline {
                 return Err("exit wait timed out".to_string());
             }
-            let (next_guard, wait_result) = pane.shared.cv.wait_timeout(guard, deadline - now).unwrap();
+            let (next_guard, wait_result) =
+                pane.shared.cv.wait_timeout(guard, deadline - now).unwrap();
             guard = next_guard;
             if wait_result.timed_out() {
                 return Err("exit wait timed out".to_string());
@@ -1042,7 +1415,10 @@ impl Daemon {
         let cursor = self.current_event_cursor();
         let (_next_cursor, events) =
             self.read_events(cursor, timeout, &filters, Some(session_id), Some(pane_id));
-        if events.iter().any(|event| event.get("kind").and_then(Value::as_str) == Some("busy")) {
+        if events
+            .iter()
+            .any(|event| event.get("kind").and_then(Value::as_str) == Some("busy"))
+        {
             Ok(())
         } else {
             Err("busy wait timed out".to_string())
@@ -1060,7 +1436,8 @@ impl Daemon {
             if now >= deadline {
                 return Err("idle wait timed out".to_string());
             }
-            let (next_guard, wait_result) = pane.shared.cv.wait_timeout(guard, deadline - now).unwrap();
+            let (next_guard, wait_result) =
+                pane.shared.cv.wait_timeout(guard, deadline - now).unwrap();
             guard = next_guard;
             if wait_result.timed_out() {
                 return Err("idle wait timed out".to_string());
@@ -1088,7 +1465,11 @@ impl Daemon {
             if now >= deadline {
                 return (cursor, Vec::new());
             }
-            let (next_state, wait_result) = self.inner.state_cv.wait_timeout(state, deadline - now).unwrap();
+            let (next_state, wait_result) = self
+                .inner
+                .state_cv
+                .wait_timeout(state, deadline - now)
+                .unwrap();
             state = next_state;
             if wait_result.timed_out() {
                 return (cursor, Vec::new());
@@ -1139,7 +1520,11 @@ impl Daemon {
 
         match command {
             "new-session" | "new" => {
-                let parsed = parse_tmux_args(raw_args, &["-c", "-F", "-n", "-s", "-x", "-y"], &["-A", "-d", "-P"])?;
+                let parsed = parse_tmux_args(
+                    raw_args,
+                    &["-c", "-F", "-n", "-s", "-x", "-y"],
+                    &["-A", "-d", "-P"],
+                )?;
                 let requested_session = parsed.value("-s").map(ToString::to_string);
                 let command_text = tmux_shell_command(parsed.positional(), parsed.value("-c"));
                 let cols = parsed
@@ -1166,7 +1551,11 @@ impl Daemon {
                     if inner.windows.is_empty() {
                         return Err("existing session has no windows".to_string());
                     }
-                    (session.clone(), inner.active_window, inner.windows[inner.active_window].active_pane)
+                    (
+                        session.clone(),
+                        inner.active_window,
+                        inner.windows[inner.active_window].active_pane,
+                    )
                 } else {
                     let (snapshot, attachment_id) = self
                         .open_terminal(requested_session.as_deref(), &command_text, cols, rows)
@@ -1187,8 +1576,13 @@ impl Daemon {
                 };
 
                 let stdout = if parsed.has_flag("-P") {
-                    let context = self.tmux_format_context(&session, window_index, Some(pane_index))?;
-                    tmux_render_format(parsed.value("-F"), &context, &tmux_session_display_id(&session.id))
+                    let context =
+                        self.tmux_format_context(&session, window_index, Some(pane_index))?;
+                    tmux_render_format(
+                        parsed.value("-F"),
+                        &context,
+                        &tmux_session_display_id(&session.id),
+                    )
                 } else {
                     String::new()
                 };
@@ -1212,9 +1606,14 @@ impl Daemon {
                     !parsed.has_flag("-d"),
                 )?;
                 let stdout = if parsed.has_flag("-P") {
-                    let context = self.tmux_format_context(&session, window_index, Some(pane_index))?;
+                    let context =
+                        self.tmux_format_context(&session, window_index, Some(pane_index))?;
                     let pane_id = self.tmux_pane_id(&session, window_index, pane_index)?;
-                    tmux_render_format(parsed.value("-F"), &context, &tmux_pane_display_id(&pane_id))
+                    tmux_render_format(
+                        parsed.value("-F"),
+                        &context,
+                        &tmux_pane_display_id(&pane_id),
+                    )
                 } else {
                     String::new()
                 };
@@ -1228,7 +1627,11 @@ impl Daemon {
                 ))
             }
             "split-window" | "splitw" => {
-                let parsed = parse_tmux_args(raw_args, &["-c", "-F", "-l", "-t"], &["-P", "-b", "-d", "-h", "-v"])?;
+                let parsed = parse_tmux_args(
+                    raw_args,
+                    &["-c", "-F", "-l", "-t"],
+                    &["-P", "-b", "-d", "-h", "-v"],
+                )?;
                 let target = self.tmux_resolve_pane(parsed.value("-t"))?;
                 let pane_index = self.tmux_create_pane(
                     &target.session,
@@ -1237,9 +1640,18 @@ impl Daemon {
                     !parsed.has_flag("-d"),
                 )?;
                 let stdout = if parsed.has_flag("-P") {
-                    let context = self.tmux_format_context(&target.session, target.window_index, Some(pane_index))?;
-                    let pane_id = self.tmux_pane_id(&target.session, target.window_index, pane_index)?;
-                    tmux_render_format(parsed.value("-F"), &context, &tmux_pane_display_id(&pane_id))
+                    let context = self.tmux_format_context(
+                        &target.session,
+                        target.window_index,
+                        Some(pane_index),
+                    )?;
+                    let pane_id =
+                        self.tmux_pane_id(&target.session, target.window_index, pane_index)?;
+                    tmux_render_format(
+                        parsed.value("-F"),
+                        &context,
+                        &tmux_pane_display_id(&pane_id),
+                    )
                 } else {
                     String::new()
                 };
@@ -1256,7 +1668,10 @@ impl Daemon {
                 let parsed = parse_tmux_args(raw_args, &["-t"], &[])?;
                 let target = self.tmux_resolve_window(parsed.value("-t"))?;
                 self.tmux_select_window(&target.session, target.window_index)?;
-                Ok(tmux_result(String::new(), json!({ "session_id": target.session.id })))
+                Ok(tmux_result(
+                    String::new(),
+                    json!({ "session_id": target.session.id }),
+                ))
             }
             "select-pane" | "selectp" => {
                 let parsed = parse_tmux_args(raw_args, &["-t"], &[])?;
@@ -1274,7 +1689,10 @@ impl Daemon {
                 let parsed = parse_tmux_args(raw_args, &["-t"], &[])?;
                 let target = self.tmux_resolve_window(parsed.value("-t"))?;
                 self.tmux_kill_window(&target.session, target.window_index)?;
-                Ok(tmux_result(String::new(), json!({ "session_id": target.session.id })))
+                Ok(tmux_result(
+                    String::new(),
+                    json!({ "session_id": target.session.id }),
+                ))
             }
             "kill-pane" | "killp" => {
                 let parsed = parse_tmux_args(raw_args, &["-t"], &[])?;
@@ -1305,14 +1723,25 @@ impl Daemon {
                 ))
             }
             "capture-pane" | "capturep" => {
-                let parsed = parse_tmux_args(raw_args, &["-E", "-S", "-t"], &["-J", "-N", "-p", "-e", "-q"])?;
+                let parsed = parse_tmux_args(
+                    raw_args,
+                    &["-E", "-S", "-t"],
+                    &["-J", "-N", "-p", "-e", "-q"],
+                )?;
                 let target = self.tmux_resolve_pane(parsed.value("-t"))?;
                 let include_history = parsed
                     .value("-S")
-                    .map(|value| value == "-" || value.parse::<i64>().map(|line| line < 0).unwrap_or(false))
+                    .map(|value| {
+                        value == "-" || value.parse::<i64>().map(|line| line < 0).unwrap_or(false)
+                    })
                     .unwrap_or(false);
                 let capture = target.handle.capture(include_history)?;
-                let text = tmux_capture_text(&capture.capture, include_history, parsed.value("-S"), parsed.value("-E"));
+                let text = tmux_capture_text(
+                    &capture.capture,
+                    include_history,
+                    parsed.value("-S"),
+                    parsed.value("-E"),
+                );
                 if parsed.has_flag("-p") {
                     Ok(tmux_result(
                         tmux_line_output(&text),
@@ -1336,7 +1765,11 @@ impl Daemon {
             "display-message" | "display" | "displayp" => {
                 let parsed = parse_tmux_args(raw_args, &["-F", "-t"], &["-p"])?;
                 let target = self.tmux_resolve_pane(parsed.value("-t"))?;
-                let context = self.tmux_format_context(&target.session, target.window_index, Some(target.pane_index))?;
+                let context = self.tmux_format_context(
+                    &target.session,
+                    target.window_index,
+                    Some(target.pane_index),
+                )?;
                 let owned_format;
                 let format = if parsed.positional().is_empty() {
                     parsed.value("-F")
@@ -1361,10 +1794,14 @@ impl Daemon {
                 for window_index in 0..window_count {
                     let context = self.tmux_format_context(&session, window_index, None)?;
                     let window_id = self.tmux_window_id(&session, window_index)?;
-                    let fallback = format!("{} {}", window_index, tmux_window_display_id(&window_id));
+                    let fallback =
+                        format!("{} {}", window_index, tmux_window_display_id(&window_id));
                     lines.push(tmux_render_format(parsed.value("-F"), &context, &fallback));
                 }
-                Ok(tmux_result(lines.join("\n"), json!({ "session_id": session.id })))
+                Ok(tmux_result(
+                    lines.join("\n"),
+                    json!({ "session_id": session.id }),
+                ))
             }
             "list-panes" | "lsp" => {
                 let parsed = parse_tmux_args(raw_args, &["-F", "-t"], &[])?;
@@ -1379,8 +1816,13 @@ impl Daemon {
                 };
                 let mut lines = Vec::with_capacity(pane_count);
                 for pane_index in 0..pane_count {
-                    let context = self.tmux_format_context(&window.session, window.window_index, Some(pane_index))?;
-                    let pane_id = self.tmux_pane_id(&window.session, window.window_index, pane_index)?;
+                    let context = self.tmux_format_context(
+                        &window.session,
+                        window.window_index,
+                        Some(pane_index),
+                    )?;
+                    let pane_id =
+                        self.tmux_pane_id(&window.session, window.window_index, pane_index)?;
                     lines.push(tmux_render_format(
                         parsed.value("-F"),
                         &context,
@@ -1408,10 +1850,14 @@ impl Daemon {
                     .get_mut(target.window_index)
                     .ok_or_else(|| "window not found".to_string())?;
                 window.name = title;
-                Ok(tmux_result(String::new(), json!({ "session_id": target.session.id })))
+                Ok(tmux_result(
+                    String::new(),
+                    json!({ "session_id": target.session.id }),
+                ))
             }
             "resize-pane" | "resizep" => {
-                let parsed = parse_tmux_args(raw_args, &["-t", "-x", "-y"], &["-D", "-L", "-R", "-U"])?;
+                let parsed =
+                    parse_tmux_args(raw_args, &["-t", "-x", "-y"], &["-D", "-L", "-R", "-U"])?;
                 let target = self.tmux_resolve_pane(parsed.value("-t"))?;
                 let amount = parsed
                     .value("-x")
@@ -1450,36 +1896,55 @@ impl Daemon {
                     .ok_or_else(|| "wait-for requires a name".to_string())?;
                 if parsed.has_flag("-S") {
                     let generation = self.signal_wait(name);
-                    Ok(tmux_result(String::new(), json!({ "name": name, "generation": generation })))
+                    Ok(tmux_result(
+                        String::new(),
+                        json!({ "name": name, "generation": generation }),
+                    ))
                 } else {
                     let after_generation = self.current_signal_generation(name);
-                    let generation = self.wait_for_signal(name, after_generation, Duration::from_secs(30))?;
-                    Ok(tmux_result(String::new(), json!({ "name": name, "generation": generation })))
+                    let generation =
+                        self.wait_for_signal(name, after_generation, Duration::from_secs(30))?;
+                    Ok(tmux_result(
+                        String::new(),
+                        json!({ "name": name, "generation": generation }),
+                    ))
                 }
             }
             "last-pane" => {
                 let parsed = parse_tmux_args(raw_args, &["-t"], &[])?;
                 let target = self.tmux_resolve_window(parsed.value("-t"))?;
                 self.tmux_last_pane(&target.session, target.window_index)?;
-                Ok(tmux_result(String::new(), json!({ "session_id": target.session.id })))
+                Ok(tmux_result(
+                    String::new(),
+                    json!({ "session_id": target.session.id }),
+                ))
             }
             "last-window" => {
                 let parsed = parse_tmux_args(raw_args, &["-t"], &[])?;
                 let session = self.tmux_resolve_session(parsed.value("-t"))?;
                 self.tmux_last_window(&session)?;
-                Ok(tmux_result(String::new(), json!({ "session_id": session.id })))
+                Ok(tmux_result(
+                    String::new(),
+                    json!({ "session_id": session.id }),
+                ))
             }
             "next-window" => {
                 let parsed = parse_tmux_args(raw_args, &["-t"], &[])?;
                 let session = self.tmux_resolve_session(parsed.value("-t"))?;
                 self.tmux_cycle_window(&session, 1)?;
-                Ok(tmux_result(String::new(), json!({ "session_id": session.id })))
+                Ok(tmux_result(
+                    String::new(),
+                    json!({ "session_id": session.id }),
+                ))
             }
             "previous-window" => {
                 let parsed = parse_tmux_args(raw_args, &["-t"], &[])?;
                 let session = self.tmux_resolve_session(parsed.value("-t"))?;
                 self.tmux_cycle_window(&session, -1)?;
-                Ok(tmux_result(String::new(), json!({ "session_id": session.id })))
+                Ok(tmux_result(
+                    String::new(),
+                    json!({ "session_id": session.id }),
+                ))
             }
             "has-session" | "has" => {
                 let parsed = parse_tmux_args(raw_args, &["-t"], &[])?;
@@ -1506,7 +1971,10 @@ impl Daemon {
                     .get(name)
                     .ok_or_else(|| format!("buffer not found: {name}"))?
                     .clone();
-                Ok(tmux_result(tmux_line_output(&buffer), json!({ "buffer": name })))
+                Ok(tmux_result(
+                    tmux_line_output(&buffer),
+                    json!({ "buffer": name }),
+                ))
             }
             "save-buffer" | "saveb" => {
                 let parsed = parse_tmux_args(raw_args, &["-b"], &[])?;
@@ -1521,9 +1989,15 @@ impl Daemon {
                 };
                 if let Some(path) = parsed.positional().first() {
                     fs::write(path, buffer.as_bytes()).map_err(|err| err.to_string())?;
-                    Ok(tmux_result(String::new(), json!({ "buffer": name, "path": path })))
+                    Ok(tmux_result(
+                        String::new(),
+                        json!({ "buffer": name, "path": path }),
+                    ))
                 } else {
-                    Ok(tmux_result(tmux_line_output(&buffer), json!({ "buffer": name })))
+                    Ok(tmux_result(
+                        tmux_line_output(&buffer),
+                        json!({ "buffer": name }),
+                    ))
                 }
             }
             "list-buffers" => {
@@ -1532,7 +2006,10 @@ impl Daemon {
                 for (name, buffer) in &state.buffers {
                     lines.push(format!("{name}\t{}", buffer.len()));
                 }
-                Ok(tmux_result(lines.join("\n"), json!({ "count": state.buffers.len() })))
+                Ok(tmux_result(
+                    lines.join("\n"),
+                    json!({ "count": state.buffers.len() }),
+                ))
             }
             "paste-buffer" => {
                 let parsed = parse_tmux_args(raw_args, &["-b", "-t"], &[])?;
@@ -1566,7 +2043,11 @@ impl Daemon {
                 let text = join_history(&capture.capture.history, &capture.capture.visible);
                 let shell = self.tmux_run_shell(&shell_command, &text)?;
                 if shell.0 != 0 {
-                    return Err(format!("pipe-pane command failed ({}): {}", shell.0, shell.2.trim()));
+                    return Err(format!(
+                        "pipe-pane command failed ({}): {}",
+                        shell.0,
+                        shell.2.trim()
+                    ));
                 }
                 Ok(tmux_result(
                     shell.1,
@@ -1580,7 +2061,10 @@ impl Daemon {
                 let parsed = parse_tmux_args(raw_args, &["-t"], &[])?;
                 let query = parsed.positional().join(" ").trim().to_string();
                 let lines = self.tmux_find_windows(parsed.value("-t"), &query)?;
-                Ok(tmux_result(lines.join("\n"), json!({ "count": lines.len() })))
+                Ok(tmux_result(
+                    lines.join("\n"),
+                    json!({ "count": lines.len() }),
+                ))
             }
             "respawn-pane" => {
                 let parsed = parse_tmux_args(raw_args, &["-t"], &[])?;
@@ -1590,7 +2074,12 @@ impl Daemon {
                 } else {
                     parsed.positional().join(" ")
                 };
-                self.tmux_respawn_pane(&target.session, target.window_index, target.pane_index, &command_text)?;
+                self.tmux_respawn_pane(
+                    &target.session,
+                    target.window_index,
+                    target.pane_index,
+                    &command_text,
+                )?;
                 Ok(tmux_result(
                     String::new(),
                     json!({
@@ -1615,6 +2104,7 @@ impl Daemon {
             return self.tmux_default_session();
         };
         if let Some((session_part, _, _)) = tmux_split_target(raw_target) {
+            let session_part = session_part.trim_start_matches('$');
             return self
                 .find_session(session_part)
                 .ok_or_else(|| format!("session not found: {session_part}"));
@@ -1628,34 +2118,48 @@ impl Daemon {
         let Some(raw_target) = target.map(str::trim).filter(|value| !value.is_empty()) else {
             let session = self.tmux_default_session()?;
             let active_window = session.inner.lock().unwrap().active_window;
-            return Ok(TmuxWindowTarget { session, window_index: active_window });
+            return Ok(TmuxWindowTarget {
+                session,
+                window_index: active_window,
+            });
         };
 
         if let Some(window_id) = raw_target.strip_prefix('@') {
             for session in self.sessions() {
                 let window_index = {
                     let inner = session.inner.lock().unwrap();
-                    inner.windows.iter().position(|window| window.id == window_id)
+                    inner
+                        .windows
+                        .iter()
+                        .position(|window| window.id == window_id)
                 };
                 if let Some(window_index) = window_index {
-                    return Ok(TmuxWindowTarget { session, window_index });
+                    return Ok(TmuxWindowTarget {
+                        session,
+                        window_index,
+                    });
                 }
             }
             return Err(format!("window not found: {window_id}"));
         }
 
-        let (session, lookup) = if let Some((session_part, window_part, _)) = tmux_split_target(raw_target) {
-            (
-                self.find_session(session_part)
-                    .ok_or_else(|| format!("session not found: {session_part}"))?,
-                window_part,
-            )
-        } else {
-            (self.tmux_default_session()?, raw_target)
-        };
+        let (session, lookup) =
+            if let Some((session_part, window_part, _)) = tmux_split_target(raw_target) {
+                let session_part = session_part.trim_start_matches('$');
+                (
+                    self.find_session(session_part)
+                        .ok_or_else(|| format!("session not found: {session_part}"))?,
+                    window_part,
+                )
+            } else {
+                (self.tmux_default_session()?, raw_target)
+            };
 
         let window_index = self.tmux_window_index_in_session(&session, lookup)?;
-        Ok(TmuxWindowTarget { session, window_index })
+        Ok(TmuxWindowTarget {
+            session,
+            window_index,
+        })
     }
 
     fn tmux_resolve_pane(&self, target: Option<&str>) -> Result<TmuxPaneTarget, String> {
@@ -1693,6 +2197,7 @@ impl Daemon {
         }
 
         if let Some((session_part, window_part, pane_part)) = tmux_split_target(raw_target) {
+            let session_part = session_part.trim_start_matches('$');
             let session = self
                 .find_session(session_part)
                 .ok_or_else(|| format!("session not found: {session_part}"))?;
@@ -1711,7 +2216,9 @@ impl Daemon {
 
         let session = self.tmux_default_session()?;
         let active_window = session.inner.lock().unwrap().active_window;
-        if let Ok(target) = self.tmux_pane_target_in_window(session.clone(), active_window, raw_target) {
+        if let Ok(target) =
+            self.tmux_pane_target_in_window(session.clone(), active_window, raw_target)
+        {
             return Ok(target);
         }
 
@@ -1728,26 +2235,35 @@ impl Daemon {
                         .position(|(pane_index, pane)| tmux_pane_matches(pane_index, pane, lookup))
                     {
                         let pane = &window.panes[pane_index];
-                        found = Some((window_index, pane_index, pane.pane_id.clone(), pane.handle.clone()));
+                        found = Some((
+                            window_index,
+                            pane_index,
+                            pane.pane_id.clone(),
+                            pane.handle.clone(),
+                        ));
                         break;
                     }
                 }
                 found
             };
             if let Some((window_index, pane_index, pane_id, handle)) = found {
-                    return Ok(TmuxPaneTarget {
-                        session,
-                        window_index,
-                        pane_index,
-                        pane_id,
-                        handle,
-                    });
+                return Ok(TmuxPaneTarget {
+                    session,
+                    window_index,
+                    pane_index,
+                    pane_id,
+                    handle,
+                });
             }
         }
         Err(format!("pane not found: {lookup}"))
     }
 
-    fn tmux_window_index_in_session(&self, session: &Arc<Session>, lookup: &str) -> Result<usize, String> {
+    fn tmux_window_index_in_session(
+        &self,
+        session: &Arc<Session>,
+        lookup: &str,
+    ) -> Result<usize, String> {
         let lookup = if lookup.is_empty() { "0" } else { lookup };
         session
             .inner
@@ -1775,7 +2291,11 @@ impl Daemon {
                 .panes
                 .get(window.active_pane)
                 .ok_or_else(|| "window has no panes".to_string())?;
-            (window.active_pane, pane.pane_id.clone(), pane.handle.clone())
+            (
+                window.active_pane,
+                pane.pane_id.clone(),
+                pane.handle.clone(),
+            )
         };
         Ok(TmuxPaneTarget {
             session,
@@ -1834,7 +2354,8 @@ impl Daemon {
         };
 
         let event_daemon = self.clone();
-        let pane_events: EventCallback = Arc::new(move |event| event_daemon.handle_pane_event(event));
+        let pane_events: EventCallback =
+            Arc::new(move |event| event_daemon.handle_pane_event(event));
         let handle = PaneHandle::spawn(&session.id, &pane_id, command, cols, rows, pane_events)?;
 
         let window_index = {
@@ -1861,8 +2382,16 @@ impl Daemon {
         };
 
         let mut state = self.inner.state.lock().unwrap();
-        self.emit_event_locked(&mut state, "window.open", json!({ "session_id": session.id, "window_id": window_id }));
-        self.emit_event_locked(&mut state, "pane.open", json!({ "session_id": session.id, "pane_id": pane_id }));
+        self.emit_event_locked(
+            &mut state,
+            "window.open",
+            json!({ "session_id": session.id, "window_id": window_id }),
+        );
+        self.emit_event_locked(
+            &mut state,
+            "pane.open",
+            json!({ "session_id": session.id, "pane_id": pane_id }),
+        );
         self.inner.state_cv.notify_all();
         Ok((window_index, 0))
     }
@@ -1883,7 +2412,8 @@ impl Daemon {
         };
 
         let event_daemon = self.clone();
-        let pane_events: EventCallback = Arc::new(move |event| event_daemon.handle_pane_event(event));
+        let pane_events: EventCallback =
+            Arc::new(move |event| event_daemon.handle_pane_event(event));
         let handle = PaneHandle::spawn(&session.id, &pane_id, command, cols, rows, pane_events)?;
 
         let pane_index = {
@@ -1906,12 +2436,20 @@ impl Daemon {
         };
 
         let mut state = self.inner.state.lock().unwrap();
-        self.emit_event_locked(&mut state, "pane.open", json!({ "session_id": session.id, "pane_id": pane_id }));
+        self.emit_event_locked(
+            &mut state,
+            "pane.open",
+            json!({ "session_id": session.id, "pane_id": pane_id }),
+        );
         self.inner.state_cv.notify_all();
         Ok(pane_index)
     }
 
-    fn tmux_select_window(&self, session: &Arc<Session>, window_index: usize) -> Result<(), String> {
+    fn tmux_select_window(
+        &self,
+        session: &Arc<Session>,
+        window_index: usize,
+    ) -> Result<(), String> {
         let mut inner = session.inner.lock().unwrap();
         if window_index >= inner.windows.len() {
             return Err("window not found".to_string());
@@ -1923,7 +2461,12 @@ impl Daemon {
         Ok(())
     }
 
-    fn tmux_select_pane(&self, session: &Arc<Session>, window_index: usize, pane_index: usize) -> Result<(), String> {
+    fn tmux_select_pane(
+        &self,
+        session: &Arc<Session>,
+        window_index: usize,
+        pane_index: usize,
+    ) -> Result<(), String> {
         let mut inner = session.inner.lock().unwrap();
         let window = inner
             .windows
@@ -1940,20 +2483,46 @@ impl Daemon {
     }
 
     fn tmux_kill_window(&self, session: &Arc<Session>, window_index: usize) -> Result<(), String> {
-        let handles = {
+        let (handles, close_events) = {
             let mut inner = session.inner.lock().unwrap();
             if window_index >= inner.windows.len() {
                 return Err("window not found".to_string());
             }
             let window = inner.windows.remove(window_index);
+            let window_id = window.id.clone();
+            let mut close_events = Vec::with_capacity(window.panes.len() + 1);
+            for pane in &window.panes {
+                close_events.push((
+                    "pane.close",
+                    json!({ "session_id": session.id, "pane_id": pane.pane_id }),
+                ));
+            }
+            close_events.push((
+                "window.close",
+                json!({ "session_id": session.id, "window_id": window_id }),
+            ));
             if inner.windows.is_empty() {
                 inner.active_window = 0;
                 inner.last_window = None;
             } else if inner.active_window >= inner.windows.len() {
                 inner.active_window = inner.windows.len() - 1;
             }
-            window.panes.into_iter().map(|pane| pane.handle).collect::<Vec<_>>()
+            (
+                window
+                    .panes
+                    .into_iter()
+                    .map(|pane| pane.handle)
+                    .collect::<Vec<_>>(),
+                close_events,
+            )
         };
+        {
+            let mut state = self.inner.state.lock().unwrap();
+            for (kind, payload) in close_events {
+                self.emit_event_locked(&mut state, kind, payload);
+            }
+            self.inner.state_cv.notify_all();
+        }
         for handle in handles {
             handle.close();
         }
@@ -1963,8 +2532,13 @@ impl Daemon {
         Ok(())
     }
 
-    fn tmux_kill_pane(&self, session: &Arc<Session>, window_index: usize, pane_index: usize) -> Result<(), String> {
-        let (handle, empty_after_remove) = {
+    fn tmux_kill_pane(
+        &self,
+        session: &Arc<Session>,
+        window_index: usize,
+        pane_index: usize,
+    ) -> Result<(), String> {
+        let (handle, pane_id, empty_after_remove) = {
             let mut inner = session.inner.lock().unwrap();
             let window = inner
                 .windows
@@ -1975,14 +2549,23 @@ impl Daemon {
             }
             let pane = window.panes.remove(pane_index);
             if window.panes.is_empty() {
-                (pane.handle, true)
+                (pane.handle, pane.pane_id, true)
             } else {
                 if window.active_pane >= window.panes.len() {
                     window.active_pane = window.panes.len() - 1;
                 }
-                (pane.handle, false)
+                (pane.handle, pane.pane_id, false)
             }
         };
+        {
+            let mut state = self.inner.state.lock().unwrap();
+            self.emit_event_locked(
+                &mut state,
+                "pane.close",
+                json!({ "session_id": session.id, "pane_id": pane_id }),
+            );
+            self.inner.state_cv.notify_all();
+        }
         handle.close();
         if empty_after_remove {
             self.tmux_kill_window(session, window_index)?;
@@ -2035,7 +2618,8 @@ impl Daemon {
         let pane_id = self.tmux_pane_id(session, window_index, pane_index)?;
         let (cols, rows) = tmux_size_or_default(session.effective_size());
         let event_daemon = self.clone();
-        let pane_events: EventCallback = Arc::new(move |event| event_daemon.handle_pane_event(event));
+        let pane_events: EventCallback =
+            Arc::new(move |event| event_daemon.handle_pane_event(event));
         let handle = PaneHandle::spawn(&session.id, &pane_id, command, cols, rows, pane_events)?;
         let old_handle = {
             let mut inner = session.inner.lock().unwrap();
@@ -2054,7 +2638,11 @@ impl Daemon {
         Ok(())
     }
 
-    fn tmux_find_windows(&self, target_session: Option<&str>, query: &str) -> Result<Vec<String>, String> {
+    fn tmux_find_windows(
+        &self,
+        target_session: Option<&str>,
+        query: &str,
+    ) -> Result<Vec<String>, String> {
         let sessions = if let Some(target_session) = target_session {
             vec![self.tmux_resolve_session(Some(target_session))?]
         } else {
@@ -2069,7 +2657,8 @@ impl Daemon {
                 if !matched {
                     for pane in &window.panes {
                         if let Ok(capture) = pane.handle.capture(true) {
-                            let content = join_history(&capture.capture.history, &capture.capture.visible);
+                            let content =
+                                join_history(&capture.capture.history, &capture.capture.visible);
                             if content.contains(query) {
                                 matched = true;
                                 break;
@@ -2078,14 +2667,22 @@ impl Daemon {
                     }
                 }
                 if matched {
-                    lines.push(format!("{} {}", tmux_window_display_id(&window.id), window.name));
+                    lines.push(format!(
+                        "{} {}",
+                        tmux_window_display_id(&window.id),
+                        window.name
+                    ));
                 }
             }
         }
         Ok(lines)
     }
 
-    fn tmux_run_shell(&self, shell_command: &str, stdin_text: &str) -> Result<(i32, String, String), String> {
+    fn tmux_run_shell(
+        &self,
+        shell_command: &str,
+        stdin_text: &str,
+    ) -> Result<(i32, String, String), String> {
         let mut child = Command::new("/bin/sh")
             .arg("-lc")
             .arg(shell_command)
@@ -2107,7 +2704,11 @@ impl Daemon {
         ))
     }
 
-    fn tmux_window_id(&self, session: &Arc<Session>, window_index: usize) -> Result<String, String> {
+    fn tmux_window_id(
+        &self,
+        session: &Arc<Session>,
+        window_index: usize,
+    ) -> Result<String, String> {
         session
             .inner
             .lock()
@@ -2118,7 +2719,12 @@ impl Daemon {
             .ok_or_else(|| "window not found".to_string())
     }
 
-    fn tmux_pane_id(&self, session: &Arc<Session>, window_index: usize, pane_index: usize) -> Result<String, String> {
+    fn tmux_pane_id(
+        &self,
+        session: &Arc<Session>,
+        window_index: usize,
+        pane_index: usize,
+    ) -> Result<String, String> {
         session
             .inner
             .lock()
@@ -2143,13 +2749,21 @@ impl Daemon {
             .ok_or_else(|| "window not found".to_string())?;
         let mut context = BTreeMap::new();
         context.insert("session_name".to_string(), session.id.clone());
-        context.insert("session_id".to_string(), tmux_session_display_id(&session.id));
+        context.insert(
+            "session_id".to_string(),
+            tmux_session_display_id(&session.id),
+        );
         context.insert("window_id".to_string(), tmux_window_display_id(&window.id));
         context.insert("window_name".to_string(), window.name.clone());
         context.insert("window_index".to_string(), window_index.to_string());
         context.insert(
             "window_active".to_string(),
-            if inner.active_window == window_index { "1" } else { "0" }.to_string(),
+            if inner.active_window == window_index {
+                "1"
+            } else {
+                "0"
+            }
+            .to_string(),
         );
         if let Some(pane_index) = pane_index {
             let pane = window
@@ -2161,13 +2775,39 @@ impl Daemon {
             context.insert("pane_index".to_string(), pane_index.to_string());
             context.insert(
                 "pane_active".to_string(),
-                if window.active_pane == pane_index { "1" } else { "0" }.to_string(),
+                if window.active_pane == pane_index {
+                    "1"
+                } else {
+                    "0"
+                }
+                .to_string(),
             );
             context.insert("pane_title".to_string(), state.title.clone());
             context.insert("pane_current_path".to_string(), state.pwd.clone());
-            context.insert("pane_current_command".to_string(), tmux_command_name(&pane.command));
+            context.insert(
+                "pane_current_command".to_string(),
+                tmux_command_name(&pane.command),
+            );
         }
         Ok(context)
+    }
+
+    fn session_close_events(&self, session: &Arc<Session>) -> Vec<(&'static str, Value)> {
+        let inner = session.inner.lock().unwrap();
+        let mut events = Vec::new();
+        for window in &inner.windows {
+            for pane in &window.panes {
+                events.push((
+                    "pane.close",
+                    json!({ "session_id": session.id, "pane_id": pane.pane_id }),
+                ));
+            }
+            events.push((
+                "window.close",
+                json!({ "session_id": session.id, "window_id": window.id }),
+            ));
+        }
+        events
     }
 }
 
@@ -2272,9 +2912,7 @@ fn tmux_pane_display_id(pane_id: &str) -> String {
 }
 
 fn tmux_window_matches(index: usize, window: &Window, lookup: &str) -> bool {
-    window.id == lookup
-        || window.name == lookup
-        || lookup.parse::<usize>().ok() == Some(index)
+    window.id == lookup || window.name == lookup || lookup.parse::<usize>().ok() == Some(index)
 }
 
 fn tmux_pane_matches(index: usize, pane: &PaneSlot, lookup: &str) -> bool {
@@ -2337,7 +2975,12 @@ fn tmux_send_keys_bytes(tokens: &[String], literal: bool) -> Vec<u8> {
     out
 }
 
-fn tmux_capture_text(capture: &crate::capture::TerminalCapture, include_history: bool, start: Option<&str>, end: Option<&str>) -> String {
+fn tmux_capture_text(
+    capture: &crate::capture::TerminalCapture,
+    include_history: bool,
+    start: Option<&str>,
+    end: Option<&str>,
+) -> String {
     let source = if include_history {
         join_history(&capture.history, &capture.visible)
     } else {
@@ -2363,7 +3006,11 @@ fn tmux_line_index(value: Option<&str>, line_count: usize, default: usize) -> us
         return default;
     };
     if value == "-" {
-        return if default == 0 { 0 } else { line_count.saturating_sub(1) };
+        return if default == 0 {
+            0
+        } else {
+            line_count.saturating_sub(1)
+        };
     }
     match value.parse::<i64>() {
         Ok(number) if number < 0 => line_count.saturating_sub(number.unsigned_abs() as usize),
@@ -2372,7 +3019,11 @@ fn tmux_line_index(value: Option<&str>, line_count: usize, default: usize) -> us
     }
 }
 
-fn tmux_render_format(format: Option<&str>, context: &BTreeMap<String, String>, fallback: &str) -> String {
+fn tmux_render_format(
+    format: Option<&str>,
+    context: &BTreeMap<String, String>,
+    fallback: &str,
+) -> String {
     let Some(format) = format.filter(|value| !value.is_empty()) else {
         return fallback.to_string();
     };
@@ -2447,25 +3098,42 @@ impl DirectAuthorizer {
             "hello" | "ping" => None,
             "terminal.open" => {
                 if !self.capabilities.contains("session.open") {
-                    Some(rpc_error(None, "unauthorized", "ticket missing session.open capability"))
+                    Some(rpc_error(
+                        None,
+                        "unauthorized",
+                        "ticket missing session.open capability",
+                    ))
                 } else if self.used {
-                    Some(rpc_error(None, "unauthorized", "ticket is already bound to a terminal session"))
+                    Some(rpc_error(
+                        None,
+                        "unauthorized",
+                        "ticket is already bound to a terminal session",
+                    ))
                 } else {
                     None
                 }
             }
             "session.attach" => {
                 if !self.capabilities.contains("session.attach") {
-                    return Some(rpc_error(None, "unauthorized", "ticket missing session.attach capability"));
+                    return Some(rpc_error(
+                        None,
+                        "unauthorized",
+                        "ticket missing session.attach capability",
+                    ));
                 }
                 let session_id = get_string(&request.params, "session_id").unwrap_or_default();
-                let attachment_id = get_string(&request.params, "attachment_id").unwrap_or_default();
+                let attachment_id =
+                    get_string(&request.params, "attachment_id").unwrap_or_default();
                 if session_id.is_empty() || attachment_id.is_empty() {
                     return None;
                 }
                 let (allowed_session, allowed_attachment) = self.allowed_scope()?;
                 if allowed_session != session_id || allowed_attachment != attachment_id {
-                    Some(rpc_error(None, "unauthorized", "request exceeds direct ticket session scope"))
+                    Some(rpc_error(
+                        None,
+                        "unauthorized",
+                        "request exceeds direct ticket session scope",
+                    ))
                 } else {
                     None
                 }
@@ -2474,7 +3142,11 @@ impl DirectAuthorizer {
                 self.authorize_established(request, false)
             }
             "session.resize" | "session.detach" => self.authorize_established(request, true),
-            _ => Some(rpc_error(None, "unauthorized", "request is not allowed for this direct ticket")),
+            _ => Some(rpc_error(
+                None,
+                "unauthorized",
+                "request is not allowed for this direct ticket",
+            )),
         }
     }
 
@@ -2484,10 +3156,18 @@ impl DirectAuthorizer {
             return None;
         }
         if self.grant == RequestGrant::None || self.active_session_id.is_empty() {
-            return Some(rpc_error(None, "unauthorized", "request requires an opened or attached terminal session"));
+            return Some(rpc_error(
+                None,
+                "unauthorized",
+                "request requires an opened or attached terminal session",
+            ));
         }
         if session_id != self.active_session_id {
-            return Some(rpc_error(None, "unauthorized", "request exceeds direct ticket session scope"));
+            return Some(rpc_error(
+                None,
+                "unauthorized",
+                "request exceeds direct ticket session scope",
+            ));
         }
         if needs_attachment {
             let attachment_id = get_string(&request.params, "attachment_id").unwrap_or_default();
@@ -2495,7 +3175,11 @@ impl DirectAuthorizer {
                 return None;
             }
             if attachment_id != self.active_attachment_id {
-                return Some(rpc_error(None, "unauthorized", "request exceeds direct ticket attachment scope"));
+                return Some(rpc_error(
+                    None,
+                    "unauthorized",
+                    "request exceeds direct ticket attachment scope",
+                ));
             }
         }
         None
@@ -2504,7 +3188,8 @@ impl DirectAuthorizer {
     fn observe(&mut self, request: &Request, response: &Response) {
         match request.method.as_str() {
             "terminal.open" => {
-                if let Some((session_id, attachment_id)) = response_scope(response.result.as_ref()) {
+                if let Some((session_id, attachment_id)) = response_scope(response.result.as_ref())
+                {
                     self.active_session_id = session_id;
                     self.active_attachment_id = attachment_id;
                     self.grant = RequestGrant::Open;
@@ -2513,7 +3198,8 @@ impl DirectAuthorizer {
             }
             "session.attach" => {
                 let session_id = get_string(&request.params, "session_id").unwrap_or_default();
-                let attachment_id = get_string(&request.params, "attachment_id").unwrap_or_default();
+                let attachment_id =
+                    get_string(&request.params, "attachment_id").unwrap_or_default();
                 if !session_id.is_empty() && !attachment_id.is_empty() {
                     self.active_session_id = session_id.to_string();
                     self.active_attachment_id = attachment_id.to_string();
@@ -2587,7 +3273,10 @@ fn collect_events(
         .iter()
         .skip(offset)
         .filter(|event| {
-            let kind = event.get("kind").and_then(Value::as_str).unwrap_or_default();
+            let kind = event
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             let session_matches = session_id
                 .map(|value| event.get("session_id").and_then(Value::as_str) == Some(value))
                 .unwrap_or(true);
@@ -2600,7 +3289,11 @@ fn collect_events(
         .collect()
 }
 
-fn snapshot_value(snapshot: SessionSnapshot, attachment_id: Option<String>, offset: Option<u64>) -> Value {
+fn snapshot_value(
+    snapshot: SessionSnapshot,
+    attachment_id: Option<String>,
+    offset: Option<u64>,
+) -> Value {
     let mut value = serde_json::to_value(snapshot).unwrap_or_else(|_| json!({}));
     if let Some(object) = value.as_object_mut() {
         if let Some(attachment_id) = attachment_id {
@@ -2646,7 +3339,8 @@ fn get_positive_usize(params: &Value, key: &str) -> Option<usize> {
 }
 
 fn get_filters(params: &Value) -> BTreeSet<String> {
-    match params.get("filter") {
+    let filter_value = params.get("filters").or_else(|| params.get("filter"));
+    match filter_value {
         Some(Value::String(value)) => value
             .split(',')
             .map(str::trim)
@@ -2692,4 +3386,326 @@ fn load_key(path: &str) -> Result<PrivateKeyDer<'static>, String> {
     rustls_pemfile::private_key(&mut reader)
         .map_err(|err| err.to_string())?
         .ok_or_else(|| "missing private key".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::{thread, time::Duration};
+
+    fn tmux_exec(daemon: &Daemon, argv: &[&str]) -> Value {
+        daemon
+            .dispatch_json("tmux.exec", json!({ "argv": argv }))
+            .unwrap()
+    }
+
+    fn wait_ready(daemon: &Daemon, session_id: &str) {
+        daemon
+            .dispatch_json(
+                "amux.wait",
+                json!({
+                    "kind": "ready",
+                    "session_id": session_id,
+                    "timeout_ms": 5_000,
+                }),
+            )
+            .unwrap();
+    }
+
+    fn event_kinds(result: &Value) -> Vec<&str> {
+        result["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["kind"].as_str().unwrap())
+            .collect()
+    }
+
+    fn strip_display_id<'a>(value: &'a str, prefix: char) -> &'a str {
+        value.trim_start_matches(prefix)
+    }
+
+    #[test]
+    fn amux_events_read_accepts_filters_plural_and_session_close_emits_close_events() {
+        let daemon = Daemon::new("test");
+        let opened = tmux_exec(&daemon, &["new-session", "-s", "close-demo", "/bin/cat"]);
+        let session_id = opened["session_id"].as_str().unwrap();
+        wait_ready(&daemon, session_id);
+
+        let cursor = daemon.current_event_cursor();
+        daemon
+            .dispatch_json("session.close", json!({ "session_id": session_id }))
+            .unwrap();
+
+        let events = daemon
+            .dispatch_json(
+                "amux.events.read",
+                json!({
+                    "cursor": cursor,
+                    "timeout_ms": 0,
+                    "filters": ["pane.close", "window.close", "session.close"],
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(
+            event_kinds(&events),
+            vec!["pane.close", "window.close", "session.close"]
+        );
+    }
+
+    #[test]
+    fn tmux_targets_accept_dollar_prefixed_session_window_targets() {
+        let daemon = Daemon::new("test");
+        let opened = tmux_exec(&daemon, &["new-session", "-s", "target-demo", "/bin/cat"]);
+        let session_id = opened["session_id"].as_str().unwrap().to_string();
+        wait_ready(&daemon, &session_id);
+
+        let list = tmux_exec(
+            &daemon,
+            &[
+                "list-panes",
+                "-t",
+                "$target-demo:0",
+                "-F",
+                "#{session_name}:#{window_index}.#{pane_index}",
+            ],
+        );
+        assert_eq!(list["stdout"].as_str().unwrap().trim(), "target-demo:0.0");
+
+        let display = tmux_exec(
+            &daemon,
+            &[
+                "display-message",
+                "-t",
+                "$target-demo:0",
+                "#{session_name}:#{window_index}.#{pane_index}",
+            ],
+        );
+        assert_eq!(
+            display["stdout"].as_str().unwrap().trim(),
+            "target-demo:0.0"
+        );
+
+        daemon
+            .dispatch_json("session.close", json!({ "session_id": session_id }))
+            .unwrap();
+    }
+
+    #[test]
+    fn tmux_kill_commands_emit_close_events() {
+        let daemon = Daemon::new("test");
+        let opened = tmux_exec(&daemon, &["new-session", "-s", "kill-demo", "/bin/cat"]);
+        let session_id = opened["session_id"].as_str().unwrap().to_string();
+        wait_ready(&daemon, &session_id);
+
+        let split = tmux_exec(&daemon, &["split-window", "-t", "kill-demo:0", "/bin/cat"]);
+        let split_pane_id = strip_display_id(split["pane_id"].as_str().unwrap(), '%').to_string();
+        let cursor = daemon.current_event_cursor();
+        tmux_exec(&daemon, &["kill-pane", "-t", "$kill-demo:0.1"]);
+
+        let pane_events = daemon
+            .dispatch_json(
+                "amux.events.read",
+                json!({
+                    "cursor": cursor,
+                    "timeout_ms": 0,
+                    "filters": ["pane.close"],
+                    "session_id": session_id,
+                }),
+            )
+            .unwrap();
+        let pane_events = pane_events["events"].as_array().unwrap();
+        assert_eq!(pane_events.len(), 1);
+        assert_eq!(pane_events[0]["kind"].as_str().unwrap(), "pane.close");
+        assert_eq!(pane_events[0]["pane_id"].as_str().unwrap(), split_pane_id);
+
+        let new_window = tmux_exec(&daemon, &["new-window", "-t", "kill-demo", "/bin/cat"]);
+        let window_id =
+            strip_display_id(new_window["window_id"].as_str().unwrap(), '@').to_string();
+        let window_pane_id =
+            strip_display_id(new_window["pane_id"].as_str().unwrap(), '%').to_string();
+        let cursor = daemon.current_event_cursor();
+        tmux_exec(&daemon, &["kill-window", "-t", "$kill-demo:1"]);
+
+        let window_events = daemon
+            .dispatch_json(
+                "amux.events.read",
+                json!({
+                    "cursor": cursor,
+                    "timeout_ms": 0,
+                    "filters": ["pane.close", "window.close", "session.close"],
+                    "session_id": session_id,
+                }),
+            )
+            .unwrap();
+        let window_events = window_events["events"].as_array().unwrap();
+        assert_eq!(window_events.len(), 2);
+        assert_eq!(window_events[0]["kind"].as_str().unwrap(), "pane.close");
+        assert_eq!(
+            window_events[0]["pane_id"].as_str().unwrap(),
+            window_pane_id
+        );
+        assert_eq!(window_events[1]["kind"].as_str().unwrap(), "window.close");
+        assert_eq!(window_events[1]["window_id"].as_str().unwrap(), window_id);
+
+        daemon
+            .dispatch_json("session.close", json!({ "session_id": session_id }))
+            .unwrap();
+    }
+
+    #[test]
+    fn amux_wait_signal_tracks_tmux_wait_for_generations() {
+        let daemon = Daemon::new("test");
+
+        tmux_exec(&daemon, &["wait-for", "-S", "spec-signal"]);
+        let first = daemon
+            .dispatch_json(
+                "amux.wait",
+                json!({
+                    "kind": "signal",
+                    "name": "spec-signal",
+                    "after_generation": 0,
+                    "timeout_ms": 0,
+                }),
+            )
+            .unwrap();
+        assert_eq!(first["name"].as_str().unwrap(), "spec-signal");
+        assert_eq!(first["generation"].as_u64().unwrap(), 1);
+
+        let signaler = daemon.clone();
+        let signal_thread = thread::spawn(move || {
+            tmux_exec(&signaler, &["wait-for", "-S", "spec-signal"]);
+        });
+        signal_thread.join().unwrap();
+
+        let second = daemon
+            .dispatch_json(
+                "amux.wait",
+                json!({
+                    "kind": "signal",
+                    "name": "spec-signal",
+                    "after_generation": 1,
+                    "timeout_ms": 5_000,
+                }),
+            )
+            .unwrap();
+        assert_eq!(second["name"].as_str().unwrap(), "spec-signal");
+        assert_eq!(second["generation"].as_u64().unwrap(), 2);
+    }
+
+    #[test]
+    fn tmux_required_format_variables_render_without_placeholders() {
+        let daemon = Daemon::new("test");
+        let opened = tmux_exec(
+            &daemon,
+            &[
+                "new-session",
+                "-s",
+                "fmt-demo",
+                "-n",
+                "fmt-window",
+                "/bin/cat",
+            ],
+        );
+        let session_id = opened["session_id"].as_str().unwrap().to_string();
+        wait_ready(&daemon, &session_id);
+
+        let rendered = tmux_exec(
+            &daemon,
+            &[
+                "display-message",
+                "-t",
+                "fmt-demo:0.0",
+                "#{session_name}|#{session_id}|#{window_id}|#{window_name}|#{window_index}|#{window_active}|#{pane_id}|#{pane_index}|#{pane_active}|#{pane_title}|#{pane_current_path}|#{pane_current_command}",
+            ],
+        )["stdout"]
+            .as_str()
+            .unwrap()
+            .trim()
+            .to_string();
+
+        assert!(!rendered.contains("#{"));
+        let parts: Vec<&str> = rendered.split('|').collect();
+        assert_eq!(parts.len(), 12);
+        assert_eq!(parts[0], "fmt-demo");
+        assert_eq!(parts[1], "$fmt-demo");
+        assert_eq!(parts[2], opened["window_id"].as_str().unwrap());
+        assert_eq!(parts[3], "fmt-window");
+        assert_eq!(parts[4], "0");
+        assert_eq!(parts[5], "1");
+        assert_eq!(parts[6], opened["pane_id"].as_str().unwrap());
+        assert_eq!(parts[7], "0");
+        assert_eq!(parts[8], "1");
+        assert_eq!(parts[11], "cat");
+
+        daemon
+            .dispatch_json("session.close", json!({ "session_id": session_id }))
+            .unwrap();
+    }
+
+    #[test]
+    fn exited_event_is_emitted_once_per_pane_exit() {
+        let daemon = Daemon::new("test");
+        let opened = tmux_exec(
+            &daemon,
+            &["new-session", "-s", "exit-demo", "/bin/echo", "done"],
+        );
+        let session_id = opened["session_id"].as_str().unwrap().to_string();
+        let pane_id = strip_display_id(opened["pane_id"].as_str().unwrap(), '%').to_string();
+
+        daemon
+            .dispatch_json(
+                "amux.wait",
+                json!({
+                    "kind": "exited",
+                    "pane_id": pane_id,
+                    "timeout_ms": 5_000,
+                }),
+            )
+            .unwrap();
+        thread::sleep(Duration::from_millis(100));
+
+        let exited_events = daemon
+            .dispatch_json(
+                "amux.events.read",
+                json!({
+                    "cursor": 0,
+                    "timeout_ms": 0,
+                    "filters": ["exited"],
+                    "session_id": session_id,
+                }),
+            )
+            .unwrap();
+        assert_eq!(event_kinds(&exited_events), vec!["exited"]);
+
+        let cursor = exited_events["cursor"].as_u64().unwrap();
+        daemon
+            .dispatch_json(
+                "amux.capture",
+                json!({
+                    "pane_id": strip_display_id(opened["pane_id"].as_str().unwrap(), '%'),
+                    "history": true,
+                }),
+            )
+            .unwrap();
+        thread::sleep(Duration::from_millis(50));
+
+        let later_events = daemon
+            .dispatch_json(
+                "amux.events.read",
+                json!({
+                    "cursor": cursor,
+                    "timeout_ms": 0,
+                    "filters": ["exited"],
+                }),
+            )
+            .unwrap();
+        assert!(later_events["events"].as_array().unwrap().is_empty());
+
+        daemon
+            .dispatch_json("session.close", json!({ "session_id": "exit-demo" }))
+            .unwrap();
+    }
 }

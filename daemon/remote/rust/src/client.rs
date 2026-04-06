@@ -7,9 +7,9 @@ use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
+use serde_json::{Value, json};
 use signal_hook::consts::signal::SIGWINCH;
 use signal_hook::iterator::Signals;
-use serde_json::{Value, json};
 
 use crate::rpc::Response;
 
@@ -39,12 +39,18 @@ impl UnixRpcClient {
             "params": params,
         });
         let encoded = serde_json::to_vec(&payload).map_err(|err| err.to_string())?;
-        self.writer.write_all(&encoded).map_err(|err| err.to_string())?;
-        self.writer.write_all(b"\n").map_err(|err| err.to_string())?;
+        self.writer
+            .write_all(&encoded)
+            .map_err(|err| err.to_string())?;
+        self.writer
+            .write_all(b"\n")
+            .map_err(|err| err.to_string())?;
         self.writer.flush().map_err(|err| err.to_string())?;
 
         let mut line = String::new();
-        self.reader.read_line(&mut line).map_err(|err| err.to_string())?;
+        self.reader
+            .read_line(&mut line)
+            .map_err(|err| err.to_string())?;
         let response: Response = serde_json::from_str(&line).map_err(|err| err.to_string())?;
         if response.ok {
             Ok(response.result.unwrap_or_else(|| json!({})))
@@ -68,11 +74,31 @@ pub fn run_session_cli(args: &[String]) -> Result<i32, String> {
     let filtered = strip_socket_arg(args);
     match filtered.first().map(String::as_str) {
         Some("ls") | Some("list") => session_list(&socket_path),
-        Some("status") => session_status(&socket_path, filtered.get(1).ok_or_else(|| "status requires a session id".to_string())?),
-        Some("history") => session_history(&socket_path, filtered.get(1).ok_or_else(|| "history requires a session id".to_string())?),
-        Some("kill") => session_kill(&socket_path, filtered.get(1).ok_or_else(|| "kill requires a session id".to_string())?),
+        Some("status") => session_status(
+            &socket_path,
+            filtered
+                .get(1)
+                .ok_or_else(|| "status requires a session id".to_string())?,
+        ),
+        Some("history") => session_history(
+            &socket_path,
+            filtered
+                .get(1)
+                .ok_or_else(|| "history requires a session id".to_string())?,
+        ),
+        Some("kill") => session_kill(
+            &socket_path,
+            filtered
+                .get(1)
+                .ok_or_else(|| "kill requires a session id".to_string())?,
+        ),
         Some("new") => session_new(&socket_path, &filtered[1..]),
-        Some("attach") => session_attach(&socket_path, filtered.get(1).ok_or_else(|| "attach requires a session id".to_string())?),
+        Some("attach") => session_attach(
+            &socket_path,
+            filtered
+                .get(1)
+                .ok_or_else(|| "attach requires a session id".to_string())?,
+        ),
         _ => {
             print_session_usage();
             Ok(2)
@@ -100,7 +126,10 @@ pub fn run_amux_cli(args: &[String]) -> Result<i32, String> {
                     "history": true,
                 }),
             )?;
-            println!("{}", serde_json::to_string_pretty(&value).map_err(|err| err.to_string())?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&value).map_err(|err| err.to_string())?
+            );
             Ok(0)
         }
         Some("events") => {
@@ -119,13 +148,19 @@ pub fn run_amux_cli(args: &[String]) -> Result<i32, String> {
                 }
                 if let Some(events) = value.get("events").and_then(Value::as_array) {
                     for event in events {
-                        println!("{}", serde_json::to_string(event).map_err(|err| err.to_string())?);
+                        println!(
+                            "{}",
+                            serde_json::to_string(event).map_err(|err| err.to_string())?
+                        );
                     }
                 }
             }
         }
         Some("wait") => {
-            let kind = filtered.get(1).cloned().unwrap_or_else(|| "ready".to_string());
+            let kind = filtered
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| "ready".to_string());
             let mut client = UnixRpcClient::connect(&socket_path)?;
             let value = client.call_value(
                 "amux.wait".to_string(),
@@ -135,7 +170,10 @@ pub fn run_amux_cli(args: &[String]) -> Result<i32, String> {
                     "timeout_ms": 30_000,
                 }),
             )?;
-            println!("{}", serde_json::to_string_pretty(&value).map_err(|err| err.to_string())?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&value).map_err(|err| err.to_string())?
+            );
             Ok(0)
         }
         _ => {
@@ -159,7 +197,10 @@ pub fn run_tmux_cli(args: &[String]) -> Result<i32, String> {
     if let Some(stdout) = value.get("stdout").and_then(Value::as_str) {
         print!("{stdout}");
     } else {
-        println!("{}", serde_json::to_string_pretty(&value).map_err(|err| err.to_string())?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).map_err(|err| err.to_string())?
+        );
     }
     Ok(0)
 }
@@ -167,17 +208,37 @@ pub fn run_tmux_cli(args: &[String]) -> Result<i32, String> {
 fn session_list(socket_path: &str) -> Result<i32, String> {
     let mut client = UnixRpcClient::connect(socket_path)?;
     let value = client.call_value("session.list".to_string(), json!({}))?;
-    let sessions = value.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+    let sessions = value
+        .get("sessions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     if sessions.is_empty() {
         println!("No sessions");
         return Ok(0);
     }
     for item in sessions {
-        let session_id = item.get("session_id").and_then(Value::as_str).unwrap_or_default();
-        let status = client.call_value("session.status".to_string(), json!({ "session_id": session_id }))?;
-        let effective_cols = status.get("effective_cols").and_then(Value::as_u64).unwrap_or_default();
-        let effective_rows = status.get("effective_rows").and_then(Value::as_u64).unwrap_or_default();
-        let attachments = status.get("attachments").and_then(Value::as_array).cloned().unwrap_or_default();
+        let session_id = item
+            .get("session_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let status = client.call_value(
+            "session.status".to_string(),
+            json!({ "session_id": session_id }),
+        )?;
+        let effective_cols = status
+            .get("effective_cols")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let effective_rows = status
+            .get("effective_rows")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let attachments = status
+            .get("attachments")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         if attachments.is_empty() {
             println!("session {session_id} {effective_cols}x{effective_rows} [detached]");
             continue;
@@ -187,13 +248,23 @@ fn session_list(socket_path: &str) -> Result<i32, String> {
             attachments.len()
         );
         for (index, attachment) in attachments.iter().enumerate() {
-            let branch = if index + 1 == attachments.len() { "└──" } else { "├──" };
+            let branch = if index + 1 == attachments.len() {
+                "└──"
+            } else {
+                "├──"
+            };
             let attachment_id = attachment
                 .get("attachment_id")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            let cols = attachment.get("cols").and_then(Value::as_u64).unwrap_or_default();
-            let rows = attachment.get("rows").and_then(Value::as_u64).unwrap_or_default();
+            let cols = attachment
+                .get("cols")
+                .and_then(Value::as_u64)
+                .unwrap_or_default();
+            let rows = attachment
+                .get("rows")
+                .and_then(Value::as_u64)
+                .unwrap_or_default();
             println!("{branch} {attachment_id} {cols}x{rows}");
         }
     }
@@ -202,32 +273,56 @@ fn session_list(socket_path: &str) -> Result<i32, String> {
 
 fn session_status(socket_path: &str, session_id: &str) -> Result<i32, String> {
     let mut client = UnixRpcClient::connect(socket_path)?;
-    let value = client.call_value("session.status".to_string(), json!({ "session_id": session_id }))?;
-    let effective_cols = value.get("effective_cols").and_then(Value::as_u64).unwrap_or_default();
-    let effective_rows = value.get("effective_rows").and_then(Value::as_u64).unwrap_or_default();
+    let value = client.call_value(
+        "session.status".to_string(),
+        json!({ "session_id": session_id }),
+    )?;
+    let effective_cols = value
+        .get("effective_cols")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let effective_rows = value
+        .get("effective_rows")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
     println!("{session_id} {effective_cols}x{effective_rows}");
     Ok(0)
 }
 
 fn session_history(socket_path: &str, session_id: &str) -> Result<i32, String> {
     let mut client = UnixRpcClient::connect(socket_path)?;
-    let value = client.call_value("session.history".to_string(), json!({ "session_id": session_id }))?;
-    print!("{}", value.get("history").and_then(Value::as_str).unwrap_or_default());
+    let value = client.call_value(
+        "session.history".to_string(),
+        json!({ "session_id": session_id }),
+    )?;
+    print!(
+        "{}",
+        value
+            .get("history")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+    );
     Ok(0)
 }
 
 fn session_kill(socket_path: &str, session_id: &str) -> Result<i32, String> {
     let mut client = UnixRpcClient::connect(socket_path)?;
-    let _ = client.call_value("session.close".to_string(), json!({ "session_id": session_id }))?;
+    let _ = client.call_value(
+        "session.close".to_string(),
+        json!({ "session_id": session_id }),
+    )?;
     println!("{session_id}");
     Ok(0)
 }
 
 fn session_new(socket_path: &str, args: &[String]) -> Result<i32, String> {
-    let session_id = args.first().ok_or_else(|| "new requires a session id".to_string())?;
+    let session_id = args
+        .first()
+        .ok_or_else(|| "new requires a session id".to_string())?;
     let detached = args.iter().any(|value| value == "--detached");
     let quiet = args.iter().any(|value| value == "--quiet");
-    let command = split_command_tail(args).unwrap_or_else(|| "exec ${SHELL:-/bin/sh} -l".to_string());
+    let command =
+        split_command_tail(args).unwrap_or_else(|| "exec ${SHELL:-/bin/sh} -l".to_string());
     let (cols, rows) = current_size();
     let mut client = UnixRpcClient::connect(socket_path)?;
     let value = client.call_value(
@@ -335,7 +430,9 @@ fn session_attach(socket_path: &str, session_id: &str) -> Result<i32, String> {
                             offset = next_offset;
                         }
                         if let Some(data) = value.get("data").and_then(Value::as_str) {
-                            if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(data) {
+                            if let Ok(decoded) =
+                                base64::engine::general_purpose::STANDARD.decode(data)
+                            {
                                 let _ = stdout.write_all(&decoded);
                                 let _ = stdout.flush();
                             }
@@ -388,7 +485,9 @@ fn print_session_usage() {
     eprintln!("Usage:");
     eprintln!("  cmuxd-remote session ls|list [--socket <path>]");
     eprintln!("  cmuxd-remote session attach|status|history|kill <name> [--socket <path>]");
-    eprintln!("  cmuxd-remote session new <name> [--socket <path>] [--detached] [--quiet] [-- <command>]");
+    eprintln!(
+        "  cmuxd-remote session new <name> [--socket <path>] [--detached] [--quiet] [-- <command>]"
+    );
     eprintln!("Defaults:");
     eprintln!("  --socket defaults to $CMUXD_UNIX_PATH when set.");
 }

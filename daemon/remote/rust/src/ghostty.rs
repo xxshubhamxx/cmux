@@ -12,7 +12,11 @@ unsafe extern "C" {
     fn cmux_ghostty_free(handle: *mut c_void);
     fn cmux_ghostty_feed(handle: *mut c_void, data_ptr: *const u8, data_len: usize) -> bool;
     fn cmux_ghostty_resize(handle: *mut c_void, cols: u16, rows: u16) -> bool;
-    fn cmux_ghostty_capture_json(handle: *mut c_void, include_history: bool, out: *mut CaptureBuffer) -> bool;
+    fn cmux_ghostty_capture_json(
+        handle: *mut c_void,
+        include_history: bool,
+        out: *mut CaptureBuffer,
+    ) -> bool;
     fn cmux_ghostty_buffer_free(ptr: *mut u8, len: usize);
 }
 
@@ -79,8 +83,8 @@ impl GhosttyTerminal {
         };
         unsafe { cmux_ghostty_buffer_free(buffer.ptr, buffer.len) };
 
-        let decoded: GhosttyCaptureJson =
-            serde_json::from_slice(&bytes).map_err(|err| format!("invalid Ghostty capture JSON: {err}"))?;
+        let decoded: GhosttyCaptureJson = serde_json::from_slice(&bytes)
+            .map_err(|err| format!("invalid Ghostty capture JSON: {err}"))?;
         Ok(GhosttyCapture {
             cols: decoded.cols,
             rows: decoded.rows,

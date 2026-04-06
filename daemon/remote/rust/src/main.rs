@@ -54,7 +54,9 @@ fn run(args: Vec<String>) -> i32 {
         "amux" => run_amux_cli(&args[2..]),
         "tmux" => run_tmux_cli(&args[2..]),
         "cli" => run_cli_relay(&args[2..]),
-        "list" | "ls" | "attach" | "status" | "history" | "kill" | "new" => run_session_cli(&args[1..]),
+        "list" | "ls" | "attach" | "status" | "history" | "kill" | "new" => {
+            run_session_cli(&args[1..])
+        }
         _ => {
             usage(&mut io::stderr());
             2
@@ -191,7 +193,10 @@ fn run_cli_relay(args: &[String]) -> i32 {
             .and_then(|mut client| client.call_value(filtered[1].clone(), params))
         {
             Ok(value) => {
-                println!("{}", serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()));
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
+                );
                 0
             }
             Err(err) => {
@@ -234,8 +239,14 @@ fn usage(stderr: &mut dyn Write) {
     let _ = writeln!(stderr, "Usage:");
     let _ = writeln!(stderr, "  cmuxd-remote version");
     let _ = writeln!(stderr, "  cmuxd-remote serve --stdio");
-    let _ = writeln!(stderr, "  cmuxd-remote serve --unix --socket <path> [--ws-port <port> --ws-secret <secret>]");
-    let _ = writeln!(stderr, "  cmuxd-remote serve --tls --listen <addr> --server-id <id> --ticket-secret <secret> --cert-file <path> --key-file <path>");
+    let _ = writeln!(
+        stderr,
+        "  cmuxd-remote serve --unix --socket <path> [--ws-port <port> --ws-secret <secret>]"
+    );
+    let _ = writeln!(
+        stderr,
+        "  cmuxd-remote serve --tls --listen <addr> --server-id <id> --ticket-secret <secret> --cert-file <path> --key-file <path>"
+    );
     let _ = writeln!(stderr, "  cmuxd-remote session <command> [args...]");
     let _ = writeln!(stderr, "  cmuxd-remote amux <command> [args...]");
     let _ = writeln!(stderr, "  cmuxd-remote tmux <command> [args...]");

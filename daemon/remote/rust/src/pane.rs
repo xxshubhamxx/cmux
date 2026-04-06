@@ -184,7 +184,12 @@ impl PaneHandle {
         }
     }
 
-    pub fn read(&self, offset: u64, max_bytes: usize, timeout_ms: i32) -> Result<PaneReadResult, String> {
+    pub fn read(
+        &self,
+        offset: u64,
+        max_bytes: usize,
+        timeout_ms: i32,
+    ) -> Result<PaneReadResult, String> {
         let timeout = if timeout_ms <= 0 {
             None
         } else {
@@ -296,6 +301,7 @@ fn run_pane_actor(
     thread::spawn(move || reader_loop(reader, reader_tx));
 
     let mut runtime_closed = false;
+    let mut reader_rx = reader_rx;
     while !runtime_closed {
         crossbeam_channel::select! {
             recv(reader_rx) -> message => {
@@ -336,9 +342,11 @@ fn run_pane_actor(
                         });
                     }
                     Ok(ReaderEvent::Eof) | Err(_) => {
+                        reader_rx = crossbeam_channel::never();
                         {
                             let mut state = shared.state.lock().unwrap();
                             state.closed = true;
+                            state.busy = false;
                         }
                         shared.cv.notify_all();
                         events(PaneRuntimeEvent::Exit {
