@@ -71,6 +71,10 @@ func TestSessionAttachTUIResizeAndReattach(t *testing.T) {
 		t.Fatalf("pty setsize: %v", err)
 	}
 	waitForSessionSize(t, bin, socketPath, "tui-attach", 91, 31, 3*time.Second)
+	output = readUntilContainsAll(t, ptmx, 3*time.Second, "FAKE-TUI 31 91", "INPUT abc")
+	if !containsAll(output, "FAKE-TUI 31 91", "INPUT abc") {
+		t.Fatalf("tui resize did not repaint expected markers: %q", output)
+	}
 
 	writePTY(t, ptmx, "\x1c")
 	waitForCommandExit(t, cmd, 5*time.Second)
