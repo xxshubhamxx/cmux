@@ -1415,6 +1415,7 @@ class TabManager: ObservableObject {
     private nonisolated static let selectedPollInterval: TimeInterval = 10
     private nonisolated static let workspacePullRequestPollTickInterval: TimeInterval = 1
     private nonisolated static let workspacePullRequestRepoCacheLifetime: TimeInterval = 15
+    private nonisolated static let workspacePullRequestRepoCachePruneLifetime: TimeInterval = 60
     private nonisolated static let workspacePullRequestRepoPageSize = 100
     private nonisolated static let workspacePullRequestRepoPageLimit = 2
     private nonisolated static let workspacePullRequestTerminalStateSweepInterval: TimeInterval = 15 * 60
@@ -1803,8 +1804,10 @@ class TabManager: ObservableObject {
                 candidates: candidates,
                 repoResults: repoResults
             )
+            guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 guard let self else { return }
+                guard !Task.isCancelled else { return }
                 self.workspacePullRequestRefreshTask = nil
                 self.applyWorkspacePullRequestRefreshResults(
                     results,
@@ -1853,6 +1856,9 @@ class TabManager: ObservableObject {
     ) {
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         let shouldBypassRepoCache = !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
+        if shouldBypassRepoCache, workspacePullRequestRefreshTask != nil {
+            workspacePullRequestFollowUpShouldBypassRepoCache = true
+        }
         if case .inFlight = workspacePullRequestProbeStateByKey[key] {
             markWorkspacePullRequestProbeRerunPending(
                 for: key,
@@ -1930,7 +1936,7 @@ class TabManager: ObservableObject {
             }
 
             let priorPullRequest = workspace.panelPullRequests[result.panelId]
-            let countsAsTerminalSweep = priorPullRequest?.status != .open
+            let countsAsTerminalSweep = priorPullRequest.map { $0.status != .open } ?? false
 
             switch result.resolution {
             case .resolved(let resolvedPullRequest):
@@ -1956,6 +1962,10 @@ class TabManager: ObservableObject {
                 }
             case .unsupportedRepository:
                 workspacePullRequestTransientFailureCountByKey[key] = 0
+                workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
+                if workspace.panelPullRequests[result.panelId] != nil {
+                    workspace.clearPanelPullRequest(panelId: result.panelId)
+                }
             case .transientFailure:
                 let nextFailureCount = (workspacePullRequestTransientFailureCountByKey[key] ?? 0) + 1
                 workspacePullRequestTransientFailureCountByKey[key] = nextFailureCount
@@ -1981,6 +1991,9 @@ class TabManager: ObservableObject {
                 resolution: result.resolution,
                 countsAsTerminalSweep: countsAsTerminalSweep
             )
+            if rerunPending {
+                workspacePullRequestNextPollAtByKey[key] = .distantPast
+            }
 
 #if DEBUG
             let label: String = {
@@ -2023,7 +2036,14 @@ class TabManager: ObservableObject {
             return
         }
 
+        if case .transientFailure = resolution,
+           workspacePullRequestLastTerminalStateRefreshAtByKey[key] != nil {
+            workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.workspacePullRequestTerminalStateSweepInterval)
+            return
+        }
+
         if case .unsupportedRepository = resolution {
+            workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
             workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.jitteredPollInterval(base: Self.backgroundPollInterval))
             return
         }
@@ -2040,6 +2060,10 @@ class TabManager: ObservableObject {
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestTransientFailureCountByKey = workspacePullRequestTransientFailureCountByKey.filter { validKeys.contains($0.key) }
+        let repoCacheCutoff = Date().addingTimeInterval(-Self.workspacePullRequestRepoCachePruneLifetime)
+        workspacePullRequestRepoCacheBySlug = workspacePullRequestRepoCacheBySlug.filter {
+            $0.value.fetchedAt >= repoCacheCutoff
+        }
     }
 
     private func clearWorkspacePullRequestTracking(for key: WorkspaceGitProbeKey) {
@@ -2054,6 +2078,17 @@ class TabManager: ObservableObject {
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestTransientFailureCountByKey = workspacePullRequestTransientFailureCountByKey.filter { $0.key.workspaceId != workspaceId }
+    }
+
+    private func resetWorkspacePullRequestRefreshState() {
+        workspacePullRequestRefreshTask?.cancel()
+        workspacePullRequestRefreshTask = nil
+        workspacePullRequestProbeStateByKey.removeAll()
+        workspacePullRequestNextPollAtByKey.removeAll()
+        workspacePullRequestLastTerminalStateRefreshAtByKey.removeAll()
+        workspacePullRequestTransientFailureCountByKey.removeAll()
+        workspacePullRequestRepoCacheBySlug.removeAll()
+        workspacePullRequestFollowUpShouldBypassRepoCache = false
     }
 
     private var activeWorkspaceGitProbeKeys: Set<WorkspaceGitProbeKey> {
@@ -7093,6 +7128,7 @@ extension TabManager {
             clearWorkspaceGitProbe(key)
         }
         workspaceGitTrackedDirectoryByKey.removeAll()
+        resetWorkspacePullRequestRefreshState()
 
         // Clear non-@Published state without touching tabs/selectedTabId yet.
         lastFocusedPanelByTab.removeAll()

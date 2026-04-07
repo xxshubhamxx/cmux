@@ -15135,13 +15135,7 @@ class TerminalController {
             return "ERROR: Invalid pull request state '\(statusRaw)' — use: open, merged, closed"
         }
         let branch = normalizedOptionValue(parsed.options["branch"])
-
-        if let rawChecks = normalizedOptionValue(parsed.options["checks"]) {
-            guard let parsedChecks = SidebarPullRequestChecksStatus(rawValue: rawChecks.lowercased()) else {
-                return "ERROR: Invalid pull request checks '\(rawChecks)' — use: pass, fail, pending"
-            }
-            _ = parsedChecks
-        }
+        _ = normalizedOptionValue(parsed.options["checks"])
 
         let labelRaw = normalizedOptionValue(parsed.options["label"]) ?? "PR"
         guard !labelRaw.isEmpty else {

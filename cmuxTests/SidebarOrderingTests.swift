@@ -418,7 +418,8 @@ final class SidebarBranchOrderingTests: XCTestCase {
                     number: 42,
                     label: "PR",
                     url: "https://github.com/manaflow-ai/cmux/pull/42",
-                    status: .open
+                    status: .open,
+                    isStale: true
                 ),
                 second: pullRequestState(
                     number: 42,

@@ -406,6 +406,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
     func testWorkspacePullRequestRefreshAllowsRepoCacheForTimerAndPeriodicReasons() {
         XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "periodicPoll"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "periodicPoll.followUp"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "selectedPeriodicPoll"))
         XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "selectedPeriodicPoll.followUp"))
         XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer"))
         XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer.followUp"))
