@@ -11811,7 +11811,23 @@ extension Workspace: BonsplitDelegate {
         if bonsplitController.allPaneIds.contains(pane) {
             normalizePinnedTabs(in: pane)
         }
-        scheduleTerminalGeometryReconcile()
+        // When a pane was auto-closed (e.g. N→1 panes), the SwiftUI split view rebuilds
+        // asynchronously, transiently detaching the surviving terminal surface. The synchronous
+        // ensureFocus from applyTabSelection may succeed on the old layout but the first responder
+        // is lost when SwiftUI tears down the split and recreates a single-pane wrapper. Include
+        // the surviving panel in the layout follow-up so the retry loop re-applies focus once the
+        // view is reattached (#2665).
+        if !isDetaching && !bonsplitController.allPaneIds.contains(pane),
+           let survivingPanelId = focusedPanelId,
+           terminalPanel(for: survivingPanelId) != nil {
+            beginEventDrivenLayoutFollowUp(
+                reason: "workspace.paneCollapse",
+                terminalFocusPanelId: survivingPanelId,
+                includeGeometry: true
+            )
+        } else {
+            scheduleTerminalGeometryReconcile()
+        }
         if !isDetaching {
             scheduleFocusReconcile()
         }
@@ -11931,7 +11947,19 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        scheduleTerminalGeometryReconcile()
+        // Same pane-collapse focus fix as didCloseTab (#2665): the SwiftUI split view
+        // rebuild can transiently detach the surviving terminal, losing first responder.
+        if shouldScheduleFocusReconcile,
+           let survivingPanelId = focusedPanelId,
+           terminalPanel(for: survivingPanelId) != nil {
+            beginEventDrivenLayoutFollowUp(
+                reason: "workspace.paneCollapse",
+                terminalFocusPanelId: survivingPanelId,
+                includeGeometry: true
+            )
+        } else {
+            scheduleTerminalGeometryReconcile()
+        }
         if shouldScheduleFocusReconcile {
             scheduleFocusReconcile()
         }
