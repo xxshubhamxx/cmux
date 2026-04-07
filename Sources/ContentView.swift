@@ -9889,21 +9889,9 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
 
 private struct SidebarTabItemPresentationSnapshot: Equatable {
     let tabId: UUID
-    let index: Int
-    let isActive: Bool
-    let workspaceShortcutDigit: Int?
-    let workspaceShortcutModifierSymbol: String
-    let canCloseWorkspace: Bool
-    let accessibilityWorkspaceCount: Int
     let unreadCount: Int
     let latestNotificationText: String?
-    let rowSpacing: CGFloat
     let showsModifierShortcutHints: Bool
-    let contextMenuWorkspaceIds: [UUID]
-    let remoteContextMenuWorkspaceIds: [UUID]
-    let allRemoteContextMenuTargetsConnecting: Bool
-    let allRemoteContextMenuTargetsDisconnected: Bool
-    let settings: SidebarTabItemSettingsSnapshot
 }
 
 struct VerticalTabsSidebar: View {
@@ -9987,8 +9975,30 @@ struct VerticalTabsSidebar: View {
                                 let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
                                     ? allSelectedRemoteContextMenuTargetsDisconnected
                                     : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
+                                let liveUnreadCount = notificationStore.unreadCount(forTabId: tab.id)
+                                let liveLatestNotificationText: String? = {
+                                    guard showsSidebarNotificationMessage,
+                                          let notification = notificationStore.latestNotification(forTabId: tab.id) else {
+                                        return nil
+                                    }
+                                    let text = notification.body.isEmpty ? notification.title : notification.body
+                                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    return trimmed.isEmpty ? nil : trimmed
+                                }()
+                                let liveShowsModifierShortcutHints = modifierKeyMonitor.isModifierPressed
                                 let livePresentation = SidebarTabItemPresentationSnapshot(
                                     tabId: tab.id,
+                                    unreadCount: liveUnreadCount,
+                                    latestNotificationText: liveLatestNotificationText,
+                                    showsModifierShortcutHints: liveShowsModifierShortcutHints
+                                )
+                                let frozenPresentation = frozenTabItemPresentation?.tabId == tab.id
+                                    ? frozenTabItemPresentation
+                                    : nil
+                                TabItemView(
+                                    tabManager: tabManager,
+                                    notificationStore: notificationStore,
+                                    tab: tab,
                                     index: index,
                                     isActive: tabManager.selectedTabId == tab.id,
                                     workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
@@ -9998,52 +10008,21 @@ struct VerticalTabsSidebar: View {
                                     workspaceShortcutModifierSymbol: workspaceNumberShortcut.numberedDigitHintPrefix,
                                     canCloseWorkspace: canCloseWorkspace,
                                     accessibilityWorkspaceCount: workspaceCount,
-                                    unreadCount: notificationStore.unreadCount(forTabId: tab.id),
-                                    latestNotificationText: {
-                                        guard showsSidebarNotificationMessage,
-                                              let notification = notificationStore.latestNotification(forTabId: tab.id) else {
-                                            return nil
-                                        }
-                                        let text = notification.body.isEmpty ? notification.title : notification.body
-                                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        return trimmed.isEmpty ? nil : trimmed
-                                    }(),
+                                    unreadCount: frozenPresentation?.unreadCount ?? liveUnreadCount,
+                                    latestNotificationText: frozenPresentation?.latestNotificationText ?? liveLatestNotificationText,
                                     rowSpacing: tabRowSpacing,
-                                    showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
+                                    setSelectionToTabs: { selection = .tabs },
+                                    selectedTabIds: $selectedTabIds,
+                                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                                    showsModifierShortcutHints: frozenPresentation?.showsModifierShortcutHints ?? liveShowsModifierShortcutHints,
+                                    dragAutoScrollController: dragAutoScrollController,
+                                    draggedTabId: $draggedTabId,
+                                    dropIndicator: $dropIndicator,
                                     contextMenuWorkspaceIds: contextMenuWorkspaceIds,
                                     remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
                                     allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
                                     allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
-                                    settings: tabItemSettings
-                                )
-                                let presentation = frozenTabItemPresentation?.tabId == tab.id
-                                    ? frozenTabItemPresentation ?? livePresentation
-                                    : livePresentation
-                                TabItemView(
-                                    tabManager: tabManager,
-                                    notificationStore: notificationStore,
-                                    tab: tab,
-                                    index: presentation.index,
-                                    isActive: presentation.isActive,
-                                    workspaceShortcutDigit: presentation.workspaceShortcutDigit,
-                                    workspaceShortcutModifierSymbol: presentation.workspaceShortcutModifierSymbol,
-                                    canCloseWorkspace: presentation.canCloseWorkspace,
-                                    accessibilityWorkspaceCount: presentation.accessibilityWorkspaceCount,
-                                    unreadCount: presentation.unreadCount,
-                                    latestNotificationText: presentation.latestNotificationText,
-                                    rowSpacing: presentation.rowSpacing,
-                                    setSelectionToTabs: { selection = .tabs },
-                                    selectedTabIds: $selectedTabIds,
-                                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                                    showsModifierShortcutHints: presentation.showsModifierShortcutHints,
-                                    dragAutoScrollController: dragAutoScrollController,
-                                    draggedTabId: $draggedTabId,
-                                    dropIndicator: $dropIndicator,
-                                    contextMenuWorkspaceIds: presentation.contextMenuWorkspaceIds,
-                                    remoteContextMenuWorkspaceIds: presentation.remoteContextMenuWorkspaceIds,
-                                    allRemoteContextMenuTargetsConnecting: presentation.allRemoteContextMenuTargetsConnecting,
-                                    allRemoteContextMenuTargetsDisconnected: presentation.allRemoteContextMenuTargetsDisconnected,
-                                    settings: presentation.settings,
+                                    settings: tabItemSettings,
                                     livePresentation: livePresentation,
                                     frozenPresentation: $frozenTabItemPresentation
                                 )
