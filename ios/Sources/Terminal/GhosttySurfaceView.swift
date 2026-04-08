@@ -1693,8 +1693,6 @@ final class TerminalArrowNubView: UIView {
         super.init(frame: frame)
         backgroundColor = UIColor(white: 0.25, alpha: 0.85)
         layer.cornerRadius = nubSize / 2
-        layer.borderWidth = 1.5
-        layer.borderColor = UIColor(white: 0.55, alpha: 0.7).cgColor
 
         innerDot.backgroundColor = UIColor(white: 0.85, alpha: 1)
         innerDot.layer.cornerRadius = 6
