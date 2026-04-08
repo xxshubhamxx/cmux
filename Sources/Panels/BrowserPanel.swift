@@ -1738,9 +1738,6 @@ final class BrowserPanel: Panel, ObservableObject {
         "0.0.0.0",
     ]
 
-    /// Shared process pool for cookie sharing across all browser panels
-    private static let sharedProcessPool = WKProcessPool()
-
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -1844,10 +1841,11 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private static func isDarkAppearance(
-        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+        appAppearance: NSAppearance? = nil
     ) -> Bool {
-        guard let appAppearance else { return false }
-        return appAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let appearance: NSAppearance? = appAppearance ?? MainActor.assumeIsolated { NSApp?.effectiveAppearance }
+        guard let appearance else { return false }
+        return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
     private static func resolvedGhosttyBackgroundColor(from notification: Notification? = nil) -> NSColor {
@@ -1869,7 +1867,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private static func resolvedBrowserChromeBackgroundColor(
         from notification: Notification? = nil,
-        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+        appAppearance: NSAppearance? = nil
     ) -> NSColor {
         if isDarkAppearance(appAppearance: appAppearance) {
             return resolvedGhosttyBackgroundColor(from: notification)
@@ -2512,10 +2510,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
-        websiteDataStore: WKWebsiteDataStore,
-        processPool: WKProcessPool = BrowserPanel.sharedProcessPool
+        websiteDataStore: WKWebsiteDataStore
     ) {
-        configuration.processPool = processPool
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
@@ -2771,26 +2767,28 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func beginDownloadActivity() {
-        let apply = {
+        let apply = { [weak self] in
+            guard let self else { return }
             self.activeDownloadCount += 1
             self.isDownloading = self.activeDownloadCount > 0
         }
         if Thread.isMainThread {
             apply()
         } else {
-            DispatchQueue.main.async(execute: apply)
+            DispatchQueue.main.async { apply() }
         }
     }
 
     private func endDownloadActivity() {
-        let apply = {
+        let apply = { [weak self] in
+            guard let self else { return }
             self.activeDownloadCount = max(0, self.activeDownloadCount - 1)
             self.isDownloading = self.activeDownloadCount > 0
         }
         if Thread.isMainThread {
             apply()
         } else {
-            DispatchQueue.main.async(execute: apply)
+            DispatchQueue.main.async { apply() }
         }
     }
 
@@ -7798,7 +7796,7 @@ enum BrowserImportPlanResolver {
     @MainActor
     static func realize(
         plan: BrowserImportExecutionPlan,
-        profileStore: BrowserProfileStore = .shared
+        profileStore: BrowserProfileStore = MainActor.assumeIsolated { .shared }
     ) throws -> RealizedBrowserImportExecutionPlan {
         var realizedEntries: [RealizedBrowserImportExecutionEntry] = []
         var createdProfiles: [BrowserProfileDefinition] = []
@@ -9210,7 +9208,7 @@ final class BrowserDataImportCoordinator {
 #endif
 
     @MainActor
-    private final class ImportWizardWindowController: NSObject, @preconcurrency NSWindowDelegate {
+    private final class ImportWizardWindowController: NSObject, NSWindowDelegate {
         private final class FlippedDocumentView: NSView {
             override var isFlipped: Bool { true }
         }
