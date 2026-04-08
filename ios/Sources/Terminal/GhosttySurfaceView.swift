@@ -426,7 +426,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         self.runtime = runtime
         self.delegate = delegate
         self.fontSize = fontSize
-        super.init(frame: CGRect(x: 0, y: 0, width: 900, height: 650))
+        super.init(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
         bridge.attach(to: self)
         backgroundColor = .black
         isOpaque = true
