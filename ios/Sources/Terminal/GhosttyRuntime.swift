@@ -165,6 +165,8 @@ final class GhosttyRuntime {
         let monokai = """
         font-family = Menlo
         font-size = 10
+        window-padding-balance = false
+        window-padding-y = 0
         cursor-style = bar
         cursor-style-blink = true
         background = #272822
@@ -215,6 +217,8 @@ final class GhosttyRuntime {
         let defaultConfig = """
         font-family = Menlo
         font-size = 10
+        window-padding-balance = false
+        window-padding-y = 0
         cursor-style = bar
         cursor-style-blink = true
         background = #272822
