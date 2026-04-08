@@ -6561,11 +6561,11 @@ struct ContentView: View {
                 title: constant(
                     String(
                         localized: "command.enableExternalBrowserForTerminalLinksAndOpenCommand.title",
-                        defaultValue: "Open Terminal Links and open Command URLs in External Browser"
+                        defaultValue: "Browser Mode: External (Terminal URLs)"
                     )
                 ),
                 subtitle: constant(String(localized: "command.browserClearHistory.subtitle", defaultValue: "Browser")),
-                keywords: ["terminal", "links", "external", "browser", "cmd", "click", "open", "command", "url"],
+                keywords: ["browser", "mode", "terminal", "links", "external", "cmd", "click", "open", "command", "url"],
                 when: { !$0.bool(CommandPaletteContextKeys.terminalLinksAndOpenCommandOpenExternallyOnly) }
             )
         )
@@ -6575,11 +6575,11 @@ struct ContentView: View {
                 title: constant(
                     String(
                         localized: "command.disableExternalBrowserForTerminalLinksAndOpenCommand.title",
-                        defaultValue: "Open Terminal Links and open Command URLs in cmux Browser"
+                        defaultValue: "Browser Mode: cmux (Terminal URLs)"
                     )
                 ),
                 subtitle: constant(String(localized: "command.browserClearHistory.subtitle", defaultValue: "Browser")),
-                keywords: ["terminal", "links", "cmux", "browser", "embedded", "cmd", "click", "open", "command", "url"],
+                keywords: ["browser", "mode", "terminal", "links", "cmux", "embedded", "cmd", "click", "open", "command", "url"],
                 when: { $0.bool(CommandPaletteContextKeys.terminalLinksAndOpenCommandOpenExternallyOnly) }
             )
         )

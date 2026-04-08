@@ -17173,13 +17173,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Terminal Links and open Command URLs in cmux Browser"
+            "value": "Browser Mode: cmux (Terminal URLs)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルリンクとopenコマンドURLをcmuxブラウザで開く"
+            "value": "ブラウザモード: cmux (ターミナルURL)"
           }
         }
       }
@@ -17190,13 +17190,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Terminal Links and open Command URLs in External Browser"
+            "value": "Browser Mode: External (Terminal URLs)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルリンクとopenコマンドURLを外部ブラウザで開く"
+            "value": "ブラウザモード: 外部 (ターミナルURL)"
           }
         }
       }
