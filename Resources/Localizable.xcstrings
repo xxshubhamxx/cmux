@@ -17167,6 +17167,40 @@
         }
       }
     },
+    "command.disableExternalBrowserForTerminalLinksAndOpenCommand.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Terminal Links and open Command URLs in cmux Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルリンクとopenコマンドURLをcmuxブラウザで開く"
+          }
+        }
+      }
+    },
+    "command.enableExternalBrowserForTerminalLinksAndOpenCommand.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Terminal Links and open Command URLs in External Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルリンクとopenコマンドURLを外部ブラウザで開く"
+          }
+        }
+      }
+    },
     "command.installCLI.subtitle": {
       "extractionState": "manual",
       "localizations": {
