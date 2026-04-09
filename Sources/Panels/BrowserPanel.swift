@@ -1701,7 +1701,7 @@ actor BrowserSearchSuggestionService {
 }
 
 /// BrowserPanel provides a WKWebView-based browser panel.
-/// All browser panels share a WKProcessPool for cookie sharing.
+/// All browser panels share a WKWebsiteDataStore for cookie and storage persistence.
 private enum BrowserInsecureHTTPNavigationIntent {
     case currentTab
     case newTab
@@ -1843,7 +1843,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private static func isDarkAppearance(
         appAppearance: NSAppearance? = nil
     ) -> Bool {
-        let appearance: NSAppearance? = appAppearance ?? MainActor.assumeIsolated { NSApp?.effectiveAppearance }
+        let appearance: NSAppearance? = appAppearance ?? NSApp?.effectiveAppearance
         guard let appearance else { return false }
         return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
