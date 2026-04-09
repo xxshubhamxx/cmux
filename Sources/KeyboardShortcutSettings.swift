@@ -1520,11 +1520,14 @@ struct StoredShortcut: Codable, Equatable {
         switch (secondStroke, other.secondStroke) {
         case (nil, nil):
             return true
+        case (nil, _), (_, nil):
+            // Chord arming consumes the shared first stroke before single-stroke
+            // matching runs, so a single shortcut collides with any chord that
+            // starts the same way.
+            return true
         case let (lhsSecond?, rhsSecond?):
             return lhsSecond.key.lowercased() == rhsSecond.key.lowercased()
                 && lhsSecond.modifierFlags == rhsSecond.modifierFlags
-        default:
-            return false
         }
     }
 

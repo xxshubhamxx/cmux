@@ -11175,7 +11175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .renameTab) {
             // When users intentionally bind both actions to the same shortcut, let the
             // focused browser keep reload precedence and leave rename available elsewhere.
-            if tabManager?.focusedBrowserPanel != nil,
+            if focusedBrowserNavigationTarget(for: event) != nil,
                renameTabShortcut.conflicts(with: browserReloadShortcut),
                matchConfiguredShortcut(event: event, action: .browserReload) {
                 return false
@@ -11367,26 +11367,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserBack) {
-            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+            guard let focusedBrowserTarget = focusedBrowserNavigationTarget(for: event) else {
                 return false
             }
-            focusedBrowserPanel.goBack()
+            focusedBrowserTarget.goBack()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .browserForward) {
-            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+            guard let focusedBrowserTarget = focusedBrowserNavigationTarget(for: event) else {
                 return false
             }
-            focusedBrowserPanel.goForward()
+            focusedBrowserTarget.goForward()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .browserReload) {
-            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+            guard let focusedBrowserTarget = focusedBrowserNavigationTarget(for: event) else {
                 return false
             }
-            focusedBrowserPanel.reload()
+            focusedBrowserTarget.reload()
             return true
         }
 
@@ -11589,6 +11589,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return components.string ?? "<redacted>"
     }
 #endif
+
+    private enum FocusedBrowserNavigationTarget {
+        case panel(BrowserPanel)
+        case popup(CmuxWebView)
+
+        func goBack() {
+            switch self {
+            case .panel(let panel):
+                panel.goBack()
+            case .popup(let webView):
+                webView.goBack()
+            }
+        }
+
+        func goForward() {
+            switch self {
+            case .panel(let panel):
+                panel.goForward()
+            case .popup(let webView):
+                webView.goForward()
+            }
+        }
+
+        func reload() {
+            switch self {
+            case .panel(let panel):
+                panel.reload()
+            case .popup(let webView):
+                webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+                webView.reload()
+            }
+        }
+    }
+
+    private func focusedBrowserNavigationTarget(for event: NSEvent) -> FocusedBrowserNavigationTarget? {
+        if let popupWebView = focusedPopupBrowserWebView(for: event) {
+            return .popup(popupWebView)
+        }
+        if let focusedPanel = tabManager?.focusedBrowserPanel {
+            return .panel(focusedPanel)
+        }
+        return nil
+    }
+
+    private func focusedPopupBrowserWebView(for event: NSEvent) -> CmuxWebView? {
+        var seenWindowNumbers = Set<Int>()
+        for window in [event.window, NSApp.keyWindow, NSApp.mainWindow].compactMap({ $0 }) {
+            guard seenWindowNumbers.insert(window.windowNumber).inserted else { continue }
+            guard window.identifier?.rawValue == "cmux.browser-popup" else { continue }
+
+            if let firstResponder = window.firstResponder,
+               let webView = NSWindow.cmuxOwningWebView(for: firstResponder, in: window, event: event) {
+                return webView
+            }
+
+            if let contentView = window.contentView,
+               let webView = NSWindow.cmuxUniqueBrowserWebView(in: contentView) {
+                return webView
+            }
+        }
+        return nil
+    }
 
     @discardableResult
     private func focusBrowserAddressBar(panelId: UUID) -> Bool {
