@@ -4340,14 +4340,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             minHeight: minHeight,
             minimumVisibleWidth: minimumVisibleWidth,
             minimumVisibleHeight: minimumVisibleHeight
-        ),
-        let intersectingDisplay = bestIntersectingDisplay(for: frame, in: availableDisplays) {
-            return clampFrame(
-                frame,
-                within: intersectingDisplay.visibleFrame,
-                minWidth: minWidth,
-                minHeight: minHeight
-            )
+        ) {
+            // When we have no originating display snapshot, the current frame
+            // is already usable on the active display set. Preserve it as-is
+            // so legitimate spanning windows are not collapsed into a single
+            // display during live screen-parameter changes.
+            if displaySnapshot == nil {
+                return frame
+            }
+            if let intersectingDisplay = bestIntersectingDisplay(for: frame, in: availableDisplays) {
+                return clampFrame(
+                    frame,
+                    within: intersectingDisplay.visibleFrame,
+                    minWidth: minWidth,
+                    minHeight: minHeight
+                )
+            }
         }
 
         if let sourceReference = displaySnapshot?.visibleFrame?.cgRect ?? displaySnapshot?.frame?.cgRect,
