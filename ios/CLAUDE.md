@@ -4,7 +4,7 @@
 | Config | Bundle ID | App Name | Signing |
 |--------|-----------|----------|---------|
 | Debug | `dev.cmux.app.dev` | cmux DEV | Automatic |
-| Nightly | `com.cmuxterm.app` | cmux | Automatic |
+| Nightly | `com.cmuxterm.app.nightly` | cmux NIGHTLY | Automatic |
 | Release | `com.cmuxterm.app` | cmux | Manual |
 
 ## Development

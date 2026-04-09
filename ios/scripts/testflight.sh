@@ -1,5 +1,6 @@
 #!/bin/bash
 # TestFlight upload script with auto-incrementing build number
+# Uploads to both cmux (com.cmuxterm.app) and cmux NIGHTLY (com.cmuxterm.app.nightly)
 set -e
 
 cd "$(dirname "$0")/.."
@@ -17,52 +18,7 @@ sed -i '' "s/CURRENT_PROJECT_VERSION: \"$CURRENT_BUILD\"/CURRENT_PROJECT_VERSION
 echo "⚙️  Regenerating Xcode project..."
 xcodegen generate
 
-# Archive
-echo "📦 Archiving..."
-xcodebuild -scheme cmux -configuration Nightly \
-  -archivePath build/cmux.xcarchive archive \
-  -allowProvisioningUpdates \
-  -allowProvisioningDeviceRegistration \
-  -quiet
-
-# Try to attach Sentry dSYM if available
-SENTRY_BINARY="build/cmux.xcarchive/Products/Applications/cmux.app/Frameworks/Sentry.framework/Sentry"
-if [ -f "$SENTRY_BINARY" ]; then
-  SENTRY_UUID=$(dwarfdump --uuid "$SENTRY_BINARY" | awk '{print $2}' | head -1)
-  if [ -n "$SENTRY_UUID" ]; then
-    python3 - <<'PY' "$SENTRY_UUID" "$HOME/Library/Developer/Xcode/DerivedData" "build/cmux.xcarchive/dSYMs"
-import pathlib
-import shutil
-import subprocess
-import sys
-
-needle = sys.argv[1].strip()
-root = pathlib.Path(sys.argv[2])
-dest_root = pathlib.Path(sys.argv[3])
-matched = None
-
-for path in root.rglob("Sentry.framework.dSYM"):
-    try:
-        out = subprocess.check_output(["dwarfdump", "--uuid", str(path)], stderr=subprocess.STDOUT, text=True)
-    except subprocess.CalledProcessError:
-        continue
-    if needle in out:
-        matched = path
-        break
-
-if matched:
-    dest = dest_root / "Sentry.framework.dSYM"
-    if dest.exists():
-        shutil.rmtree(dest)
-    shutil.copytree(matched, dest)
-    print(f"✅ Attached Sentry dSYM: {matched}")
-else:
-    print(f"⚠️  Sentry dSYM not found for UUID {needle}")
-PY
-  fi
-fi
-
-# Export options
+# Export options (shared between both builds)
 EXPORT_PLIST="build/ExportOptions.plist"
 cat <<'EOF' > "$EXPORT_PLIST"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -87,13 +43,32 @@ cat <<'EOF' > "$EXPORT_PLIST"
 </plist>
 EOF
 
-# Export and upload
-echo "🚀 Uploading to TestFlight..."
-xcodebuild -exportArchive \
-  -archivePath build/cmux.xcarchive \
-  -exportPath build/export \
-  -exportOptionsPlist "$EXPORT_PLIST" \
-  -allowProvisioningUpdates \
-  -allowProvisioningDeviceRegistration
+archive_and_upload() {
+  local config="$1"
+  local app_name="$2"
+  local archive_path="build/cmux-${config}.xcarchive"
 
-echo "✅ Build $NEW_BUILD uploaded to TestFlight!"
+  echo ""
+  echo "📦 Archiving $config ($app_name)..."
+  xcodebuild -scheme cmux -configuration "$config" \
+    -archivePath "$archive_path" archive \
+    -allowProvisioningUpdates \
+    -allowProvisioningDeviceRegistration \
+    -quiet
+
+  echo "🚀 Uploading $config to TestFlight..."
+  xcodebuild -exportArchive \
+    -archivePath "$archive_path" \
+    -exportPath "build/export-${config}" \
+    -exportOptionsPlist "$EXPORT_PLIST" \
+    -allowProvisioningUpdates \
+    -allowProvisioningDeviceRegistration
+
+  echo "✅ $config ($app_name) build $NEW_BUILD uploaded!"
+}
+
+archive_and_upload "Release" "cmux"
+archive_and_upload "Nightly" "cmux NIGHTLY"
+
+echo ""
+echo "✅ Build $NEW_BUILD uploaded to both TestFlight apps!"

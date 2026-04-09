@@ -70,7 +70,7 @@ targets:
     settings:
       base:
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "13"
+        CURRENT_PROJECT_VERSION: "15"
         GENERATE_INFOPLIST_FILE: "YES"
         SWIFT_EMIT_LOC_STRINGS: "YES"
         DEVELOPMENT_TEAM: 7WLXT3NR37
@@ -96,9 +96,9 @@ targets:
           CODE_SIGN_STYLE: Automatic
           CODE_SIGN_ENTITLEMENTS: cmux.dev.entitlements
         Nightly:
-          PRODUCT_BUNDLE_IDENTIFIER: com.cmuxterm.app
-          PRODUCT_NAME: cmux
-          ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+          PRODUCT_BUNDLE_IDENTIFIER: com.cmuxterm.app.nightly
+          PRODUCT_NAME: cmux NIGHTLY
+          ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon-Beta
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: BETA
           CODE_SIGN_STYLE: Automatic
           CODE_SIGN_ENTITLEMENTS: cmux.prod.entitlements
