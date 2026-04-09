@@ -3963,29 +3963,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             matchingOnly: true
         )
         var didReconcilePrimary = false
+        let contexts = Array(mainWindowContexts.values)
 
-        for context in mainWindowContexts.values {
+        for context in contexts {
             guard let window = resolvedWindow(for: context),
                   shouldReconcileMainWindowFrameOnScreenParameterChange(window) else {
                 continue
             }
 
-            let resolvedFrame: CGRect? = {
-                if window === primaryWindow, let matchingPersistedGeometry {
-                    return Self.resolvedWindowFrame(
-                        from: matchingPersistedGeometry.frame,
-                        display: matchingPersistedGeometry.display,
-                        availableDisplays: displays.available,
-                        fallbackDisplay: displays.fallback
-                    )
-                }
-                return Self.resolvedWindowFrame(
-                    from: SessionRectSnapshot(window.frame),
-                    display: nil,
-                    availableDisplays: displays.available,
-                    fallbackDisplay: displays.fallback
-                )
-            }()
+            let resolvedFrame = Self.resolvedWindowFrameForScreenParameterChange(
+                currentFrame: window.frame,
+                currentDisplaySnapshot: displaySnapshot(for: window),
+                matchingPersistedGeometry: window === primaryWindow ? matchingPersistedGeometry : nil,
+                availableDisplays: displays.available,
+                fallbackDisplay: displays.fallback
+            )
 
             guard let resolvedFrame else { continue }
 
@@ -4080,8 +4072,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             minimumVisibleWidth: Self.minimumVisibleRestoredWindowWidth,
             minimumVisibleHeight: max(Self.minimumVisibleRestoredWindowHeight, minimumFrameSize.height)
         )
+        let shouldPreserveAccessibleSingleDisplayFrame = !shouldPreserveSpanningFrame
+            && (
+                Self.bestIntersectingDisplay(for: targetFrame, in: availableDisplays).map {
+                    Self.shouldPreserveAccessibleFrame(frame: targetFrame, targetDisplay: $0)
+                } ?? false
+            )
 
         if !shouldPreserveSpanningFrame,
+           !shouldPreserveAccessibleSingleDisplayFrame,
            let screen = Self.screenForConstrainingFrame(targetFrame, currentWindow: window) {
             targetFrame = window.constrainFrameRect(targetFrame, to: screen)
             if targetFrame.width < minimumFrameSize.width || targetFrame.height < minimumFrameSize.height {
@@ -4304,6 +4303,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    nonisolated static func resolvedWindowFrameForScreenParameterChange(
+        currentFrame: CGRect,
+        currentDisplaySnapshot: SessionDisplaySnapshot?,
+        matchingPersistedGeometry: PersistedWindowGeometry.StoredGeometry?,
+        availableDisplays: [SessionDisplayGeometry],
+        fallbackDisplay: SessionDisplayGeometry?
+    ) -> CGRect? {
+        let liveResolved = resolvedWindowFrame(
+            from: SessionRectSnapshot(currentFrame),
+            display: currentDisplaySnapshot,
+            availableDisplays: availableDisplays,
+            fallbackDisplay: fallbackDisplay
+        )
+
+        // Prefer the live frame whenever the window still belongs to a current
+        // display. That avoids snapping a visible window back to older persisted
+        // geometry during didChangeScreenParameters.
+        guard currentDisplaySnapshot == nil,
+              let matchingPersistedGeometry else {
+            return liveResolved
+        }
+
+        return resolvedWindowFrame(
+            from: matchingPersistedGeometry.frame,
+            display: matchingPersistedGeometry.display,
+            availableDisplays: availableDisplays,
+            fallbackDisplay: fallbackDisplay
+        ) ?? liveResolved
+    }
+
     nonisolated static func resolvedWindowFrame(
         from frameSnapshot: SessionRectSnapshot?,
         display displaySnapshot: SessionDisplaySnapshot?,
@@ -4456,6 +4485,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         minimumVisibleWidth: CGFloat,
         minimumVisibleHeight: CGFloat
     ) -> CGRect {
+        if shouldPreserveAccessibleFrame(
+            frame: frame,
+            targetDisplay: targetDisplay
+        ) {
+            return frame
+        }
+
         if hasSufficientVisibleFrame(
             frame,
             in: [targetDisplay],
@@ -4464,15 +4500,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             minimumVisibleWidth: minimumVisibleWidth,
             minimumVisibleHeight: minimumVisibleHeight
         ) {
-            // Preserve the user's exact frame when enough of the top of the window
-            // remains reachable on-screen; only clamp when the saved frame would
-            // reopen with an inaccessible titlebar/top strip.
-            if shouldPreserveAccessibleFrame(
-                frame: frame,
-                targetDisplay: targetDisplay
-            ) {
-                return frame
-            }
             return clampFrame(
                 frame,
                 within: targetDisplay.visibleFrame,
