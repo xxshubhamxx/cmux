@@ -186,6 +186,7 @@ def _run_case(
     zprofile_extra_content: str = "",
     zshrc_extra_content: str = "",
     ssh_g_output: str = "user nested\nhostname nested.example\n",
+    ssh_g_status: int = 0,
     infocmp_status: int = 1,
     infocmp_stdout: str = "",
     expect_bootstrap: bool = False,
@@ -252,7 +253,7 @@ exit "${CMUX_TEST_INFOCMP_STATUS:-1}"
         env["CMUX_TEST_INFOCMP_STATUS"] = str(infocmp_status)
         env["CMUX_TEST_INFOCMP_STDOUT"] = infocmp_stdout
         env["CMUX_TEST_SSH_G_OUTPUT"] = ssh_g_output
-        env["CMUX_TEST_SSH_G_STATUS"] = "0"
+        env["CMUX_TEST_SSH_G_STATUS"] = str(ssh_g_status)
         env["CMUX_TEST_FAKEBIN"] = str(fakebin)
         env.pop("GHOSTTY_BIN_DIR", None)
         env.pop("TERMINFO", None)
@@ -408,6 +409,44 @@ def main() -> int:
     )
     if not ok:
         print(f"FAIL: bootstrap ssh option preservation case failed: {detail}")
+        return 1
+
+    ok, detail = _run_case(
+        root=root,
+        wrapper_dir=wrapper_dir,
+        zsh_path=zsh_path,
+        features="ssh-env,ssh-terminfo",
+        term="xterm-ghostty",
+        expect_term="xterm-256color",
+        expect_infocmp=True,
+        expect_wrapper=True,
+        expected_target="nested.example",
+        shell_command="ssh -fN nested.example",
+        infocmp_status=0,
+        infocmp_stdout="xterm-ghostty|Ghostty terminal\\n",
+        expect_bootstrap=False,
+    )
+    if not ok:
+        print(f"FAIL: bundled no-run ssh flags case failed: {detail}")
+        return 1
+
+    ok, detail = _run_case(
+        root=root,
+        wrapper_dir=wrapper_dir,
+        zsh_path=zsh_path,
+        features="ssh-env,ssh-terminfo",
+        term="xterm-ghostty",
+        expect_term="xterm-256color",
+        expect_infocmp=False,
+        expect_wrapper=True,
+        expected_target="nested.example",
+        shell_command="ssh -oBogusOption=yes nested.example",
+        ssh_g_output="Bad configuration option: bogusoption\n",
+        ssh_g_status=255,
+        expect_bootstrap=False,
+    )
+    if not ok:
+        print(f"FAIL: ssh -G failure fallback case failed: {detail}")
         return 1
 
     ok, detail = _run_case(

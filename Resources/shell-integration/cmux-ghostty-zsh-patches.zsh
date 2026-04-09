@@ -33,7 +33,7 @@ _cmux_patch_ghostty_ssh() {
     if [[ "$GHOSTTY_SHELL_FEATURES" == *ssh-terminfo* && "$current_term" == "xterm-ghostty" ]]; then
       local ssh_user ssh_hostname ssh_target ssh_config_output ssh_config_status
       local -a ssh_bootstrap_args
-      local ssh_arg ssh_bootstrap_option
+      local ssh_arg ssh_bootstrap_option ssh_short_bundle ssh_short_char
       local -i ssh_bootstrap_can_run ssh_bootstrap_expect_value ssh_bootstrap_target_seen
       ssh_user=""
       ssh_hostname=""
@@ -82,9 +82,23 @@ _cmux_patch_ghostty_ssh() {
             ;;
           -[BbCcDEeFIiJLlmOopQRSwW]?*)
             ssh_bootstrap_args+=("$ssh_arg")
+            ssh_short_bundle="${ssh_arg#-}"
+            while [[ -n "$ssh_short_bundle" ]]; do
+              ssh_short_char="${ssh_short_bundle[1]}"
+              case "$ssh_short_char" in
+                G|N|V|f|s|O|Q|W) ssh_bootstrap_can_run=0 ;;
+              esac
+              case "$ssh_short_char" in
+                B|b|C|c|D|E|e|F|I|i|J|L|l|m|O|o|p|Q|R|S|w|W) break ;;
+              esac
+              ssh_short_bundle="${ssh_short_bundle[2,-1]}"
+            done
             ;;
           -?*)
             ssh_bootstrap_args+=("$ssh_arg")
+            case "${ssh_arg#-}" in
+              *G*|*N*|*V*|*f*|*s*|*O*|*Q*|*W*) ssh_bootstrap_can_run=0 ;;
+            esac
             ;;
           *)
             ssh_bootstrap_args+=("$ssh_arg")
@@ -95,8 +109,12 @@ _cmux_patch_ghostty_ssh() {
 
       (( ssh_bootstrap_target_seen )) || ssh_bootstrap_can_run=0
       (( ssh_bootstrap_expect_value )) && ssh_bootstrap_can_run=0
-      ssh_config_output=$(command ssh -G "$@" 2>&1)
-      ssh_config_status=$?
+      ssh_config_output=""
+      ssh_config_status=1
+      if (( ssh_bootstrap_can_run )); then
+        ssh_config_output=$(command ssh -G "$@" 2>&1)
+        ssh_config_status=$?
+      fi
 
       if (( ssh_config_status == 0 )); then
         while IFS=' ' read -r ssh_key ssh_value; do
@@ -159,6 +177,8 @@ _cmux_patch_ghostty_ssh() {
         fi
       elif (( ssh_config_status != 0 )) && [[ -n "$ssh_config_output" ]]; then
         print "Warning: ssh -G failed; skipping xterm-ghostty terminfo bootstrap: ${ssh_config_output%%$'\n'*}" >&2
+      elif (( ssh_bootstrap_can_run )) && (( ssh_config_status == 0 )) && [[ -n "$ssh_config_output" ]]; then
+        print "Warning: ssh -G did not resolve a hostname; skipping xterm-ghostty terminfo bootstrap." >&2
       fi
     fi
 
@@ -189,3 +209,4 @@ _cmux_patch_ghostty_ssh_deferred_init() {
 # zsh -i -c shells install the same wrapper from the cmux wrapper .zshrc after
 # the user's startup files have completed.
 _cmux_patch_ghostty_ssh_deferred_init
+builtin unfunction _cmux_patch_ghostty_ssh_deferred_init 2>/dev/null

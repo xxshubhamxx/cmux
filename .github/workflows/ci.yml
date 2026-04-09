@@ -38,6 +38,12 @@ jobs:
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
+      - name: Validate update-homebrew workflow input handling
+        run: ./tests/test_ci_update_homebrew_input_env.sh
+
+      - name: Validate test-e2e workflow input handling
+        run: ./tests/test_ci_test_e2e_input_env.sh
+
   remote-daemon-tests:
     runs-on: ubuntu-latest
     steps:
@@ -217,6 +223,14 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Run zsh shell integration regressions
+        run: |
+          set -euo pipefail
+          python3 tests/test_issue_2458_nested_ssh_term_respects_portable_term.py
+          python3 tests/test_shell_histfile_exec_string_preserves_user_override.py
+          python3 tests/test_shell_zdotdir_user_override.py
+          python3 tests/test_shell_zdotfile_typeset_scope.py
 
       - name: Run bundled Ghostty theme picker helper regression
         run: |

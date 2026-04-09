@@ -21,6 +21,7 @@
 
 builtin typeset -g _cmux_real_zdotdir=""
 builtin typeset -g _cmux_real_zdotdir_mode="unset"
+builtin typeset -g _cmux_real_zdotfile_path=""
 builtin typeset -g _cmux_wrapper_zdotdir="${ZDOTDIR-}"
 builtin typeset -g _cmux_wrapper_histfile=""
 builtin typeset -gi _cmux_use_exec_string_wrapper=0
@@ -65,19 +66,11 @@ _cmux_restore_wrapper_zdotdir() {
     fi
 }
 
-_cmux_source_real_zdotfile() {
+_cmux_prepare_real_zdotfile() {
     builtin local file_name="$1"
-    builtin local zdotfile_path
 
-    {
-        _cmux_use_real_zdotdir
-        zdotfile_path="${ZDOTDIR-$HOME}/$file_name"
-        [[ ! -r "$zdotfile_path" ]] || builtin source -- "$zdotfile_path"
-    } always {
-        # Preserve any user-side ZDOTDIR rebinding so the next startup file
-        # resolves from the same location vanilla zsh would use.
-        _cmux_capture_real_zdotdir
-    }
+    _cmux_use_real_zdotdir
+    _cmux_real_zdotfile_path="${ZDOTDIR-$HOME}/$file_name"
 }
 
 if [[ -o interactive && -n "${ZSH_EXECUTION_STRING:-}" ]]; then
@@ -88,7 +81,8 @@ else
 fi
 
 {
-    _cmux_source_real_zdotfile ".zshenv"
+    _cmux_prepare_real_zdotfile ".zshenv"
+    [[ ! -r "$_cmux_real_zdotfile_path" ]] || builtin source -- "$_cmux_real_zdotfile_path"
 
     if [[ -o interactive \
        && -z "${ZSH_EXECUTION_STRING:-}" \
@@ -104,6 +98,9 @@ fi
         builtin export TERM="xterm-ghostty"
     fi
 } always {
+    # Preserve any user-side ZDOTDIR rebinding so the next startup file
+    # resolves from the same location vanilla zsh would use.
+    _cmux_capture_real_zdotdir
     (( _cmux_use_exec_string_wrapper )) && _cmux_restore_wrapper_zdotdir
 
     if [[ -o interactive ]]; then
@@ -136,8 +133,8 @@ fi
     fi
 
     if (( ! _cmux_use_exec_string_wrapper )); then
-        builtin unfunction _cmux_capture_real_zdotdir _cmux_use_real_zdotdir _cmux_restore_wrapper_zdotdir _cmux_source_real_zdotfile 2>/dev/null
-        builtin unset _cmux_real_zdotdir _cmux_real_zdotdir_mode _cmux_wrapper_zdotdir _cmux_wrapper_histfile _cmux_use_exec_string_wrapper
+        builtin unfunction _cmux_capture_real_zdotdir _cmux_use_real_zdotdir _cmux_restore_wrapper_zdotdir _cmux_prepare_real_zdotfile 2>/dev/null
+        builtin unset _cmux_real_zdotdir _cmux_real_zdotdir_mode _cmux_real_zdotfile_path _cmux_wrapper_zdotdir _cmux_wrapper_histfile _cmux_use_exec_string_wrapper
     fi
 
     builtin unset _cmux_ghostty _cmux_ghostty_patch _cmux_integ
