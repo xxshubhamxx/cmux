@@ -789,6 +789,51 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
     }
 
+    func testGlobalGitMetadataWatcherDisableClearsSidebarMetadataFromDefaultsChange() throws {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: GitMetadataWatcherSettings.disabledKey)
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: GitMetadataWatcherSettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: GitMetadataWatcherSettings.disabledKey)
+            }
+        }
+
+        defaults.set(false, forKey: GitMetadataWatcherSettings.disabledKey)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/global-disable", isDirty: true)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 2723,
+            label: "PR",
+            url: try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/2723")),
+            status: .open,
+            branch: "feature/global-disable"
+        )
+
+        defaults.set(true, forKey: GitMetadataWatcherSettings.disabledKey)
+        manager.handleGitMetadataWatcherDefaultsChangeForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId] == nil
+                    && workspace.panelPullRequests[panelId] == nil
+                    && workspace.gitBranch == nil
+                    && workspace.pullRequest == nil
+            }
+        )
+        XCTAssertTrue(workspace.sidebarGitBranchesInDisplayOrder().isEmpty)
+        XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
+    }
+
     func testIncludedGitConfigWatcherRefreshesDirtyStateAfterLiveOptOutChange() throws {
         let fileManager = FileManager.default
         let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-live-include-watch")

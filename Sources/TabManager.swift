@@ -2089,6 +2089,10 @@ class TabManager: ObservableObject {
         githubRepositorySlugs(directory: directory)
     }
 
+    func handleGitMetadataWatcherDefaultsChangeForTesting() {
+        handleGitMetadataWatcherDefaultsChange()
+    }
+
     func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
         let activeProbeKeys = activeWorkspaceGitProbeKeys
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else {
