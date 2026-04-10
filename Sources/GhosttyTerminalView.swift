@@ -2050,6 +2050,9 @@ class GhosttyApp {
         ).first
     ) -> UserFontConfigSummary {
         if let configPaths {
+            // Explicit config paths model Ghostty's pre-recursive top-level
+            // inputs. Runtime cmux override files are applied afterward and
+            // must not have their own `config-file` directives recursed here.
             return userFontConfigSummary(topLevelConfigPaths: configPaths)
         }
 
@@ -2124,9 +2127,9 @@ class GhosttyApp {
         }
     }
 
-    /// Returns the top-level config paths that can affect cmux's CJK scan.
-    /// Standalone Ghostty config participates in recursive `config-file`
-    /// loading before cmux's bundle-specific override layer is applied last.
+    /// Returns the pre-recursive top-level config paths that can affect cmux's
+    /// CJK scan. cmux's bundle-specific override layer is applied afterward
+    /// and exposed separately via `loadedCJKOverrideConfigPaths`.
     static func loadedCJKScanPaths(
         currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
         appSupportDirectory: URL? = FileManager.default.urls(
@@ -2134,11 +2137,24 @@ class GhosttyApp {
             in: .userDomainMask
         ).first
     ) -> [String] {
-        let scanPlan = userFontConfigScanPlan(
+        userFontConfigScanPlan(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectory
-        )
-        return scanPlan.topLevelConfigPaths + scanPlan.overrideConfigPaths
+        ).topLevelConfigPaths
+    }
+
+    /// Returns cmux's post-recursive application-support override config paths.
+    static func loadedCJKOverrideConfigPaths(
+        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
+    ) -> [String] {
+        userFontConfigScanPlan(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ).overrideConfigPaths
     }
 
     private static func userFontConfigScanPlan(

@@ -9,6 +9,33 @@ import Darwin
 @testable import cmux
 #endif
 
+private func withTemporaryAppSupportDirectory(
+    _ body: (URL) throws -> Void
+) throws {
+    let fileManager = FileManager.default
+    let directory = fileManager.temporaryDirectory
+        .appendingPathComponent("cmux-app-support-\(UUID().uuidString)", isDirectory: true)
+    try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? fileManager.removeItem(at: directory) }
+    try body(directory)
+}
+
+private func writeAppSupportConfig(
+    appSupportDirectory: URL,
+    bundleIdentifier: String,
+    filename: String,
+    contents: String
+) throws -> URL {
+    let fileManager = FileManager.default
+    let bundleDirectory = appSupportDirectory
+        .appendingPathComponent(bundleIdentifier, isDirectory: true)
+    try fileManager.createDirectory(at: bundleDirectory, withIntermediateDirectories: true)
+
+    let configURL = bundleDirectory.appendingPathComponent(filename, isDirectory: false)
+    try contents.write(to: configURL, atomically: true, encoding: .utf8)
+    return configURL
+}
+
 final class SidebarPathFormatterTests: XCTestCase {
     func testShortenedPathReplacesExactHomeDirectory() {
         XCTAssertEqual(
@@ -375,7 +402,7 @@ final class GhosttyConfigTests: XCTestCase {
         }
     }
 
-    func testLoadedCJKScanPathsIncludeStandaloneGhosttyAppSupportBeforeCmuxOverrides() throws {
+    func testLoadedCJKPathOrderIncludesStandaloneGhosttyAppSupportBeforeCmuxOverrides() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             let ghosttyConfigURL = try writeAppSupportConfig(
                 appSupportDirectory: appSupportDirectory,
@@ -390,10 +417,15 @@ final class GhosttyConfigTests: XCTestCase {
                 contents: "font-family = JetBrains Mono\n"
             )
 
-            let paths = GhosttyApp.loadedCJKScanPaths(
-                currentBundleIdentifier: "com.cmuxterm.app.debug",
-                appSupportDirectory: appSupportDirectory
-            )
+            let paths =
+                GhosttyApp.loadedCJKScanPaths(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug",
+                    appSupportDirectory: appSupportDirectory
+                ) +
+                GhosttyApp.loadedCJKOverrideConfigPaths(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug",
+                    appSupportDirectory: appSupportDirectory
+                )
 
             XCTAssertTrue(paths.contains(ghosttyConfigURL.path))
             XCTAssertTrue(paths.contains(cmuxConfigURL.path))
@@ -401,6 +433,31 @@ final class GhosttyConfigTests: XCTestCase {
             let ghosttyIndex = try XCTUnwrap(paths.firstIndex(of: ghosttyConfigURL.path))
             let cmuxIndex = try XCTUnwrap(paths.firstIndex(of: cmuxConfigURL.path))
             XCTAssertLessThan(ghosttyIndex, cmuxIndex)
+        }
+    }
+
+    func testLoadedCJKScanPathsIncludeOnlyPreRecursiveInputs() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let standaloneConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.mitchellh.ghostty",
+                filename: "config.ghostty",
+                contents: "font-feature = calt\n"
+            )
+            let cmuxConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: "font-family = JetBrains Mono\n"
+            )
+
+            let scanPaths = GhosttyApp.loadedCJKScanPaths(
+                currentBundleIdentifier: "com.cmuxterm.app.debug",
+                appSupportDirectory: appSupportDirectory
+            )
+
+            XCTAssertTrue(scanPaths.contains(standaloneConfigURL.path))
+            XCTAssertFalse(scanPaths.contains(cmuxConfigURL.path))
         }
     }
 
@@ -611,32 +668,6 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    private func withTemporaryAppSupportDirectory(
-        _ body: (URL) throws -> Void
-    ) throws {
-        let fileManager = FileManager.default
-        let directory = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-app-support-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: directory) }
-        try body(directory)
-    }
-
-    private func writeAppSupportConfig(
-        appSupportDirectory: URL,
-        bundleIdentifier: String,
-        filename: String,
-        contents: String
-    ) throws -> URL {
-        let fileManager = FileManager.default
-        let bundleDirectory = appSupportDirectory
-            .appendingPathComponent(bundleIdentifier, isDirectory: true)
-        try fileManager.createDirectory(at: bundleDirectory, withIntermediateDirectories: true)
-
-        let configURL = bundleDirectory.appendingPathComponent(filename, isDirectory: false)
-        try contents.write(to: configURL, atomically: true, encoding: .utf8)
-        return configURL
-    }
 }
 
 final class WorkspaceChromeThemeTests: XCTestCase {
@@ -2628,7 +2659,41 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testLoadedCJKScanPathsSkipsReleaseAppSupportWhenTaggedConfigExists() throws {
+    func testShouldInjectCJKFontFallbackIgnoresConfigFileIncludesInsideCmuxOverrides() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let overrideIncludeURL = appSupportDirectory
+                .appendingPathComponent("override-fonts.conf", isDirectory: false)
+            try "font-family = LXGW WenKai Mono TC\n"
+                .write(to: overrideIncludeURL, atomically: true, encoding: .utf8)
+
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.mitchellh.ghostty",
+                filename: "config.ghostty",
+                contents: "font-family = JetBrains Mono\n"
+            )
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: "config-file = \(overrideIncludeURL.path)\n"
+            )
+
+            XCTAssertTrue(
+                GhosttyApp.shouldInjectCJKFontFallback(
+                    preferredLanguages: ["zh-Hans-CN"],
+                    currentBundleIdentifier: "com.cmuxterm.app",
+                    appSupportDirectory: appSupportDirectory,
+                    rangeCoverageProbe: { fontFamily, _ in
+                        XCTAssertEqual(fontFamily, "JetBrains Mono")
+                        return false
+                    }
+                )
+            )
+        }
+    }
+
+    func testLoadedCJKPathOrderSkipsReleaseAppSupportWhenTaggedConfigExists() throws {
         let appSupport = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-test-cjk-app-support-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
@@ -2646,17 +2711,23 @@ final class GhosttyMouseFocusTests: XCTestCase {
         try "font-family = LXGW WenKai Mono TC\n"
             .write(to: releaseConfig, atomically: true, encoding: .utf8)
 
-        let paths = GhosttyApp.loadedCJKScanPaths(
-            currentBundleIdentifier: "com.example.cmux-dev",
-            appSupportDirectory: appSupport
-        )
+        let paths =
+            GhosttyApp.loadedCJKScanPaths(
+                currentBundleIdentifier: "com.example.cmux-dev",
+                appSupportDirectory: appSupport
+            ) +
+            GhosttyApp.loadedCJKOverrideConfigPaths(
+                currentBundleIdentifier: "com.example.cmux-dev",
+                appSupportDirectory: appSupport
+            )
 
         XCTAssertTrue(paths.contains(taggedConfig.path))
         XCTAssertFalse(paths.contains(releaseConfig.path))
         XCTAssertTrue(
             GhosttyApp.shouldInjectCJKFontFallback(
                 preferredLanguages: ["zh-Hans-CN"],
-                configPaths: paths
+                currentBundleIdentifier: "com.example.cmux-dev",
+                appSupportDirectory: appSupport
             )
         )
     }
