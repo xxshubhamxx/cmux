@@ -4247,7 +4247,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 ?? getenv("SHELL").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["SHELL"]
                 ?? "/bin/zsh"
-            let shellCommand = "TERM=xterm-256color COLORTERM=truecolor \(shell) -l"
+            // Build an `env` command with all the per-surface vars so the shell
+            // inherits the same environment it would get in Exec mode. This
+            // includes ZDOTDIR (for ghostty/cmux shell integration), CMUX_*
+            // surface IDs, TERM, COLORTERM, etc.
+            var envPairs: [String] = ["TERM=xterm-256color", "COLORTERM=truecolor"]
+            for (key, value) in env {
+                // Skip empty values; shell-escape the value
+                guard !value.isEmpty else { continue }
+                let escaped = value.replacingOccurrences(of: "'", with: "'\\''")
+                envPairs.append("\(key)='\(escaped)'")
+            }
+            let envPrefix = envPairs.joined(separator: " ")
+            let shellCommand = "env \(envPrefix) \(shell) -l"
 
             let bridge = DaemonTerminalBridge(
                 socketPath: daemonSocket,
