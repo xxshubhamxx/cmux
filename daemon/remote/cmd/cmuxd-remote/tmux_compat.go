@@ -1049,6 +1049,15 @@ func tmuxWaitForSignalPath(name string) string {
 	return fmt.Sprintf("/tmp/cmux-wait-for-%s.sig", sanitized.String())
 }
 
+func tmuxShouldBackgroundAgentTeamSplits() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 // --- Main dispatch ---
 
 func dispatchTmuxCommand(rc *rpcContext, command string, args []string) error {
@@ -1216,6 +1225,9 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	}
 
 	focusNewPane := !p.hasFlag("-d")
+	if tmuxShouldBackgroundAgentTeamSplits() {
+		focusNewPane = false
+	}
 	created, err := rc.call("surface.split", map[string]any{
 		"workspace_id": targetWs,
 		"surface_id":   targetSurface,
