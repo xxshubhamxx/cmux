@@ -555,42 +555,48 @@ extension Workspace {
         // asynchronously in applicationDidFinishLaunching). Retry until it's ready.
         let terminalPanels = panels.values.compactMap { $0 as? TerminalPanel }
         guard !terminalPanels.isEmpty else { return }
-        // Skip panels that have a saved daemon session ID — those sessions
-        // already exist in the daemon from the previous app run (quit with
-        // "Keep Daemon"). Only pre-create for panels without saved IDs.
-        let panelsNeedingPreCreate = terminalPanels.filter { $0.savedDaemonSessionID == nil }
-        guard !panelsNeedingPreCreate.isEmpty else {
-            dlog("preCreateDaemonSessions.skipped workspace=\(id.uuidString.prefix(8)) all panels have saved session IDs")
-            return
+        // Collect surface IDs and any saved daemon session IDs (from previous quit).
+        // Saved IDs are used so pre-created sessions match the IDs the bridge
+        // will use on attach — whether the daemon was reused or restarted fresh.
+        let panelInfo: [(surfaceID: UUID, savedSessionID: String?)] = terminalPanels.map {
+            ($0.surface.id, $0.surface.savedDaemonSessionID)
         }
-        let panelSurfaceIDs: [UUID] = panelsNeedingPreCreate.map { $0.surface.id }
         let workspaceID = self.id
-        dlog("preCreateDaemonSessions.scheduled workspace=\(workspaceID.uuidString.prefix(8)) panels=\(panelSurfaceIDs.count)")
-        Self.retryPreCreate(workspaceID: workspaceID, surfaceIDs: panelSurfaceIDs, attempts: 0)
+        dlog("preCreateDaemonSessions.scheduled workspace=\(workspaceID.uuidString.prefix(8)) panels=\(panelInfo.count)")
+        Self.retryPreCreate(workspaceID: workspaceID, panelInfo: panelInfo, attempts: 0)
     }
 
-    private static func retryPreCreate(workspaceID: UUID, surfaceIDs: [UUID], attempts: Int) {
+    private static func retryPreCreate(workspaceID: UUID, panelInfo: [(surfaceID: UUID, savedSessionID: String?)], attempts: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + (attempts == 0 ? 0.5 : 1.0)) {
             let daemonRunning = MobileDaemonBridgeInline.shared.isRunning
             let daemonPath = MobileDaemonBridgeInline.shared.daemonSocketPath
             if let socket = daemonPath, daemonRunning {
                 dlog("preCreateDaemonSessions.ready workspace=\(workspaceID.uuidString.prefix(8)) attempts=\(attempts)")
-                for surfaceID in surfaceIDs {
+                for info in panelInfo {
                     let shellCommand = buildPreCreateShellCommand(
                         workspaceID: workspaceID,
-                        surfaceID: surfaceID
+                        surfaceID: info.surfaceID
                     )
+                    // Use the saved session ID if available. This ensures
+                    // the pre-created session matches what the bridge will
+                    // use on attach, whether the daemon was reused or fresh.
+                    let sessionID = info.savedSessionID
+                        ?? DaemonTerminalBridge.computeSessionID(
+                            workspaceID: workspaceID,
+                            surfaceID: info.surfaceID
+                        )
                     DaemonTerminalBridge.preCreateSession(
                         socketPath: socket,
                         workspaceID: workspaceID,
-                        surfaceID: surfaceID,
-                        shellCommand: shellCommand
+                        surfaceID: info.surfaceID,
+                        shellCommand: shellCommand,
+                        sessionID: sessionID
                     )
                 }
                 return
             }
             if attempts < 10 {
-                retryPreCreate(workspaceID: workspaceID, surfaceIDs: surfaceIDs, attempts: attempts + 1)
+                retryPreCreate(workspaceID: workspaceID, panelInfo: panelInfo, attempts: attempts + 1)
             } else {
                 dlog("preCreateDaemonSessions.giveup workspace=\(workspaceID.uuidString.prefix(8))")
             }

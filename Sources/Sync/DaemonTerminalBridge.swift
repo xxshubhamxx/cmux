@@ -60,9 +60,10 @@ final class DaemonTerminalBridge: @unchecked Sendable {
         surfaceID: UUID,
         shellCommand: String,
         cols: Int = 80,
-        rows: Int = 24
+        rows: Int = 24,
+        sessionID: String? = nil
     ) {
-        let sessionID = computeSessionID(workspaceID: workspaceID, surfaceID: surfaceID)
+        let sessionID = sessionID ?? computeSessionID(workspaceID: workspaceID, surfaceID: surfaceID)
         DispatchQueue.global(qos: .userInitiated).async {
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard fd >= 0 else { return }
