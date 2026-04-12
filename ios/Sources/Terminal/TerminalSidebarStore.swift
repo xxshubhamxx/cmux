@@ -799,6 +799,16 @@ final class TerminalSidebarStore: ObservableObject {
             // This ensures iOS attaches to the same session the desktop is using.
             let daemonSessionID = wsData["session_id"] as? String
             let pinned = wsData["pinned"] as? Bool ?? false
+            let panesData = wsData["panes"] as? [[String: Any]] ?? []
+            let panes: [TerminalPane] = panesData.compactMap { pane in
+                guard let paneID = pane["id"] as? String else { return nil }
+                return TerminalPane(
+                    id: paneID,
+                    sessionID: pane["session_id"] as? String,
+                    title: pane["title"] as? String ?? "",
+                    directory: pane["directory"] as? String ?? ""
+                )
+            }
 
             if let existing = workspaces.first(where: { $0.remoteWorkspaceID == remoteId && $0.hostID == hostID }) {
                 var updated = existing
@@ -808,6 +818,7 @@ final class TerminalSidebarStore: ObservableObject {
                 if !preview.isEmpty { updated.preview = preview }
                 updated.unread = unreadCount > 0
                 updated.pinned = pinned
+                updated.panes = panes
                 if let sid = daemonSessionID {
                     ScannerLog.shared.log("  ws.update title=\(title) sessionName=\(sid) (was \(existing.tmuxSessionName))")
                     updated.tmuxSessionName = sid
@@ -825,6 +836,7 @@ final class TerminalSidebarStore: ObservableObject {
                 if !preview.isEmpty { workspace.preview = preview }
                 workspace.unread = unreadCount > 0
                 workspace.pinned = pinned
+                workspace.panes = panes
                 updatedWorkspaces.append(workspace)
             }
         }
@@ -1534,10 +1546,11 @@ final class TerminalSessionController: ObservableObject {
             ? TerminalGridSize(columns: 80, rows: 24, pixelWidth: 640, pixelHeight: 384)
             : surfaceGrid
 
+        let effectiveSessionName = sessionOverride ?? workspace.tmuxSessionName
         let transport = transportFactory.makeTransport(
             host: host,
             credentials: credentials,
-            sessionName: workspace.tmuxSessionName,
+            sessionName: effectiveSessionName,
             resumeState: remoteDaemonResumeState
         )
         transport.eventHandler = { [weak self] event in
@@ -1596,6 +1609,27 @@ final class TerminalSessionController: ObservableObject {
         if transport == nil, phase != .needsConfiguration {
             connectIfNeeded(reconnecting: true)
         }
+    }
+
+    /// Override session name for pane switching. When set, connectIfNeeded
+    /// uses this instead of workspace.tmuxSessionName.
+    private var sessionOverride: String?
+
+    /// Switch to a different daemon session (e.g. a different pane in
+    /// the same workspace). Disconnects the current session and
+    /// reconnects with the new session ID.
+    func switchSession(to sessionID: String) {
+        sessionOverride = sessionID
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        clearStatusMessage()
+        updateRemoteDaemonResumeState(nil)
+        clearPendingReconnectAfterTransportWork()
+        cancelTransportConnectTask()
+        setPhase(.reconnecting, error: nil)
+        let transport = releaseTransport()
+        scheduleTransportDisconnect(transport, preserveSession: true)
+        connectIfNeeded(reconnecting: true)
     }
 
     func reconnectNow() {

@@ -278,6 +278,13 @@ struct TerminalHost: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+struct TerminalPane: Codable, Equatable, Sendable, Identifiable {
+    let id: String
+    var sessionID: String?
+    var title: String
+    var directory: String
+}
+
 struct TerminalWorkspace: Identifiable, Codable, Equatable, Sendable {
     typealias ID = UUID
 
@@ -289,6 +296,7 @@ struct TerminalWorkspace: Identifiable, Codable, Equatable, Sendable {
     var lastActivity: Date
     var unread: Bool
     var pinned: Bool
+    var panes: [TerminalPane] = []
     var phase: TerminalConnectionPhase
     var lastError: String?
     var remoteWorkspaceID: String?

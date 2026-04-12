@@ -527,6 +527,13 @@ fn handleWorkspaceList(service: *session_service.Service, req: *const json_rpc.R
     const alloc = service.alloc;
     const reg = &service.workspace_reg;
 
+    const PaneEntry = struct {
+        id: []const u8,
+        session_id: ?[]const u8,
+        title: []const u8,
+        directory: []const u8,
+    };
+
     const WorkspaceEntry = struct {
         id: []const u8,
         title: []const u8,
@@ -539,17 +546,36 @@ fn handleWorkspaceList(service: *session_service.Service, req: *const json_rpc.R
         session_id: ?[]const u8,
         focused_pane_id: ?[]const u8,
         pane_count: usize,
+        panes: []const PaneEntry,
         created_at: i64,
         last_activity_at: i64,
     };
 
     var entries: std.ArrayList(WorkspaceEntry) = .empty;
     defer entries.deinit(alloc);
+    var all_pane_entries: std.ArrayList([]const PaneEntry) = .empty;
+    defer {
+        for (all_pane_entries.items) |pe| alloc.free(pe);
+        all_pane_entries.deinit(alloc);
+    }
 
     for (reg.order.items) |ws_id| {
         const ws = reg.workspaces.get(ws_id) orelse continue;
         const leaves = try ws.root_pane.collectLeaves(alloc);
         defer alloc.free(leaves);
+
+        var pane_entries: std.ArrayList(PaneEntry) = .empty;
+        for (leaves) |leaf| {
+            try pane_entries.append(alloc, .{
+                .id = leaf.id,
+                .session_id = leaf.session_id,
+                .title = leaf.title,
+                .directory = leaf.directory,
+            });
+        }
+        const panes_slice = try pane_entries.toOwnedSlice(alloc);
+        try all_pane_entries.append(alloc, panes_slice);
+
         try entries.append(alloc, .{
             .id = ws.id,
             .title = ws.title,
@@ -562,6 +588,7 @@ fn handleWorkspaceList(service: *session_service.Service, req: *const json_rpc.R
             .session_id = ws.session_id,
             .focused_pane_id = ws.focused_pane_id,
             .pane_count = leaves.len,
+            .panes = panes_slice,
             .created_at = ws.created_at,
             .last_activity_at = ws.last_activity_at,
         });
@@ -815,6 +842,13 @@ fn notifyWorkspaceSubscribers(service: *session_service.Service) void {
     const alloc = service.alloc;
     const reg = &service.workspace_reg;
 
+    const PaneEntry = struct {
+        id: []const u8,
+        session_id: ?[]const u8,
+        title: []const u8,
+        directory: []const u8,
+    };
+
     const WorkspaceEntry = struct {
         id: []const u8,
         title: []const u8,
@@ -827,17 +861,39 @@ fn notifyWorkspaceSubscribers(service: *session_service.Service) void {
         session_id: ?[]const u8,
         focused_pane_id: ?[]const u8,
         pane_count: usize,
+        panes: []const PaneEntry,
         created_at: i64,
         last_activity_at: i64,
     };
 
     var entries: std.ArrayList(WorkspaceEntry) = .empty;
     defer entries.deinit(alloc);
+    var all_pane_entries: std.ArrayList([]const PaneEntry) = .empty;
+    defer {
+        for (all_pane_entries.items) |pe| alloc.free(pe);
+        all_pane_entries.deinit(alloc);
+    }
 
     for (reg.order.items) |ws_id| {
         const ws = reg.workspaces.get(ws_id) orelse continue;
         const leaves = ws.root_pane.collectLeaves(alloc) catch continue;
         defer alloc.free(leaves);
+
+        var pane_entries: std.ArrayList(PaneEntry) = .empty;
+        for (leaves) |leaf| {
+            pane_entries.append(alloc, .{
+                .id = leaf.id,
+                .session_id = leaf.session_id,
+                .title = leaf.title,
+                .directory = leaf.directory,
+            }) catch continue;
+        }
+        const panes_slice = pane_entries.toOwnedSlice(alloc) catch continue;
+        all_pane_entries.append(alloc, panes_slice) catch {
+            alloc.free(panes_slice);
+            continue;
+        };
+
         entries.append(alloc, .{
             .id = ws.id,
             .title = ws.title,
@@ -850,6 +906,7 @@ fn notifyWorkspaceSubscribers(service: *session_service.Service) void {
             .session_id = ws.session_id,
             .focused_pane_id = ws.focused_pane_id,
             .pane_count = leaves.len,
+            .panes = panes_slice,
             .created_at = ws.created_at,
             .last_activity_at = ws.last_activity_at,
         }) catch continue;

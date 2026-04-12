@@ -910,6 +910,7 @@ struct TerminalWorkspaceScreen: View {
     let workspace: TerminalWorkspace
     let host: TerminalHost
     @ObservedObject var controller: TerminalSessionController
+    @State private var selectedPaneIndex: Int = 0
 
     private static let monokaiBackground = Color(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0)
 
@@ -919,6 +920,9 @@ struct TerminalWorkspaceScreen: View {
         }
         return Self.monokaiBackground
     }
+
+    private var panes: [TerminalPane] { workspace.panes }
+    private var hasMultiplePanes: Bool { panes.count > 1 }
 
     var body: some View {
         ZStack {
@@ -936,12 +940,17 @@ struct TerminalWorkspaceScreen: View {
         }
         .accessibilityIdentifier("terminal.workspace.detail")
         .safeAreaInset(edge: .top, spacing: 0) {
-            if controller.phase != .connected || controller.errorMessage != nil || controller.statusMessage != nil {
-                TerminalStatusBanner(
-                    host: host,
-                    phase: controller.phase,
-                    message: controller.statusMessage ?? controller.errorMessage
-                )
+            VStack(spacing: 0) {
+                if controller.phase != .connected || controller.errorMessage != nil || controller.statusMessage != nil {
+                    TerminalStatusBanner(
+                        host: host,
+                        phase: controller.phase,
+                        message: controller.statusMessage ?? controller.errorMessage
+                    )
+                }
+                if hasMultiplePanes {
+                    panePicker
+                }
             }
         }
         .navigationTitle(workspace.title)
@@ -963,6 +972,48 @@ struct TerminalWorkspaceScreen: View {
         .onDisappear {
             controller.suspendPreservingState()
         }
+    }
+
+    @ViewBuilder
+    private var panePicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(Array(panes.enumerated()), id: \.element.id) { index, pane in
+                    let label = paneLabel(pane, index: index)
+                    Button {
+                        selectedPaneIndex = index
+                        switchToPane(pane)
+                    } label: {
+                        Text(label)
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(index == selectedPaneIndex ? Color.white.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+        .background(.ultraThinMaterial)
+    }
+
+    private func paneLabel(_ pane: TerminalPane, index: Int) -> String {
+        if !pane.title.isEmpty {
+            return pane.title
+        }
+        if !pane.directory.isEmpty {
+            let dir = pane.directory
+            return (dir as NSString).lastPathComponent
+        }
+        return String(localized: "terminal.pane.label", defaultValue: "Pane \(index + 1)")
+    }
+
+    private func switchToPane(_ pane: TerminalPane) {
+        guard let sessionID = pane.sessionID else { return }
+        controller.switchSession(to: sessionID)
     }
 }
 
