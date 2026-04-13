@@ -27,6 +27,7 @@
 		35DD00750B94902B2CF0CDF6 /* ShortThreadLayoutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F680356269E010CC8DDF11B /* ShortThreadLayoutUITests.swift */; };
 		36C1EC806C4BE2DFF9644812 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = FF8733643DEE67DE349BDA51 /* Localizable.xcstrings */; };
 		3CA9FE4AAA4BB2A308C523DE /* LiveAnchormuxSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 759117D3355ECE0F2863206E /* LiveAnchormuxSupport.swift */; };
+		3DBCE84093499B91C65269C1 /* TerminalDaemonConnectionPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27ACABFFE5F92DB38FB630B8 /* TerminalDaemonConnectionPool.swift */; };
 		4096420F4E5B6EC7D57F4201 /* GhosttyRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94978287D80E12EC6746F582 /* GhosttyRuntime.swift */; };
 		40FDF9AA8CA2215311B9E5D2 /* AuthError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 263881D640CF9D1EEC1D093E /* AuthError.swift */; };
 		4A271419B8C1B27C193AA854 /* AppDatabaseMigrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED00F3B44D48F5413C2BB380 /* AppDatabaseMigrator.swift */; };
@@ -165,6 +166,7 @@
 		1B8CDE2F6CDCAB37E3107C76 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		245DF39EF320A4BE4F9693E1 /* StackAuthSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackAuthSessionTests.swift; sourceTree = "<group>"; };
 		263881D640CF9D1EEC1D093E /* AuthError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthError.swift; sourceTree = "<group>"; };
+		27ACABFFE5F92DB38FB630B8 /* TerminalDaemonConnectionPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDaemonConnectionPool.swift; sourceTree = "<group>"; };
 		28D639E6992408AFD926D7AD /* TerminalTextInputPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTextInputPipelineTests.swift; sourceTree = "<group>"; };
 		2AC726D3FC8D35E5F9D5ACD2 /* MobileContractModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileContractModels.swift; sourceTree = "<group>"; };
 		3A9ADF5829DEF82D33C5EB45 /* cmuxd-remote */ = {isa = PBXFileReference; path = "cmuxd-remote"; sourceTree = "<group>"; };
@@ -408,6 +410,7 @@
 				759117D3355ECE0F2863206E /* LiveAnchormuxSupport.swift */,
 				D3FF5B325FC76EBB175EE6CA /* ServerScannerView.swift */,
 				0B65F7731CA990B817F7426D /* TerminalDaemonConnection.swift */,
+				27ACABFFE5F92DB38FB630B8 /* TerminalDaemonConnectionPool.swift */,
 				13026270BE423ED61F7CFF2A /* TerminalDaemonTicketService.swift */,
 				3F0D6D7E549075AEEF31EB2C /* TerminalDirectDaemonClient.swift */,
 				B32C00E055BF7D0F1294BC39 /* TerminalDirectDaemonTransport.swift */,
@@ -743,6 +746,7 @@
 				69995971655E7D3B5A3D329D /* TerminalBackendContracts.swift in Sources */,
 				8BC0E9F0AC5CAEC84129BEAC /* TerminalCacheRepository.swift in Sources */,
 				21E8F66868FFA39149D80688 /* TerminalDaemonConnection.swift in Sources */,
+				3DBCE84093499B91C65269C1 /* TerminalDaemonConnectionPool.swift in Sources */,
 				4A4D281FC297CF88E42279DB /* TerminalDaemonTicketService.swift in Sources */,
 				8625E551A6B6F6F5909F7FD2 /* TerminalDirectDaemonClient.swift in Sources */,
 				2DB9C156570A2D238973F0A7 /* TerminalDirectDaemonTransport.swift in Sources */,

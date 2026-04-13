@@ -31,6 +31,18 @@ actor TerminalDaemonConnection {
     func currentClient() -> TerminalRemoteDaemonClient? { client }
     func currentHello() -> TerminalRemoteDaemonHello? { hello }
 
+    /// Returns a live client for this daemon, opening a new ws if needed
+    /// or replacing a stale one whose transport has failed.
+    func acquireClient() async throws -> (TerminalRemoteDaemonClient, TerminalRemoteDaemonHello) {
+        if let client, let hello, await !client.isClosed() {
+            return (client, hello)
+        }
+        if client != nil {
+            await teardownClient()
+        }
+        return try await ensureConnected()
+    }
+
     func startWorkspaceSubscription(onEvent: @escaping @Sendable (TerminalDaemonConnectionEvent) -> Void) {
         guard subscriptionTask == nil else { return }
         subscribed = true
@@ -49,12 +61,12 @@ actor TerminalDaemonConnection {
     }
 
     func workspaceRename(workspaceID: String, title: String) async throws {
-        let (client, _) = try await ensureConnected()
+        let (client, _) = try await acquireClient()
         try await client.workspaceRename(workspaceID: workspaceID, title: title)
     }
 
     func workspacePin(workspaceID: String, pinned: Bool) async throws {
-        let (client, _) = try await ensureConnected()
+        let (client, _) = try await acquireClient()
         try await client.workspacePin(workspaceID: workspaceID, pinned: pinned)
     }
 

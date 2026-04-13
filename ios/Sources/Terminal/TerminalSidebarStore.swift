@@ -602,22 +602,18 @@ final class TerminalSidebarStore: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Pooled daemon connections keyed by host stableID. One URLSession +
-    /// URLSessionWebSocketTask + RPC client per daemon, shared across
-    /// workspace subscription and (eventually) terminal sessions.
-    private var daemonConnections: [String: TerminalDaemonConnection] = [:]
-
+    /// Pooled daemon connections live in TerminalDaemonConnectionPool.shared,
+    /// keyed by host stableID. Sidebar workspace subscription and terminal
+    /// sessions share one URLSessionWebSocketTask + TerminalRemoteDaemonClient
+    /// per daemon.
     fileprivate func daemonConnection(for host: TerminalHost) -> TerminalDaemonConnection? {
         guard let wsPort = host.wsPort else { return nil }
-        let stableID = host.stableID
-        if let existing = daemonConnections[stableID] { return existing }
-        let connection = TerminalDaemonConnection(
+        return TerminalDaemonConnectionPool.shared.connection(
+            stableID: host.stableID,
             hostname: host.hostname,
             port: wsPort,
             secret: host.wsSecret ?? ""
         )
-        daemonConnections[stableID] = connection
-        return connection
     }
 
     /// Start a persistent WebSocket subscription for workspace changes.

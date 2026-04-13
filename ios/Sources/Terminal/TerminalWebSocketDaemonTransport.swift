@@ -136,9 +136,9 @@ final class TerminalWebSocketTransport: @unchecked Sendable, TerminalTransport {
 
     private let host: TerminalHost
     private let sessionName: String
-    private let wsClient: TerminalWebSocketDaemonClient
+    private let pool: TerminalDaemonConnectionPool
     private let sessionTransportFactory: @Sendable (
-        any TerminalRemoteDaemonTransport,
+        TerminalRemoteDaemonClient,
         String,
         String,
         TerminalRemoteDaemonResumeState?
@@ -147,22 +147,21 @@ final class TerminalWebSocketTransport: @unchecked Sendable, TerminalTransport {
     private let stateQueue = DispatchQueue(label: "TerminalWebSocketTransport.state")
 
     private var activeTransport: TerminalTransport?
-    private var lineTransport: TerminalWebSocketLineTransport?
     private var lastKnownResumeState: TerminalRemoteDaemonResumeState?
 
     init(
         host: TerminalHost,
         sessionName: String,
         resumeState: TerminalRemoteDaemonResumeState? = nil,
-        wsClient: TerminalWebSocketDaemonClient = TerminalWebSocketDaemonClient(),
+        pool: TerminalDaemonConnectionPool = .shared,
         sessionTransportFactory: @escaping @Sendable (
-            any TerminalRemoteDaemonTransport,
+            TerminalRemoteDaemonClient,
             String,
             String,
             TerminalRemoteDaemonResumeState?
-        ) -> TerminalTransport = { transport, command, sessionName, resumeState in
+        ) -> TerminalTransport = { client, command, sessionName, resumeState in
             TerminalRemoteDaemonSessionTransport(
-                client: TerminalRemoteDaemonClient(transport: transport),
+                client: client,
                 command: command,
                 sharedSessionID: sessionName,
                 resumeState: resumeState
@@ -172,7 +171,7 @@ final class TerminalWebSocketTransport: @unchecked Sendable, TerminalTransport {
         self.host = host
         self.sessionName = sessionName
         self.resumeState = resumeState
-        self.wsClient = wsClient
+        self.pool = pool
         self.sessionTransportFactory = sessionTransportFactory
         self.lastKnownResumeState = resumeState
     }
@@ -184,16 +183,18 @@ final class TerminalWebSocketTransport: @unchecked Sendable, TerminalTransport {
             throw TerminalWebSocketTransportError.invalidURL
         }
 
-        NSLog("[WebSocket] Transport connecting to %@:%d session=%@", host.hostname, wsPort, sessionName)
+        NSLog("[WebSocket] Transport connecting to %@:%d session=%@ (pooled)", host.hostname, wsPort, sessionName)
 
-        let daemonTransport = try await wsClient.connect(
-            host: host.hostname,
+        // Reuse the pooled ws + RPC client for this daemon. The connection
+        // owns the URLSessionWebSocketTask; on transport failure it will be
+        // re-established on next acquireClient() call.
+        let connection = pool.connection(
+            stableID: host.stableID,
+            hostname: host.hostname,
             port: wsPort,
             secret: wsSecret
         )
-
-        let wsLineTransport = daemonTransport as? TerminalWebSocketLineTransport
-        stateQueue.sync { self.lineTransport = wsLineTransport }
+        let (client, _) = try await connection.acquireClient()
 
         let effectiveSessionName = sessionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "cmux-\(UUID().uuidString.prefix(8).lowercased())"
@@ -205,7 +206,7 @@ final class TerminalWebSocketTransport: @unchecked Sendable, TerminalTransport {
         // WebSocket always connects to the local Mac daemon, so we know the platform.
         eventHandler?(.remotePlatform(RemotePlatform(goOS: "darwin", goArch: "arm64")))
 
-        let transport = sessionTransportFactory(daemonTransport, command, effectiveSessionName, resumeState)
+        let transport = sessionTransportFactory(client, command, effectiveSessionName, resumeState)
         transport.eventHandler = { [weak self, weak transport] event in
             self?.handle(event: event, activeTransport: transport)
         }
@@ -214,13 +215,7 @@ final class TerminalWebSocketTransport: @unchecked Sendable, TerminalTransport {
         do {
             try await transport.connect(initialSize: initialSize)
         } catch {
-            let line = stateQueue.sync { () -> TerminalWebSocketLineTransport? in
-                self.activeTransport = nil
-                let l = self.lineTransport
-                self.lineTransport = nil
-                return l
-            }
-            await line?.cancel()
+            stateQueue.sync { self.activeTransport = nil }
             throw error
         }
     }
@@ -237,16 +232,14 @@ final class TerminalWebSocketTransport: @unchecked Sendable, TerminalTransport {
 
     func disconnect() async {
         NSLog("[WebSocket] Transport disconnecting session=%@", sessionName)
-        let (transport, line) = stateQueue.sync {
+        let transport = stateQueue.sync { () -> TerminalTransport? in
             let t = activeTransport
-            let l = lineTransport
             activeTransport = nil
-            lineTransport = nil
             lastKnownResumeState = nil
-            return (t, l)
+            return t
         }
         await transport?.disconnect()
-        await line?.cancel()
+        // Pool-owned ws stays open for other sessions/workspace subscription.
     }
 
     private func handle(event: TerminalTransportEvent, activeTransport: TerminalTransport?) {
@@ -256,13 +249,7 @@ final class TerminalWebSocketTransport: @unchecked Sendable, TerminalTransport {
             }
         }
         if case .disconnected = event {
-            let line = stateQueue.sync { () -> TerminalWebSocketLineTransport? in
-                self.activeTransport = nil
-                let l = self.lineTransport
-                self.lineTransport = nil
-                return l
-            }
-            Task { await line?.cancel() }
+            stateQueue.sync { self.activeTransport = nil }
         }
         eventHandler?(event)
     }
@@ -276,12 +263,10 @@ extension TerminalWebSocketTransport: TerminalRemoteDaemonResumeStateSnapshottin
 
 extension TerminalWebSocketTransport: TerminalSessionParking {
     func suspendPreservingSession() async {
-        let (transport, line) = stateQueue.sync {
+        let transport = stateQueue.sync { () -> TerminalTransport? in
             let t = activeTransport
-            let l = lineTransport
             activeTransport = nil
-            lineTransport = nil
-            return (t, l)
+            return t
         }
         if let parking = transport as? TerminalSessionParking {
             await parking.suspendPreservingSession()
@@ -289,6 +274,6 @@ extension TerminalWebSocketTransport: TerminalSessionParking {
             await transport?.disconnect()
             stateQueue.sync { lastKnownResumeState = nil }
         }
-        await line?.cancel()
+        // Pool-owned ws stays open.
     }
 }

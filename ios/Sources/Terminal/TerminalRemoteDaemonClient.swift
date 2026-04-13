@@ -260,6 +260,10 @@ actor TerminalRemoteDaemonClient {
         self.decoder = decoder
     }
 
+    func isClosed() -> Bool {
+        transportFailure != nil
+    }
+
     func setPushHandler(sessionID: String, handler: @escaping @Sendable (TerminalPushEvent) -> Void) {
         pushHandlers[sessionID] = handler
         ensureDispatcher()
