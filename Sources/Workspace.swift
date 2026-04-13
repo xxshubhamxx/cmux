@@ -9890,6 +9890,7 @@ final class Workspace: Identifiable, ObservableObject {
             )
             installBrowserPanelSubscription(browserPanel)
         } else if let editorPanel = detached.panel as? EditorPanel {
+            editorPanel.updateWorkspaceId(id)
             installEditorPanelSubscription(editorPanel)
         }
 
@@ -12160,6 +12161,16 @@ extension Workspace: BonsplitDelegate {
                let terminalPanel = terminalPanel(for: panelId),
                panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                return false
+            }
+            // Dirty editor buffers require explicit save/discard through the
+            // per-tab close flow; block the whole pane close and beep so the
+            // user closes those tabs individually and gets the dialog.
+            if let panelId = panelIdFromSurfaceId(tab.id),
+               let editorPanel = editorPanel(for: panelId),
+               editorPanel.isDirty {
+                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                NSSound.beep()
                 return false
             }
         }

@@ -99,6 +99,13 @@ final class EditorPanel: Panel, ObservableObject {
         focusFlashToken += 1
     }
 
+    /// Update the workspace this panel belongs to. Called when a tab is moved
+    /// to a different workspace so any workspace-scoped state keeps routing to
+    /// the correct container.
+    func updateWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
+    }
+
     // MARK: - Dirty tracking
 
     func markDirty() {
