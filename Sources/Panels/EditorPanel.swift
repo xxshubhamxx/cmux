@@ -1,5 +1,6 @@
-import Foundation
+import AppKit
 import Combine
+import Foundation
 
 /// A panel that provides a simple text editor for a file.
 /// Tracks dirty state, supports save, and watches for external file changes.
@@ -32,6 +33,13 @@ final class EditorPanel: Panel, ObservableObject {
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// Weak reference to the AppKit text view so focus() can make it first responder.
+    weak var textView: NSTextView?
+
+    /// Encoding detected when the file was loaded. Preserved on save so legacy-encoded
+    /// files are not silently re-encoded to UTF-8.
+    private var originalEncoding: String.Encoding = .utf8
+
     /// The saved content, used to detect dirty state.
     private var savedContent: String = ""
 
@@ -44,7 +52,6 @@ final class EditorPanel: Panel, ObservableObject {
     /// Suppresses file-watcher reloads immediately after a save.
     private var suppressNextReload: Bool = false
 
-    private static let maxReattachAttempts = 6
     private static let reattachDelay: TimeInterval = 0.5
 
     // MARK: - Init
@@ -58,23 +65,25 @@ final class EditorPanel: Panel, ObservableObject {
         loadFileContent()
         startFileWatcher()
         if isFileUnavailable && fileWatchSource == nil {
-            scheduleReattach(attempt: 1)
+            scheduleReattach()
         }
     }
 
     // MARK: - Panel protocol
 
     func focus() {
-        // Focus is managed by the view's NSTextView first responder.
+        guard let textView else { return }
+        textView.window?.makeFirstResponder(textView)
     }
 
     func unfocus() {
-        // No-op; NSTextView resigns naturally.
+        // NSTextView resigns naturally when another panel takes first responder.
     }
 
     func close() {
         if isDirty {
-            save()
+            // If save fails, keep the panel alive and preserve the dirty buffer.
+            guard save() else { return }
         }
         isClosed = true
         stopFileWatcher()
@@ -98,19 +107,24 @@ final class EditorPanel: Panel, ObservableObject {
 
     // MARK: - Save
 
-    func save() {
-        guard isDirty else { return }
+    /// Saves the current content to disk using the file's original encoding.
+    /// Returns `true` on success. On failure, the dirty state is preserved.
+    @discardableResult
+    func save() -> Bool {
+        guard isDirty else { return true }
         do {
             suppressNextReload = true
-            try content.write(toFile: filePath, atomically: true, encoding: .utf8)
+            try content.write(toFile: filePath, atomically: true, encoding: originalEncoding)
             savedContent = content
             isDirty = false
             updateDisplayTitle()
+            return true
         } catch {
             suppressNextReload = false
             #if DEBUG
             NSLog("editor.save failed path=%@ error=%@", filePath, "\(error)")
             #endif
+            return false
         }
     }
 
@@ -119,13 +133,16 @@ final class EditorPanel: Panel, ObservableObject {
     private func loadFileContent() {
         do {
             let newContent = try String(contentsOfFile: filePath, encoding: .utf8)
+            originalEncoding = .utf8
             content = newContent
             savedContent = newContent
             isDirty = false
             isFileUnavailable = false
         } catch {
+            // Fallback: ISO Latin-1 accepts all 256 byte values, covering legacy encodings.
             if let data = FileManager.default.contents(atPath: filePath),
                let decoded = String(data: data, encoding: .isoLatin1) {
+                originalEncoding = .isoLatin1
                 content = decoded
                 savedContent = decoded
                 isDirty = false
@@ -164,10 +181,17 @@ final class EditorPanel: Panel, ObservableObject {
                     if self.suppressNextReload {
                         self.suppressNextReload = false
                         self.startFileWatcher()
+                    } else if self.isDirty {
+                        // Preserve the dirty buffer; just re-attach the watcher to the new inode.
+                        if FileManager.default.fileExists(atPath: self.filePath) {
+                            self.startFileWatcher()
+                        } else {
+                            self.scheduleReattach()
+                        }
                     } else {
                         self.loadFileContent()
                         if self.isFileUnavailable {
-                            self.scheduleReattach(attempt: 1)
+                            self.scheduleReattach()
                         } else {
                             self.startFileWatcher()
                         }
@@ -192,18 +216,21 @@ final class EditorPanel: Panel, ObservableObject {
         fileWatchSource = source
     }
 
-    private func scheduleReattach(attempt: Int) {
-        guard attempt <= Self.maxReattachAttempts else { return }
+    /// Keep retrying until the file reappears or the panel is closed. Atomic saves by
+    /// external editors may take longer than a fixed window, so there is no attempt cap.
+    private func scheduleReattach() {
         watchQueue.asyncAfter(deadline: .now() + Self.reattachDelay) { [weak self] in
             guard let self else { return }
             DispatchQueue.main.async {
                 guard !self.isClosed else { return }
                 if FileManager.default.fileExists(atPath: self.filePath) {
                     self.isFileUnavailable = false
-                    self.loadFileContent()
+                    if !self.isDirty {
+                        self.loadFileContent()
+                    }
                     self.startFileWatcher()
                 } else {
-                    self.scheduleReattach(attempt: attempt + 1)
+                    self.scheduleReattach()
                 }
             }
         }

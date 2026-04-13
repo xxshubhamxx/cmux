@@ -215,7 +215,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let clickedRow = sender.clickedRow
             guard clickedRow >= 0,
                   let node = sender.item(atRow: clickedRow) as? FileExplorerNode,
-                  !node.isDirectory else { return }
+                  !node.isDirectory,
+                  store.provider is LocalFileExplorerProvider else { return }
             onFileOpen?(node.path)
         }
 

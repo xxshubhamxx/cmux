@@ -178,6 +178,7 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
+        panel.textView = textView
 
         return scrollView
     }
@@ -189,12 +190,25 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
         context.coordinator.onRequestPanelFocus = onRequestPanelFocus
         textView.editorPanel = panel
         textView.onRequestPanelFocus = onRequestPanelFocus
+        panel.textView = textView
 
         // Only update text if it differs and we're not mid-edit
         if !context.coordinator.isEditing && textView.string != panel.content {
-            let selectedRanges = textView.selectedRanges
+            let savedRanges = textView.selectedRanges
             textView.string = panel.content
-            textView.selectedRanges = selectedRanges
+            // Clamp ranges to new content length. Without this, AppKit throws
+            // NSRangeException when an external change shrinks the file.
+            let newLength = (textView.string as NSString).length
+            let clamped = savedRanges.compactMap { value -> NSValue? in
+                let range = value.rangeValue
+                let loc = min(range.location, newLength)
+                let remaining = newLength - loc
+                let len = min(range.length, remaining)
+                return NSValue(range: NSRange(location: loc, length: len))
+            }
+            if !clamped.isEmpty {
+                textView.selectedRanges = clamped
+            }
         }
 
         applyThemeColors(to: textView)

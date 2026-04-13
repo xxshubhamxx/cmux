@@ -7305,16 +7305,18 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Open an editor for the given file path in the focused pane.
     /// If an editor for the same path is already open, selects it instead.
+    /// Falls back to the first available pane when no pane is focused (e.g. right after
+    /// a workspace switch) so the file-open intent is not silently dropped.
     @discardableResult
     func openEditor(filePath: String) -> EditorPanel? {
-        // Reuse existing editor for same path
         for (panelId, panel) in panels {
             if let editor = panel as? EditorPanel, editor.filePath == filePath {
                 focusPanel(panelId)
                 return editor
             }
         }
-        guard let paneId = bonsplitController.focusedPaneId else { return nil }
+        let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
+        guard let paneId else { return nil }
         return newEditorSurface(inPane: paneId, filePath: filePath, focus: true)
     }
 
