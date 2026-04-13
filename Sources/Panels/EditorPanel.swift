@@ -177,9 +177,12 @@ final class EditorPanel: Panel, ObservableObject {
             let flags = source.data
             if flags.contains(.delete) || flags.contains(.rename) {
                 DispatchQueue.main.async {
+                    // Always clear the suppression flag when an event fires so a
+                    // missed event can't silently swallow future external edits.
+                    let wasSuppressed = self.suppressNextReload
+                    self.suppressNextReload = false
                     self.stopFileWatcher()
-                    if self.suppressNextReload {
-                        self.suppressNextReload = false
+                    if wasSuppressed {
                         self.startFileWatcher()
                     } else if self.isDirty {
                         // Preserve the dirty buffer; just re-attach the watcher to the new inode.
@@ -199,9 +202,9 @@ final class EditorPanel: Panel, ObservableObject {
                 }
             } else {
                 DispatchQueue.main.async {
-                    if self.suppressNextReload {
-                        self.suppressNextReload = false
-                    } else if !self.isDirty {
+                    let wasSuppressed = self.suppressNextReload
+                    self.suppressNextReload = false
+                    if !wasSuppressed && !self.isDirty {
                         self.loadFileContent()
                     }
                 }

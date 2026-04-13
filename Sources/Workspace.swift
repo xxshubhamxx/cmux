@@ -9883,6 +9883,8 @@ final class Workspace: Identifiable, ObservableObject {
                 remoteStatus: browserRemoteWorkspaceStatusSnapshot()
             )
             installBrowserPanelSubscription(browserPanel)
+        } else if let editorPanel = detached.panel as? EditorPanel {
+            installEditorPanelSubscription(editorPanel)
         }
 
         if let directory = detached.directory {
