@@ -224,6 +224,7 @@ actor TerminalRemoteDaemonClient {
     private var nextRequestID = 1
     private var pendingRequests: [Int: CheckedContinuation<String, Error>] = [:]
     private var pushHandlers: [String: @Sendable (TerminalPushEvent) -> Void] = [:]
+    private var workspaceEventHandler: (@Sendable (String) -> Void)?
     private var dispatcher: Task<Void, Never>?
     private var transportFailure: Error?
 
@@ -242,6 +243,31 @@ actor TerminalRemoteDaemonClient {
 
     func removePushHandler(sessionID: String) {
         pushHandlers.removeValue(forKey: sessionID)
+    }
+
+    func setWorkspaceEventHandler(_ handler: @escaping @Sendable (String) -> Void) {
+        workspaceEventHandler = handler
+        ensureDispatcher()
+    }
+
+    func clearWorkspaceEventHandler() {
+        workspaceEventHandler = nil
+    }
+
+    func workspaceRename(workspaceID: String, title: String) async throws {
+        _ = try await sendRequest(
+            method: "workspace.rename",
+            params: ["workspace_id": workspaceID, "title": title],
+            as: TerminalRemoteDaemonGenericAck.self
+        )
+    }
+
+    func workspacePin(workspaceID: String, pinned: Bool) async throws {
+        _ = try await sendRequest(
+            method: "workspace.pin",
+            params: ["workspace_id": workspaceID, "pinned": pinned],
+            as: TerminalRemoteDaemonGenericAck.self
+        )
     }
 
     func terminalSubscribe(sessionID: String, offset: UInt64?) async throws -> TerminalRemoteDaemonTerminalReadResult {
@@ -475,6 +501,15 @@ actor TerminalRemoteDaemonClient {
             return
         }
 
+        if event.hasPrefix("workspace.") {
+            if let handler = workspaceEventHandler {
+                handler(line)
+            } else {
+                NSLog("📱 dispatcher: no workspace handler for event %@", event)
+            }
+            return
+        }
+
         guard let sessionID = json["session_id"] as? String else {
             NSLog("📱 dispatcher: event %@ missing session_id", event)
             return
@@ -598,6 +633,8 @@ private struct TerminalRemoteDaemonCloseResult: Decodable {
         case closed
     }
 }
+
+private struct TerminalRemoteDaemonGenericAck: Decodable {}
 
 private struct TerminalRemoteDaemonTerminalWriteResult: Decodable {
     let sessionID: String

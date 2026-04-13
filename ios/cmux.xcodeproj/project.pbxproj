@@ -17,6 +17,7 @@
 		1E375F56DD54DEFCE45E3D37 /* NotificationRouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53F2C8613F4D2B7C2DB3A01 /* NotificationRouteStore.swift */; };
 		1FFFB16A5BB49437064FBCA5 /* UnifiedInboxItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4038813C413C3E58E29EA99C /* UnifiedInboxItem.swift */; };
 		2089287FAA0E57B0C659B8F6 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 2AB0CD82D816F53E55B1E103 /* Sentry */; };
+		21E8F66868FFA39149D80688 /* TerminalDaemonConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B65F7731CA990B817F7426D /* TerminalDaemonConnection.swift */; };
 		243D75B494AEA800C5EC5691 /* MobileSyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A088182F6085A014E50F815B /* MobileSyncModels.swift */; };
 		29606302C1FFC54BAC331C75 /* TerminalSSHPrivateKeyParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1032CDFED9B211EDD9B0E14 /* TerminalSSHPrivateKeyParserTests.swift */; };
 		2DB9C156570A2D238973F0A7 /* TerminalDirectDaemonTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32C00E055BF7D0F1294BC39 /* TerminalDirectDaemonTransport.swift */; };
@@ -153,6 +154,7 @@
 		09845253A2CD1B748C97D0AA /* TerminalRemoteDaemonBootstrapTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRemoteDaemonBootstrapTransport.swift; sourceTree = "<group>"; };
 		0ACBB1584AD9A27107F782A7 /* TailscaleKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = TailscaleKit.xcframework; path = ../TailscaleKit.xcframework; sourceTree = "<group>"; };
 		0AF7234CC5A1F76C14B0993D /* TerminalHostedViewContainerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHostedViewContainerTests.swift; sourceTree = "<group>"; };
+		0B65F7731CA990B817F7426D /* TerminalDaemonConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDaemonConnection.swift; sourceTree = "<group>"; };
 		0F1AA3EA4F9C83566660C6B4 /* InboxCacheRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxCacheRepository.swift; sourceTree = "<group>"; };
 		0F241FC72015E72146A38C3C /* CMUXAuthCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CMUXAuthCore; path = ../Packages/CMUXAuthCore; sourceTree = SOURCE_ROOT; };
 		10453F655BBD1B9BA56E633B /* TerminalSidebarStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSidebarStoreTests.swift; sourceTree = "<group>"; };
@@ -405,6 +407,7 @@
 				E328A139A850C17BC15CF66D /* GhosttySurfaceView.swift */,
 				759117D3355ECE0F2863206E /* LiveAnchormuxSupport.swift */,
 				D3FF5B325FC76EBB175EE6CA /* ServerScannerView.swift */,
+				0B65F7731CA990B817F7426D /* TerminalDaemonConnection.swift */,
 				13026270BE423ED61F7CFF2A /* TerminalDaemonTicketService.swift */,
 				3F0D6D7E549075AEEF31EB2C /* TerminalDirectDaemonClient.swift */,
 				B32C00E055BF7D0F1294BC39 /* TerminalDirectDaemonTransport.swift */,
@@ -739,6 +742,7 @@
 				0AAE0BB76105DDCC07B3604D /* TailscaleNodeManager.swift in Sources */,
 				69995971655E7D3B5A3D329D /* TerminalBackendContracts.swift in Sources */,
 				8BC0E9F0AC5CAEC84129BEAC /* TerminalCacheRepository.swift in Sources */,
+				21E8F66868FFA39149D80688 /* TerminalDaemonConnection.swift in Sources */,
 				4A4D281FC297CF88E42279DB /* TerminalDaemonTicketService.swift in Sources */,
 				8625E551A6B6F6F5909F7FD2 /* TerminalDirectDaemonClient.swift in Sources */,
 				2DB9C156570A2D238973F0A7 /* TerminalDirectDaemonTransport.swift in Sources */,
