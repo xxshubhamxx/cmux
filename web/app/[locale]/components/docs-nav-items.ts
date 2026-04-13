@@ -20,11 +20,14 @@ export const navItems: NavEntry[] = [
   { titleKey: "apiReference", href: "/docs/api" },
   { titleKey: "browserAutomation", href: "/docs/browser-automation" },
   { titleKey: "notifications", href: "/docs/notifications" },
+  { titleKey: "ssh", href: "/docs/ssh" },
   {
     sectionKey: "agentIntegrations",
     children: [
       { titleKey: "claudeCodeTeams", href: "/docs/agent-integrations/claude-code-teams" },
       { titleKey: "ohMyOpenCode", href: "/docs/agent-integrations/oh-my-opencode" },
+      { titleKey: "ohMyCodex", href: "/docs/agent-integrations/oh-my-codex" },
+      { titleKey: "ohMyClaudeCode", href: "/docs/agent-integrations/oh-my-claudecode" },
     ],
   },
   { titleKey: "changelog", href: "/docs/changelog" },

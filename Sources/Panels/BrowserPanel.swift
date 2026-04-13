@@ -2257,6 +2257,11 @@ final class BrowserPanel: Panel, ObservableObject {
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     @Published private(set) var preferredDeveloperToolsVisible: Bool = false
+    @Published var isReactGrabActive: Bool = false
+    var reactGrabMessageHandler: ReactGrabMessageHandler?
+    var pendingReactGrabReturnTargetPanelId: UUID?
+    var pendingReactGrabRoundTripToken: String?
+    let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
     private var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .unknown
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
@@ -2343,6 +2348,19 @@ final class BrowserPanel: Panel, ObservableObject {
         bounds: CGRect,
         reason: String
     ) -> Bool {
+        if shouldUseLocalInlineDeveloperToolsHosting() {
+            activePortalHostLease = nil
+            lockedPortalHost = nil
+#if DEBUG
+            dlog(
+                "browser.portal.host.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason).localInlineDevTools host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+                "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
+            )
+#endif
+            return false
+        }
+
         let next = PortalHostLease(
             hostId: hostId,
             paneId: paneId.id,
@@ -2529,6 +2547,15 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: true
             )
         )
+        // Keep a native cache of whether the focused page element can currently accept
+        // plain-text paste so Cmd+Shift+V is only consumed when the browser can use it.
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: CmuxWebView.pasteAsPlainTextFocusTrackingBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
@@ -2546,6 +2573,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
+        setupReactGrabMessageHandler(for: webView)
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -2703,6 +2731,7 @@ final class BrowserPanel: Panel, ObservableObject {
         bindWebView(webView)
         installDetachedDeveloperToolsWindowCloseObserver()
         applyBrowserThemeModeIfNeeded()
+        ReactGrabScriptLoader.prefetch()
         insecureHTTPAlertWindowProvider = { [weak self] in
             self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
@@ -3266,6 +3295,41 @@ final class BrowserPanel: Panel, ObservableObject {
         if window.makeFirstResponder(webView) {
             noteWebViewFocused()
         }
+    }
+
+    @discardableResult
+    func requestExplicitWebViewFocus() -> Bool {
+        // Programmatic WebView focus should win over stale omnibar focus state, especially
+        // after workspace switches where the blank-page omnibar auto-focus can re-trigger.
+        endSuppressWebViewFocusForAddressBar()
+        clearWebViewFocusSuppression()
+        NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
+
+        guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
+
+        if Self.responderChainContains(window.firstResponder, target: webView) {
+            // Prevent omnibar auto-focus from immediately stealing first responder back.
+            suppressOmnibarAutofocus(for: 1.5)
+            noteWebViewFocused()
+            return true
+        }
+
+        guard window.makeFirstResponder(webView) else { return false }
+        // Prevent omnibar auto-focus from immediately stealing first responder back.
+        suppressOmnibarAutofocus(for: 1.5)
+        noteWebViewFocused()
+
+        DispatchQueue.main.async { [weak self, weak window, weak webView] in
+            guard let self, let window, let webView else { return }
+            guard webView.window === window else { return }
+            if !Self.responderChainContains(window.firstResponder, target: webView),
+               window.makeFirstResponder(webView) {
+                self.suppressOmnibarAutofocus(for: 1.5)
+                self.noteWebViewFocused()
+            }
+        }
+
+        return true
     }
 
     func unfocus() {
