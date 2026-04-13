@@ -61,6 +61,7 @@ fn dispatchInner(service: *session_service.Service, req: *const json_rpc.Request
                     "workspace.subscribe",
                     "workspace.set_color",
                     "notifications.push",
+                    "notifications.remote",
                     "proxy.http_connect",
                     "proxy.socks5",
                     "proxy.stream",
@@ -87,6 +88,7 @@ fn dispatchInner(service: *session_service.Service, req: *const json_rpc.Request
     if (std.mem.eql(u8, req.method, "session.status")) return handleSessionStatus(service, req);
     if (std.mem.eql(u8, req.method, "session.list")) return handleSessionList(service, req);
     if (std.mem.eql(u8, req.method, "session.markRead")) return handleSessionMarkRead(service, req);
+    if (std.mem.eql(u8, req.method, "daemon.configure_notifications")) return handleConfigureNotifications(service, req);
     if (std.mem.eql(u8, req.method, "session.history")) return handleSessionHistory(service, req);
     if (std.mem.eql(u8, req.method, "workspace.list")) return handleWorkspaceList(service, req);
     if (std.mem.eql(u8, req.method, "workspace.create")) return handleWorkspaceCreate(service, req);
@@ -293,6 +295,52 @@ fn handleSessionMarkRead(service: *session_service.Service, req: *const json_rpc
         .result = .{
             .session_id = session_id,
             .has_unread_output = false,
+        },
+    });
+}
+
+fn handleConfigureNotifications(service: *session_service.Service, req: *const json_rpc.Request) ![]u8 {
+    const alloc = service.alloc;
+    const params = getParamsObject(req) orelse
+        return invalidParams(alloc, req.id, "daemon.configure_notifications requires params");
+
+    // endpoint is required (may be empty string to disable).
+    const endpoint_value = params.get("endpoint") orelse
+        return invalidParams(alloc, req.id, "daemon.configure_notifications requires endpoint");
+    if (endpoint_value != .string)
+        return invalidParams(alloc, req.id, "endpoint must be a string");
+    const endpoint = endpoint_value.string;
+
+    // bearer_token is optional (defaults to empty).
+    const bearer_token = if (params.get("bearer_token")) |v| switch (v) {
+        .string => |s| s,
+        else => return invalidParams(alloc, req.id, "bearer_token must be a string"),
+    } else "";
+
+    // device_tokens is required (may be empty array to disable without
+    // clearing endpoint/bearer).
+    const tokens_value = params.get("device_tokens") orelse
+        return invalidParams(alloc, req.id, "daemon.configure_notifications requires device_tokens");
+    if (tokens_value != .array)
+        return invalidParams(alloc, req.id, "device_tokens must be an array of strings");
+
+    var tokens_list: std.ArrayList([]const u8) = .empty;
+    defer tokens_list.deinit(alloc);
+    for (tokens_value.array.items) |item| {
+        if (item != .string)
+            return invalidParams(alloc, req.id, "device_tokens entries must be strings");
+        try tokens_list.append(alloc, item.string);
+    }
+
+    service.configureNotifications(endpoint, bearer_token, tokens_list.items) catch |err| {
+        return internalError(alloc, req.id, err);
+    };
+
+    return try json_rpc.encodeResponse(alloc, .{
+        .id = req.id,
+        .ok = true,
+        .result = .{
+            .configured = true,
         },
     });
 }

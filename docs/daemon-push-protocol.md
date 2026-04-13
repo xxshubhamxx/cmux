@@ -100,6 +100,7 @@ New capabilities introduced by this plan:
 - `terminal.subscribe` — client can use `terminal.subscribe` + `terminal.output` push instead of polling `terminal.read`.
 - `workspace.subscribe` — client can use `workspace.subscribe` + `workspace.changed` push (already shipped).
 - `notifications.push` — `terminal.output` events may include a `notifications` field populated from parsed OSC.
+- `notifications.remote` — the daemon accepts `daemon.configure_notifications` and dispatches an HTTP push (for APNs delivery) when a notification fires on a session with no live subscribers. See §0.7.
 
 Mismatch behavior:
 
@@ -136,6 +137,58 @@ The state machine MUST tolerate sequences split across `feed()` calls, partial e
 
 CSI, DCS, and other escape sequences are out of scope for daemon-level parsing. They pass through to the terminal emulator on the client side.
 
+## 0.7 Remote notification push (APNs via HTTP endpoint)
+
+For mobile clients that are not connected to the daemon when a notification fires (bell / command finished / OSC 99), the daemon can relay the event to an HTTP endpoint (e.g. a Next.js route on Vercel) which in turn pushes via APNs. This is capability `notifications.remote`.
+
+Configuration RPC:
+
+```
+Request:  { "id": 5, "method": "daemon.configure_notifications", "params": {
+  "endpoint": "https://example.vercel.app/api/notifications/push",
+  "bearer_token": "<shared secret>",
+  "device_tokens": ["<apns-device-token-hex>", ...]
+}}
+Response: { "id": 5, "ok": true, "result": { "configured": true } }
+```
+
+Subsequent calls replace the config wholesale. Passing `endpoint: ""` disables remote push entirely. Passing a non-empty endpoint but `device_tokens: []` disables pushes while keeping the endpoint/token strings around for future reconfiguration.
+
+Dispatch rules (daemon side):
+
+1. Trigger only when a notification actually fires, i.e. `bell_count`, `command_seq`, or `notification_seq` on the session advanced since the daemon last dispatched a remote push for that session.
+2. Trigger only when the session has NO live terminal.subscribe subscribers on any connection.
+3. Trigger only when both `endpoint` and `device_tokens` are non-empty.
+
+If all three hold, the daemon POSTs JSON to `endpoint` on a detached dispatcher thread (never blocks the PTY pump thread):
+
+```
+POST <endpoint>
+Authorization: Bearer <bearer_token>
+Content-Type: application/json
+Content-Length: <n>
+
+{
+  "device_tokens": ["<hex>", "<hex>"],
+  "session_id": "ws-abc",
+  "workspace_id": "<uuid-or-null>",
+  "notifications": {
+    "bell": true,
+    "command_finished": { "exit_code": 0 } | null,
+    "notification": { "title": "...", "body": "..." } | null
+  }
+}
+```
+
+- `bell` is `true` when the session's `bell_count` advanced since the last remote push, otherwise `false`.
+- `command_finished` is the OSC 133;D payload (or null if not advanced).
+- `notification` is the OSC 99 payload (or null if not advanced).
+- `workspace_id` is the workspace that currently contains the session, or `null` if the session is not bound to any workspace (e.g. during bootstrap).
+
+Timeout: 5 seconds on both send and receive (via `SO_SNDTIMEO`/`SO_RCVTIMEO`). Non-2xx status, network error, or timeout is logged and dropped without retry. APNs retry policy is the endpoint's responsibility.
+
+Current daemon implementation: the Zig 0.15.2 `std.http.Client` has a latent compile-time bug in `ConnectionPool.resize` which blocks a clean watchdog-based timeout on top of `fetch`. Until that is fixed upstream, the daemon ships a hand-rolled minimal HTTP/1.1 POST over `std.net.Stream` and only supports `http://` endpoints (HTTPS delivery lands in Phase 4.4 with `std.crypto.tls`). Production deployments must either terminate TLS at a same-host proxy or wait for Phase 4.4.
+
 ## Implementation pointers
 
 - Capability string addition: `daemon/remote/zig/src/server_core.zig` `handleLine` / hello handler (around lines 48-66).
@@ -143,5 +196,7 @@ CSI, DCS, and other escape sequences are out of scope for daemon-level parsing. 
 - Unix socket read/write separation: `daemon/remote/zig/src/serve_unix.zig`.
 - WebSocket dispatch: `daemon/remote/zig/src/serve_ws.zig`.
 - OSC state machine: `daemon/remote/zig/src/terminal_session.zig`.
+- Remote push config + dispatcher (§0.7): `daemon/remote/zig/src/session_service.zig` — `RemoteNotificationConfig`, `Service.configureNotifications`, `Service.maybePushRemoteNotification`, `simpleHttpPost`.
+- `daemon.configure_notifications` RPC handler: `daemon/remote/zig/src/server_core.zig` `handleConfigureNotifications`.
 - Swift unified connection: new file `Sources/Sync/DaemonConnection.swift` replaces `DaemonTerminalBridge.swift` and `WorkspaceDaemonBridge.swift`.
 - iOS transport: `ios/Sources/Terminal/TerminalRemoteDaemonSessionTransport.swift`.

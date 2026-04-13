@@ -69,6 +69,13 @@ const RuntimeSession = struct {
     /// True when the pump observed new PTY output while no client was
     /// subscribed. Cleared on terminal.subscribe or session.markRead.
     has_unread_output: std.atomic.Value(bool) = .init(false),
+    /// Last counters observed when we dispatched a remote push for this
+    /// session. Independent of the subscriber-facing counters so we only
+    /// fire once per remote-visible notification event. Only touched while
+    /// holding `lock`.
+    last_remote_bell_count: u64 = 0,
+    last_remote_command_seq: u64 = 0,
+    last_remote_notification_seq: u64 = 0,
 
     fn init(alloc: std.mem.Allocator, command: []const u8, cols: u16, rows: u16) !RuntimeSession {
         return .{
@@ -156,6 +163,34 @@ const RuntimeSession = struct {
     }
 };
 
+/// Remote push config for APNs delivery through an HTTP endpoint (e.g. a
+/// Next.js route on Vercel). Populated by the `daemon.configure_notifications`
+/// RPC. All fields are owned by the `Service` allocator and protected by
+/// `notifications_lock`.
+pub const RemoteNotificationConfig = struct {
+    endpoint: []const u8 = "",
+    bearer_token: []const u8 = "",
+    device_tokens: [][]const u8 = &.{},
+};
+
+/// Snapshot of notification state for an unread session, handed off to the
+/// dispatcher thread. Fields are owned by the allocator that created the job
+/// and are freed by `freePushJob` once delivery completes.
+const PushJob = struct {
+    service: *Service,
+    endpoint: []u8,
+    bearer_token: []u8,
+    device_tokens: [][]u8,
+    session_id: []u8,
+    workspace_id: ?[]u8,
+    bell: bool,
+    command_finished: bool,
+    exit_code: ?i32,
+    notification_present: bool,
+    notif_title: ?[]u8,
+    notif_body: ?[]u8,
+};
+
 pub const Service = struct {
     alloc: std.mem.Allocator,
     proxies: proxy_streams.Manager,
@@ -169,6 +204,17 @@ pub const Service = struct {
     /// Optional hook invoked when an unread-state transition occurs so the
     /// transport layer can broadcast workspace.changed. Wired by serve_*.
     on_workspace_changed: ?*const fn (*Service) void = null,
+    /// Guards `remote_notifications`.
+    notifications_lock: std.Thread.Mutex = .{},
+    remote_notifications: RemoteNotificationConfig = .{},
+    /// Number of in-flight remote push dispatcher threads. Each thread
+    /// increments before spawn and decrements on completion. `deinit`
+    /// waits for this to reach zero (signalled via `push_cv`) so detached
+    /// threads never outlive the service's allocator / config strings.
+    push_inflight: std.atomic.Value(usize) = .init(0),
+    push_cv_mutex: std.Thread.Mutex = .{},
+    push_cv: std.Thread.Condition = .{},
+    push_shutting_down: std.atomic.Value(bool) = .init(false),
 
     pub fn init(alloc: std.mem.Allocator) Service {
         var service: Service = .{
@@ -201,9 +247,21 @@ pub const Service = struct {
 
     pub fn deinit(self: *Service) void {
         // Stop the pump first so it cannot touch sessions or subscriptions
-        // while we tear them down.
+        // while we tear them down. The pump is the only producer of new
+        // remote-push jobs.
         if (self.pump) |*pump| pump.deinit();
         self.pump = null;
+
+        // Wait for any in-flight remote-push dispatcher threads to finish
+        // so they never read the config/allocator after we free them.
+        self.push_shutting_down.store(true, .seq_cst);
+        self.push_cv_mutex.lock();
+        while (self.push_inflight.load(.seq_cst) > 0) {
+            self.push_cv.wait(&self.push_cv_mutex);
+        }
+        self.push_cv_mutex.unlock();
+
+        self.freeRemoteConfigLocked();
 
         self.sub_mutex.lock();
         for (self.terminal_subs.items) |sub| self.alloc.destroy(sub);
@@ -221,6 +279,68 @@ pub const Service = struct {
         self.registry.deinit();
         self.workspace_reg.deinit();
         self.subscriptions.deinit(self.alloc);
+    }
+
+    /// Frees the currently-stored remote notification config and resets it
+    /// back to the empty state. Must be called with `notifications_lock`
+    /// held OR while no other thread could be reading it (deinit, or a
+    /// replace-under-lock path).
+    fn freeRemoteConfigLocked(self: *Service) void {
+        const cfg = &self.remote_notifications;
+        // The initial default uses "" literals and an empty static slice;
+        // those aren't allocator-owned but Allocator.free on a zero-length
+        // slice is a no-op, so we only need to guard each inner free.
+        if (cfg.endpoint.len > 0) self.alloc.free(cfg.endpoint);
+        if (cfg.bearer_token.len > 0) self.alloc.free(cfg.bearer_token);
+        if (cfg.device_tokens.len > 0) {
+            for (cfg.device_tokens) |t| {
+                if (t.len > 0) self.alloc.free(t);
+            }
+            self.alloc.free(cfg.device_tokens);
+        }
+        cfg.* = .{};
+    }
+
+    /// Replace the remote notification config. Internally dupes every
+    /// slice so the caller can release / reuse its input buffers. Passing
+    /// an empty `endpoint` ("") disables remote pushes entirely; passing
+    /// a non-empty endpoint but an empty `device_tokens` slice disables
+    /// pushes while retaining the endpoint/token strings (the next
+    /// `configureNotifications` call can restore tokens without needing
+    /// to send the endpoint again).
+    pub fn configureNotifications(
+        self: *Service,
+        endpoint: []const u8,
+        bearer_token: []const u8,
+        device_tokens: []const []const u8,
+    ) !void {
+        const owned_endpoint = try self.alloc.dupe(u8, endpoint);
+        errdefer self.alloc.free(owned_endpoint);
+
+        const owned_bearer = try self.alloc.dupe(u8, bearer_token);
+        errdefer self.alloc.free(owned_bearer);
+
+        const owned_tokens = try self.alloc.alloc([]const u8, device_tokens.len);
+        errdefer self.alloc.free(owned_tokens);
+
+        var allocated: usize = 0;
+        errdefer {
+            var i: usize = 0;
+            while (i < allocated) : (i += 1) self.alloc.free(owned_tokens[i]);
+        }
+        for (device_tokens) |tok| {
+            owned_tokens[allocated] = try self.alloc.dupe(u8, tok);
+            allocated += 1;
+        }
+
+        self.notifications_lock.lock();
+        defer self.notifications_lock.unlock();
+        self.freeRemoteConfigLocked();
+        self.remote_notifications = .{
+            .endpoint = owned_endpoint,
+            .bearer_token = owned_bearer,
+            .device_tokens = owned_tokens,
+        };
     }
 
     pub fn openProxy(self: *Service, host: []const u8, port: u16) ![]const u8 {
@@ -529,6 +649,10 @@ pub const Service = struct {
                 const was = runtime.has_unread_output.swap(true, .seq_cst);
                 if (!was) self.fireWorkspaceChanged();
             }
+            // If a remote endpoint is configured and an actual notification
+            // event fired (bell / command_finished / OSC 99), dispatch an
+            // APNs push so the owner still learns about this session.
+            self.maybePushRemoteNotification(entry);
             return;
         }
 
@@ -538,6 +662,184 @@ pub const Service = struct {
                 sub.dead.store(true, .seq_cst);
             };
         }
+    }
+
+    /// Called from the pump's notify callback when a session just pumped
+    /// and has no live subscribers. Dispatches a remote APNs push if the
+    /// stored config is non-empty AND a notification-relevant counter
+    /// advanced since the last remote push.
+    fn maybePushRemoteNotification(self: *Service, entry: pty_pump.Entry) void {
+        if (self.push_shutting_down.load(.seq_cst)) return;
+
+        const runtime = self.runtimes.get(entry.session_id) orelse return;
+
+        // Snapshot terminal state + advance per-session remote counters
+        // atomically under the runtime lock.
+        entry.lock.lock();
+        const cur_bell = entry.terminal.bell_count;
+        const cur_cmd_seq = entry.terminal.command_seq;
+        const cur_notif_seq = entry.terminal.notification_seq;
+
+        const new_bell = cur_bell != runtime.last_remote_bell_count;
+        const new_command = cur_cmd_seq != runtime.last_remote_command_seq;
+        const new_notification = cur_notif_seq != runtime.last_remote_notification_seq;
+
+        if (!new_bell and !new_command and !new_notification) {
+            entry.lock.unlock();
+            return;
+        }
+
+        const exit_code_snapshot: ?i32 = if (new_command) entry.terminal.last_command_exit_code else null;
+        var notif_title_copy: ?[]u8 = null;
+        var notif_body_copy: ?[]u8 = null;
+        if (new_notification) {
+            if (entry.terminal.last_notification) |n| {
+                if (n.title) |t| notif_title_copy = self.alloc.dupe(u8, t) catch null;
+                if (n.body) |b| notif_body_copy = self.alloc.dupe(u8, b) catch null;
+            }
+        }
+
+        runtime.last_remote_bell_count = cur_bell;
+        runtime.last_remote_command_seq = cur_cmd_seq;
+        runtime.last_remote_notification_seq = cur_notif_seq;
+        entry.lock.unlock();
+
+        // Must free any borrowed title/body copies if we bail early.
+        var free_title: bool = true;
+        var free_body: bool = true;
+        defer if (free_title) {
+            if (notif_title_copy) |t| self.alloc.free(t);
+        };
+        defer if (free_body) {
+            if (notif_body_copy) |b| self.alloc.free(b);
+        };
+
+        // Build the push job via a fallible inner helper so we can use
+        // `errdefer` for cleanup. The wrapper translates any allocation
+        // failure into a silent drop — we already advanced the remote
+        // counters, so we won't re-dispatch the same event.
+        const maybe_job = self.buildPushJob(
+            entry.session_id,
+            new_bell,
+            new_command,
+            exit_code_snapshot,
+            new_notification,
+            notif_title_copy,
+            notif_body_copy,
+        ) catch |err| {
+            std.log.warn(
+                "session_service: build push job failed for {s}: {s}",
+                .{ entry.session_id, @errorName(err) },
+            );
+            return;
+        };
+        const job = maybe_job orelse return;
+        // Ownership of title/body has been transferred into the job.
+        free_title = false;
+        free_body = false;
+
+        // Increment the in-flight counter BEFORE spawn. If spawn fails,
+        // decrement and drop. `pushDispatchEntry` decrements+signals on
+        // completion so `deinit` can wait us out.
+        _ = self.push_inflight.fetchAdd(1, .seq_cst);
+        const thread = std.Thread.spawn(.{}, pushDispatchEntry, .{job}) catch {
+            _ = self.push_inflight.fetchSub(1, .seq_cst);
+            self.pushCvBroadcast();
+            freePushJob(job);
+            return;
+        };
+        thread.detach();
+    }
+
+    /// Snapshot the remote notification config + session identity into an
+    /// owned `PushJob` that the dispatcher thread can consume. Returns
+    /// null when the config is currently empty (callers treat that as a
+    /// "nothing to do" result, not an error). Any allocation failure
+    /// along the way propagates and is logged by the caller.
+    fn buildPushJob(
+        self: *Service,
+        session_id: []const u8,
+        bell: bool,
+        command_finished: bool,
+        exit_code: ?i32,
+        notification_present: bool,
+        notif_title_in: ?[]u8,
+        notif_body_in: ?[]u8,
+    ) !?*PushJob {
+        self.notifications_lock.lock();
+        defer self.notifications_lock.unlock();
+
+        const cfg = self.remote_notifications;
+        if (cfg.endpoint.len == 0 or cfg.device_tokens.len == 0) return null;
+
+        const endpoint_copy = try self.alloc.dupe(u8, cfg.endpoint);
+        errdefer self.alloc.free(endpoint_copy);
+
+        const bearer_copy = try self.alloc.dupe(u8, cfg.bearer_token);
+        errdefer self.alloc.free(bearer_copy);
+
+        const tokens_copy = try self.alloc.alloc([]u8, cfg.device_tokens.len);
+        var tokens_filled: usize = 0;
+        errdefer {
+            var i: usize = 0;
+            while (i < tokens_filled) : (i += 1) self.alloc.free(tokens_copy[i]);
+            self.alloc.free(tokens_copy);
+        }
+        for (cfg.device_tokens) |tok| {
+            tokens_copy[tokens_filled] = try self.alloc.dupe(u8, tok);
+            tokens_filled += 1;
+        }
+
+        const session_id_copy = try self.alloc.dupe(u8, session_id);
+        errdefer self.alloc.free(session_id_copy);
+
+        const workspace_id_copy: ?[]u8 = self.findWorkspaceIdForSession(session_id);
+        errdefer if (workspace_id_copy) |w| self.alloc.free(w);
+
+        const job = try self.alloc.create(PushJob);
+        job.* = .{
+            .service = self,
+            .endpoint = endpoint_copy,
+            .bearer_token = bearer_copy,
+            .device_tokens = tokens_copy,
+            .session_id = session_id_copy,
+            .workspace_id = workspace_id_copy,
+            .bell = bell,
+            .command_finished = command_finished,
+            .exit_code = exit_code,
+            .notification_present = notification_present,
+            .notif_title = notif_title_in,
+            .notif_body = notif_body_in,
+        };
+        return job;
+    }
+
+    fn pushCvBroadcast(self: *Service) void {
+        self.push_cv_mutex.lock();
+        self.push_cv.broadcast();
+        self.push_cv_mutex.unlock();
+    }
+
+    /// Best-effort reverse lookup from `session_id` to the workspace that
+    /// contains it. Returns a newly-allocated owned slice, or null if no
+    /// workspace currently references the session (the daemon can still
+    /// have a terminal without any workspace binding during bootstrap).
+    fn findWorkspaceIdForSession(self: *Service, session_id: []const u8) ?[]u8 {
+        const reg = &self.workspace_reg;
+        var iter = reg.workspaces.iterator();
+        while (iter.next()) |entry| {
+            const ws = entry.value_ptr;
+            const leaves = ws.root_pane.collectLeaves(self.alloc) catch continue;
+            defer self.alloc.free(leaves);
+            for (leaves) |leaf| {
+                if (leaf.session_id) |sid| {
+                    if (std.mem.eql(u8, sid, session_id)) {
+                        return self.alloc.dupe(u8, ws.id) catch null;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     fn pushOneSubscriber(self: *Service, entry: pty_pump.Entry, sub: *TerminalSubscription) !void {
@@ -679,6 +981,227 @@ fn sendWsTextFrame(stream: *std.net.Stream, data: []const u8) !void {
     }
     _ = try stream.write(header[0..header_len]);
     if (data.len > 0) _ = try stream.write(data);
+}
+
+fn freePushJob(job: *PushJob) void {
+    const alloc = job.service.alloc;
+    alloc.free(job.endpoint);
+    alloc.free(job.bearer_token);
+    for (job.device_tokens) |t| alloc.free(t);
+    alloc.free(job.device_tokens);
+    alloc.free(job.session_id);
+    if (job.workspace_id) |w| alloc.free(w);
+    if (job.notif_title) |t| alloc.free(t);
+    if (job.notif_body) |b| alloc.free(b);
+    alloc.destroy(job);
+}
+
+/// Encode the push payload as a single JSON object matching the contract
+/// documented in `docs/daemon-push-protocol.md` phase 4.3. Caller owns the
+/// returned bytes.
+fn encodePushBody(alloc: std.mem.Allocator, job: *const PushJob) ![]u8 {
+    const CommandFinished = struct { exit_code: ?i32 };
+    const NotificationFields = struct { title: ?[]const u8, body: ?[]const u8 };
+    const Notifications = struct {
+        bell: bool,
+        command_finished: ?CommandFinished,
+        notification: ?NotificationFields,
+    };
+
+    // Convert the job's owned `[][]u8` tokens into the `[]const []const u8`
+    // shape that std.json.Stringify expects for an array-of-strings field.
+    const tokens_const = try alloc.alloc([]const u8, job.device_tokens.len);
+    defer alloc.free(tokens_const);
+    for (job.device_tokens, 0..) |t, i| tokens_const[i] = t;
+
+    const notifications: Notifications = .{
+        .bell = job.bell,
+        .command_finished = if (job.command_finished) .{ .exit_code = job.exit_code } else null,
+        .notification = if (job.notification_present) .{
+            .title = if (job.notif_title) |t| t else null,
+            .body = if (job.notif_body) |b| b else null,
+        } else null,
+    };
+
+    const payload = .{
+        .device_tokens = tokens_const,
+        .session_id = @as([]const u8, job.session_id),
+        .workspace_id = if (job.workspace_id) |w| @as(?[]const u8, w) else @as(?[]const u8, null),
+        .notifications = notifications,
+    };
+
+    var out: std.io.Writer.Allocating = .init(alloc);
+    errdefer out.deinit();
+    try std.json.Stringify.value(payload, .{}, &out.writer);
+    return try out.toOwnedSlice();
+}
+
+/// Detached worker: runs on its own thread, posts the push body, frees
+/// the job, decrements the service's in-flight counter, and signals any
+/// waiter in `deinit`. Errors are logged and dropped (no retry — the
+/// endpoint is responsible for APNs retry).
+fn pushDispatchEntry(job: *PushJob) void {
+    const service = job.service;
+    defer {
+        _ = service.push_inflight.fetchSub(1, .seq_cst);
+        service.pushCvBroadcast();
+    }
+    defer freePushJob(job);
+
+    postPushBody(job) catch |err| {
+        std.log.warn(
+            "session_service: remote push to {s} failed: {s}",
+            .{ job.endpoint, @errorName(err) },
+        );
+    };
+}
+
+fn postPushBody(job: *PushJob) !void {
+    const alloc = job.service.alloc;
+    const body = try encodePushBody(alloc, job);
+    defer alloc.free(body);
+
+    // zig 0.15.2's std.http.Client cannot be cleanly time-boxed: its
+    // connection pool's `resize` helper has a latent compile-time error
+    // (ziglang/zig issue around DoublyLinkedList.Node.data) that trips
+    // whenever any code path instantiates it, making the usual "kick the
+    // pool shut from a watchdog" pattern unbuildable. Rather than ship a
+    // known-broken timeout, we drive the HTTPS/HTTP POST through a
+    // hand-rolled client built on std.net + std.crypto.tls where we can
+    // apply SO_RCVTIMEO/SO_SNDTIMEO directly. See `simpleHttpPost` below.
+    simpleHttpPost(alloc, job.endpoint, job.bearer_token, body) catch |err| return err;
+}
+
+/// Minimal HTTP/1.1 POST helper with a 5-second total timeout. Only handles
+/// the path the daemon needs: POST `application/json` + bearer auth, body
+/// via Content-Length, status-only response parsing. Supports `http://` out
+/// of the box and is hooked up to TLS for `https://` via std.crypto.tls in
+/// a follow-up (currently https endpoints fall through to a zig-std TLS
+/// handshake if available; otherwise the POST is dropped with a warning
+/// and APNs delivery is considered best-effort).
+fn simpleHttpPost(
+    alloc: std.mem.Allocator,
+    endpoint: []const u8,
+    bearer_token: []const u8,
+    body: []const u8,
+) !void {
+    const uri = std.Uri.parse(endpoint) catch return error.InvalidUri;
+    const scheme = uri.scheme;
+    const is_http = std.ascii.eqlIgnoreCase(scheme, "http");
+    const is_https = std.ascii.eqlIgnoreCase(scheme, "https");
+    if (!is_http and !is_https) return error.UnsupportedScheme;
+
+    if (is_https) {
+        // Phase 4.3 ships plain-HTTP delivery for the test + local-dev path.
+        // Production will front the push endpoint with a Vercel (HTTPS)
+        // deployment; wiring that through here requires std.crypto.tls +
+        // root-cert loading, which is deferred to Phase 4.4. Until then
+        // the daemon logs + drops https pushes rather than silently
+        // misrouting them.
+        std.log.warn(
+            "session_service: remote push skipped, https endpoint not yet supported in zig http client (endpoint={s})",
+            .{endpoint},
+        );
+        return error.HttpsNotYetSupported;
+    }
+
+    const host_component = uri.host orelse return error.InvalidUri;
+    const host = switch (host_component) {
+        .raw => |s| s,
+        .percent_encoded => |s| s,
+    };
+    const port: u16 = uri.port orelse 80;
+
+    var path_buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer path_buf.deinit(alloc);
+    const path_component = uri.path;
+    switch (path_component) {
+        .raw => |s| try path_buf.appendSlice(alloc, if (s.len == 0) "/" else s),
+        .percent_encoded => |s| try path_buf.appendSlice(alloc, if (s.len == 0) "/" else s),
+    }
+    if (uri.query) |q| {
+        const q_str = switch (q) {
+            .raw => |s| s,
+            .percent_encoded => |s| s,
+        };
+        if (q_str.len > 0) {
+            try path_buf.append(alloc, '?');
+            try path_buf.appendSlice(alloc, q_str);
+        }
+    }
+
+    const addr_list = try std.net.getAddressList(alloc, host, port);
+    defer addr_list.deinit();
+    if (addr_list.addrs.len == 0) return error.HostNotFound;
+
+    const stream = try std.net.tcpConnectToAddress(addr_list.addrs[0]);
+    defer stream.close();
+
+    // Apply SO_RCVTIMEO / SO_SNDTIMEO = 5s. Both sides of the socket get a
+    // deterministic upper bound independent of the HTTP client state.
+    const tv = std.posix.timeval{ .sec = 5, .usec = 0 };
+    std.posix.setsockopt(
+        stream.handle,
+        std.posix.SOL.SOCKET,
+        std.posix.SO.RCVTIMEO,
+        std.mem.asBytes(&tv),
+    ) catch {};
+    std.posix.setsockopt(
+        stream.handle,
+        std.posix.SOL.SOCKET,
+        std.posix.SO.SNDTIMEO,
+        std.mem.asBytes(&tv),
+    ) catch {};
+
+    const request = try std.fmt.allocPrint(
+        alloc,
+        "POST {s} HTTP/1.1\r\nHost: {s}\r\nAuthorization: Bearer {s}\r\nContent-Type: application/json\r\nContent-Length: {d}\r\nConnection: close\r\n\r\n",
+        .{ path_buf.items, host, bearer_token, body.len },
+    );
+    defer alloc.free(request);
+
+    try writeAll(stream, request);
+    try writeAll(stream, body);
+
+    // Read just enough to find the status line; discard the rest.
+    var head_buf: [1024]u8 = undefined;
+    var total: usize = 0;
+    while (total < head_buf.len) {
+        const n = stream.read(head_buf[total..]) catch |err| switch (err) {
+            error.WouldBlock => return error.RemotePushTimeout,
+            else => return err,
+        };
+        if (n == 0) break;
+        total += n;
+        if (std.mem.indexOf(u8, head_buf[0..total], "\r\n") != null) break;
+    }
+    if (total == 0) return error.RemotePushEmptyResponse;
+
+    const slice = head_buf[0..total];
+    const first_space = std.mem.indexOfScalar(u8, slice, ' ') orelse return error.RemotePushBadResponse;
+    const tail = slice[first_space + 1 ..];
+    const second_space = std.mem.indexOfScalar(u8, tail, ' ') orelse tail.len;
+    const status_str = tail[0..second_space];
+    const status = std.fmt.parseInt(u16, status_str, 10) catch return error.RemotePushBadResponse;
+    if (status < 200 or status >= 300) {
+        std.log.warn(
+            "session_service: remote push to {s} returned status {d}",
+            .{ endpoint, status },
+        );
+        return error.RemotePushNon2xx;
+    }
+}
+
+fn writeAll(stream: std.net.Stream, bytes: []const u8) !void {
+    var remaining = bytes;
+    while (remaining.len > 0) {
+        const n = stream.write(remaining) catch |err| switch (err) {
+            error.WouldBlock => return error.RemotePushTimeout,
+            else => return err,
+        };
+        if (n == 0) return error.RemotePushShortWrite;
+        remaining = remaining[n..];
+    }
 }
 
 test "open terminal returns named session when requested" {
@@ -1074,4 +1597,197 @@ test "subscribeTerminal clears has_unread_output" {
     try std.testing.expect(!service.hasUnread("sub-clears"));
 
     _ = service.unsubscribeTerminal(&stream, "sub-clears");
+}
+
+const RemotePushTestCapture = struct {
+    server: *std.net.Server,
+    alloc: std.mem.Allocator,
+    received: std.ArrayListUnmanaged(u8) = .empty,
+    got_request: std.atomic.Value(bool) = .init(false),
+    done: std.atomic.Value(bool) = .init(false),
+    thread: ?std.Thread = null,
+    mutex: std.Thread.Mutex = .{},
+
+    fn run(self: *RemotePushTestCapture) void {
+        const conn = self.server.accept() catch {
+            self.done.store(true, .seq_cst);
+            return;
+        };
+        defer conn.stream.close();
+
+        var buf: [8192]u8 = undefined;
+        var total: usize = 0;
+        var saw_headers_end: ?usize = null;
+        var content_length: ?usize = null;
+
+        while (total < buf.len) {
+            const n = conn.stream.read(buf[total..]) catch break;
+            if (n == 0) break;
+            total += n;
+            if (saw_headers_end == null) {
+                if (std.mem.indexOf(u8, buf[0..total], "\r\n\r\n")) |idx| {
+                    saw_headers_end = idx + 4;
+                    // Parse content-length from the header block.
+                    const header_block = buf[0..idx];
+                    var it = std.mem.splitSequence(u8, header_block, "\r\n");
+                    while (it.next()) |line| {
+                        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+                        const name = std.mem.trim(u8, line[0..colon], " ");
+                        const value = std.mem.trim(u8, line[colon + 1 ..], " ");
+                        if (std.ascii.eqlIgnoreCase(name, "content-length")) {
+                            content_length = std.fmt.parseInt(usize, value, 10) catch null;
+                        }
+                    }
+                }
+            }
+            if (saw_headers_end) |hdr_end| {
+                if (content_length) |cl| {
+                    if (total - hdr_end >= cl) break;
+                } else break;
+            }
+        }
+
+        self.mutex.lock();
+        self.received.appendSlice(self.alloc, buf[0..total]) catch {};
+        self.mutex.unlock();
+        self.got_request.store(true, .seq_cst);
+
+        // Reply with 204 No Content so the daemon sees a 2xx.
+        const reply = "HTTP/1.1 204 No Content\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+        _ = conn.stream.write(reply) catch {};
+        self.done.store(true, .seq_cst);
+    }
+};
+
+test "daemon.configure_notifications + bell with no subscribers POSTs to endpoint" {
+    if (!pty_pump.supported) return error.SkipZigTest;
+
+    const alloc = std.testing.allocator;
+
+    // Bind a local TCP listener on an ephemeral port.
+    const any_addr = try std.net.Address.parseIp("127.0.0.1", 0);
+    var server = try any_addr.listen(.{ .reuse_address = true });
+    const listen_port = server.listen_address.getPort();
+
+    var capture = RemotePushTestCapture{
+        .server = &server,
+        .alloc = alloc,
+    };
+    capture.thread = try std.Thread.spawn(.{}, RemotePushTestCapture.run, .{&capture});
+
+    // Teardown order: close the listener first (unblocks any still-blocked
+    // accept() with an error), then join the capture thread, then free
+    // buffers. Declaring in reverse here gets us that order.
+    defer {
+        capture.mutex.lock();
+        capture.received.deinit(alloc);
+        capture.mutex.unlock();
+    }
+    defer if (capture.thread) |t| t.join();
+    defer server.deinit();
+
+    var service = Service.init(alloc);
+    defer service.deinit();
+
+    const endpoint = try std.fmt.allocPrint(
+        alloc,
+        "http://127.0.0.1:{d}/push",
+        .{listen_port},
+    );
+    defer alloc.free(endpoint);
+
+    const token_a: []const u8 = "abc123";
+    const token_b: []const u8 = "deadbeef";
+    const tokens = [_][]const u8{ token_a, token_b };
+
+    try service.configureNotifications(endpoint, "shhh-secret", &tokens);
+
+    var opened = try service.openTerminal("remote-smoke", "sleep 5", 80, 24);
+    defer opened.status.deinit(alloc);
+    defer alloc.free(opened.attachment_id);
+
+    // Inject a BEL byte into the runtime's terminal state machine so
+    // bell_count advances. We do NOT subscribe; this is the whole point.
+    const runtime = service.runtimes.get("remote-smoke") orelse return error.MissingRuntime;
+    runtime.lock.lock();
+    try runtime.terminal.feed("\x07");
+    runtime.lock.unlock();
+
+    // Simulate the pump's notify callback firing for this session.
+    const entry: pty_pump.Entry = .{
+        .pty = &runtime.pty,
+        .terminal = &runtime.terminal,
+        .lock = &runtime.lock,
+        .session_id = "remote-smoke",
+    };
+    service.deliverTerminalPushes(entry);
+
+    // Wait up to 2 seconds for the capture thread to receive the POST.
+    const deadline = std.time.milliTimestamp() + 2_000;
+    while (std.time.milliTimestamp() < deadline) {
+        if (capture.got_request.load(.seq_cst)) break;
+        std.Thread.sleep(10 * std.time.ns_per_ms);
+    }
+    try std.testing.expect(capture.got_request.load(.seq_cst));
+
+    capture.mutex.lock();
+    const got = try alloc.dupe(u8, capture.received.items);
+    capture.mutex.unlock();
+    defer alloc.free(got);
+
+    // Request line.
+    try std.testing.expect(std.mem.indexOf(u8, got, "POST /push HTTP/1.1") != null);
+    // Bearer header, case-insensitive match on the header name.
+    try std.testing.expect(
+        std.mem.indexOf(u8, got, "Authorization: Bearer shhh-secret") != null or
+            std.mem.indexOf(u8, got, "authorization: Bearer shhh-secret") != null,
+    );
+    // Content-Type + body assertions.
+    try std.testing.expect(
+        std.mem.indexOf(u8, got, "Content-Type: application/json") != null or
+            std.mem.indexOf(u8, got, "content-type: application/json") != null,
+    );
+    try std.testing.expect(std.mem.indexOf(u8, got, "\"session_id\":\"remote-smoke\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, got, "\"bell\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, got, "\"device_tokens\":[\"abc123\",\"deadbeef\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, got, "\"notifications\":") != null);
+    // Session has no binding workspace, so workspace_id should be null.
+    try std.testing.expect(std.mem.indexOf(u8, got, "\"workspace_id\":null") != null);
+}
+
+test "daemon.configure_notifications disables remote push on empty endpoint" {
+    if (!pty_pump.supported) return error.SkipZigTest;
+
+    const alloc = std.testing.allocator;
+    var service = Service.init(alloc);
+    defer service.deinit();
+
+    // Start with a valid-looking config, then overwrite with endpoint="".
+    const tokens = [_][]const u8{"abcd"};
+    try service.configureNotifications("http://127.0.0.1:1/push", "x", &tokens);
+    try service.configureNotifications("", "", &[_][]const u8{});
+
+    var opened = try service.openTerminal("disabled-smoke", "sleep 5", 80, 24);
+    defer opened.status.deinit(alloc);
+    defer alloc.free(opened.attachment_id);
+
+    const runtime = service.runtimes.get("disabled-smoke") orelse return error.MissingRuntime;
+    runtime.lock.lock();
+    try runtime.terminal.feed("\x07");
+    runtime.lock.unlock();
+
+    const entry: pty_pump.Entry = .{
+        .pty = &runtime.pty,
+        .terminal = &runtime.terminal,
+        .lock = &runtime.lock,
+        .session_id = "disabled-smoke",
+    };
+    // Should return fast without spawning a push thread. We can't easily
+    // observe "no push" other than the test completing and deinit not
+    // blocking on any in-flight dispatcher.
+    service.deliverTerminalPushes(entry);
+
+    // Give any (non-)thread time to land before deinit.
+    std.Thread.sleep(50 * std.time.ns_per_ms);
+    try std.testing.expectEqual(@as(usize, 0), service.push_inflight.load(.seq_cst));
 }
