@@ -1398,9 +1398,24 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private func skipOnCI(_ reason: String) throws {
-        if ProcessInfo.processInfo.environment["CI"] == "true" {
+        let env = ProcessInfo.processInfo.environment
+        if shouldSkipOnCI(environment: env) {
             throw XCTSkip(reason)
         }
+    }
+
+    private func shouldSkipOnCI(environment: [String: String]) -> Bool {
+        if environment["GITHUB_ACTIONS"]?.lowercased() == "true" {
+            return true
+        }
+
+        guard let ci = environment["CI"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !ci.isEmpty else {
+            return false
+        }
+
+        let normalized = ci.lowercased()
+        return normalized != "0" && normalized != "false" && normalized != "no"
     }
 
     private func waitForDataMatch(timeout: TimeInterval, predicate: @escaping ([String: String]) -> Bool) -> Bool {
