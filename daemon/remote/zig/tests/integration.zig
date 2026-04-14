@@ -814,14 +814,16 @@ test "integration: mid-frame disconnect leaves daemon healthy" {
     std.posix.shutdown(victim.fd, .both) catch {};
     victim.deinit();
 
-    // Wait for the daemon to observe EPIPE on its next pump push and
-    // tear down the dead subscriber BEFORE we try to re-subscribe on
-    // the same session. Without this, the re-subscribe can race the
-    // dead subscriber's outbound-queue teardown through the session's
-    // subscriber list and has been seen to SIGSEGV the pump thread.
-    // 100 ms is comfortably above the pump's typical wake-and-write
-    // cycle on this machine; tests are allowed a deterministic sleep
-    // when it is the smallest practical synchronization.
+    // Brief settle so the Worker thread has a chance to schedule and
+    // run its defer chain (read EOF → unsubscribeAllForStream → wait
+    // for in-flight push → destroy sub). The UAF fix in
+    // session_service.zig makes the synchronization correctness-
+    // complete (no SEGV either way), but without the sleep the test's
+    // re-subscribe below was still fragile at ~5 % across 20 runs
+    // because the probe sometimes lands before the kernel delivers
+    // EOF to the Worker's read() call. 100 ms is comfortably above
+    // typical thread-wakeup on macOS; deterministic sleeps are
+    // acceptable in tests per policy.
     std.Thread.sleep(100 * std.time.ns_per_ms);
 
     var probe = try test_util.Client.connect(alloc, fx.socket_path);
