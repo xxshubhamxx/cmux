@@ -4794,6 +4794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             context.sessionSnapshotWindowObservers.append(observer)
         }
 
+        observe(NSWindow.didBecomeKeyNotification, "window.key")
         observe(NSWindow.didMoveNotification, "window.move")
         observe(NSWindow.didResizeNotification, "window.resize")
         observe(NSWindow.didChangeScreenNotification, "window.screen")
@@ -4859,7 +4860,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
         if !isTerminatingApp {
-            markSessionSnapshotDirty(reason: "mainWindow.register")
+            if !saveSessionSnapshot(includeScrollback: false) {
+                markSessionSnapshotDirty(reason: "mainWindow.register")
+            }
         }
     }
 
