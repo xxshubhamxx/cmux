@@ -40,13 +40,27 @@ export function applyCmuxPalette(
   const rules = ansiTokenRules(ansi);
   const colors = editorColors(palette);
 
-  monacoNs.editor.defineTheme(name, {
-    base,
-    inherit: true,
-    rules,
-    colors,
-  });
-  monacoNs.editor.setTheme(name);
+  try {
+    monacoNs.editor.defineTheme(name, {
+      base,
+      inherit: true,
+      rules,
+      colors,
+    });
+    monacoNs.editor.setTheme(name);
+    // eslint-disable-next-line no-console
+    console.log(
+      `cmux.monaco.theme applied name=${name} bg=${palette.backgroundHex} fg=${palette.foregroundHex} rules=${rules.length} ansi=${ansi.length}`,
+    );
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("cmux.monaco.theme defineTheme failed", err, {
+      rules,
+      colors,
+    });
+    // Re-apply base theme as fallback so the editor is at least readable.
+    monacoNs.editor.setTheme(base);
+  }
 
   // Mirror into CSS so the host never flashes white-on-white when Monaco
   // remounts or during style recomputation.
@@ -69,8 +83,11 @@ function editorColors(
   palette: CmuxPalette,
 ): { [key: string]: string } {
   const cursor = palette.cursorHex ?? palette.foregroundHex;
-  const selection = palette.selectionBackgroundHex
-    ?? (palette.isDark ? "#264f7866" : "#add6ff66");
+  // Monaco's selection color is painted on top of text. Solid #RRGGBB values
+  // obscure the selected characters, so always fall back to a ~40% alpha.
+  const rawSelection = palette.selectionBackgroundHex
+    ?? (palette.isDark ? "#264f78" : "#add6ff");
+  const selection = rawSelection.length === 7 ? `${rawSelection}66` : rawSelection;
   const ansi = palette.ansi ?? [];
 
   return {
@@ -135,14 +152,15 @@ function ansiTokenRules(
   const red = stripHash(ansi[1]!);
   const green = stripHash(ansi[2]!);
   const yellow = stripHash(ansi[3]!);
-  const blue = stripHash(ansi[4]!);
   const magenta = stripHash(ansi[5]!);
   const cyan = stripHash(ansi[6]!);
   const brightBlack = stripHash(ansi[8]!);
 
+  // Monaco rejects rules with empty `foreground` strings and silently falls
+  // back to the base theme for the *entire* custom theme when validation
+  // fails. Every entry here must carry a real 6-digit hex. Don't include
+  // "default" (token="") rules — let Monaco inherit from the base theme.
   return [
-    { token: "", foreground: "" }, // keeps inherit
-
     { token: "comment", foreground: brightBlack, fontStyle: "italic" },
     { token: "comment.doc", foreground: brightBlack, fontStyle: "italic" },
 
@@ -155,32 +173,33 @@ function ansiTokenRules(
     { token: "number.octal", foreground: magenta },
     { token: "number.float", foreground: magenta },
 
-    { token: "keyword", foreground: blue, fontStyle: "bold" },
-    { token: "keyword.control", foreground: blue, fontStyle: "bold" },
-    { token: "keyword.operator", foreground: cyan },
-    { token: "keyword.other", foreground: blue },
+    // Monokai renders keywords in red/pink, not blue, and operators in
+    // pink too. This matches the canonical Monokai tokenization.
+    { token: "keyword", foreground: red, fontStyle: "bold" },
+    { token: "keyword.control", foreground: red, fontStyle: "bold" },
+    { token: "keyword.operator", foreground: red },
+    { token: "keyword.other", foreground: red },
 
-    { token: "type", foreground: yellow },
-    { token: "type.identifier", foreground: yellow },
+    { token: "type", foreground: cyan, fontStyle: "italic" },
+    { token: "type.identifier", foreground: cyan, fontStyle: "italic" },
 
-    { token: "identifier", foreground: "" },
-    { token: "variable", foreground: "" },
-    { token: "variable.parameter", foreground: red },
+    { token: "variable.parameter", foreground: yellow, fontStyle: "italic" },
 
-    { token: "function", foreground: cyan },
-    { token: "function.name", foreground: cyan },
-    { token: "support.function", foreground: cyan },
+    { token: "function", foreground: yellow },
+    { token: "function.name", foreground: yellow },
+    { token: "support.function", foreground: yellow },
 
     { token: "constant", foreground: magenta },
     { token: "constant.language", foreground: magenta },
+    { token: "constant.numeric", foreground: magenta },
 
     { token: "tag", foreground: red },
     { token: "tag.id", foreground: red },
-    { token: "attribute.name", foreground: yellow },
-    { token: "attribute.value", foreground: green },
+    { token: "attribute.name", foreground: green },
+    { token: "attribute.value", foreground: magenta },
 
     { token: "delimiter", foreground: stripHash(ansi[7]!) },
-    { token: "operator", foreground: cyan },
+    { token: "operator", foreground: red },
 
     { token: "invalid", foreground: red, fontStyle: "bold" },
   ];

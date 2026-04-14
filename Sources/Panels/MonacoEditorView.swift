@@ -1,4 +1,7 @@
 import AppKit
+#if DEBUG
+import Bonsplit
+#endif
 import Combine
 import SwiftUI
 import WebKit
@@ -526,11 +529,8 @@ enum MonacoThemeResolver {
                 return "\(index):\(c.hexString())"
             }
             .joined(separator: " ")
-        NSLog(
-            "monaco.theme theme=%@ bg=%@ fg=%@ cursor=%@ selection=%@ isDark=%d font=%@/%.1f palette=[%@]",
-            themeDescription, bg, fg, cursor, selection,
-            isDark ? 1 : 0, config.fontFamily, Double(config.fontSize),
-            paletteSummary
+        dlog(
+            "monaco.theme theme=\(themeDescription) bg=\(bg) fg=\(fg) cursor=\(cursor) selection=\(selection) isDark=\(isDark ? 1 : 0) font=\(config.fontFamily)/\(config.fontSize) palette=[\(paletteSummary)]"
         )
         #endif
 
