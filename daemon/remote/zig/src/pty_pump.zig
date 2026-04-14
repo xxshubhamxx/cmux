@@ -55,6 +55,17 @@ const KqueuePump = struct {
     notify_fn: ?NotifyFn = null,
     notify_ctx: ?*anyopaque = null,
 
+    /// Held by the pump thread while it is inside the per-event processing
+    /// body (dereferencing `entry.pty` / `entry.terminal`). Callers of
+    /// `unregister` acquire this immediately after removing the entry from
+    /// the map so they are guaranteed the pump is not currently touching
+    /// the just-removed entry's backing memory before returning. This
+    /// closes a UAF race where `closeSession` would deinit+destroy a
+    /// `RuntimeSession` while the pump thread still had `entry.pty` /
+    /// `entry.terminal` pointers into it from an iteration that started
+    /// before the unregister ran.
+    processing_mutex: std.Thread.Mutex = .{},
+
     pub fn init(alloc: std.mem.Allocator) !KqueuePump {
         const kq = try std.posix.kqueue();
         const pump: KqueuePump = .{
@@ -109,9 +120,8 @@ const KqueuePump = struct {
 
     pub fn unregister(self: *KqueuePump, fd: std.posix.fd_t) void {
         self.map_mutex.lock();
-        defer self.map_mutex.unlock();
-
-        if (self.entries.remove(fd)) {
+        const removed = self.entries.remove(fd);
+        if (removed) {
             var changes = [_]std.posix.Kevent{.{
                 .ident = @intCast(fd),
                 .filter = readFilter(),
@@ -121,6 +131,18 @@ const KqueuePump = struct {
                 .udata = 0,
             }};
             _ = std.posix.kevent(self.kq, &changes, &.{}, null) catch {};
+        }
+        self.map_mutex.unlock();
+
+        // Barrier: if the pump is mid-iteration on this (or any other)
+        // entry, wait for it to finish that iteration before returning.
+        // After this point the caller can safely free the RuntimeSession
+        // backing the removed entry — the pump cannot be holding any of
+        // its pointers because it's either blocked at kevent() or about
+        // to look up the next entry from the now-updated map.
+        if (removed) {
+            self.processing_mutex.lock();
+            self.processing_mutex.unlock();
         }
     }
 
@@ -137,6 +159,11 @@ const KqueuePump = struct {
                 return;
             };
             if (self.shutdown.load(.seq_cst)) return;
+
+            // Held across the whole per-event batch so `unregister` can
+            // synchronize on it — see `unregister` for the UAF rationale.
+            self.processing_mutex.lock();
+            defer self.processing_mutex.unlock();
 
             for (events[0..n]) |ev| {
                 if (ev.filter == userFilter()) continue;

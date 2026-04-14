@@ -34,6 +34,17 @@ pub const TerminalSubscription = struct {
     /// this, otherwise a PTY that closes after its last byte was pushed
     /// would leave the subscriber hanging on eof=false forever.
     eof_sent: bool = false,
+    /// Count of in-flight `deliverTerminalPushes` iterations carrying a
+    /// snapshot pointer to this sub. Incremented under `sub_mutex` while
+    /// the sub was still live; decremented after the per-sub push
+    /// completes. Unsubscribe marks the sub dead, drops it from
+    /// `terminal_subs`, releases `sub_mutex`, then spin-waits for this
+    /// to hit zero before freeing the allocation. This also keeps
+    /// `sub.queue` (which points into the owning Worker's stack frame
+    /// in the unix-socket transport) valid for the push duration,
+    /// because `Worker.run`'s defer chain calls `unsubscribeAllForStream`
+    /// which doesn't return past this wait until no push is in flight.
+    in_flight: std.atomic.Value(u32) = .init(0),
 };
 
 pub const SubscribeSnapshot = struct {
@@ -594,44 +605,69 @@ pub const Service = struct {
         stream: *std.net.Stream,
         session_id: []const u8,
     ) bool {
+        var target: ?*TerminalSubscription = null;
         self.sub_mutex.lock();
-        defer self.sub_mutex.unlock();
         var i: usize = 0;
         while (i < self.terminal_subs.items.len) : (i += 1) {
             const s = self.terminal_subs.items[i];
             if (s.stream == stream and std.mem.eql(u8, s.session_id, session_id)) {
+                s.dead.store(true, .seq_cst);
                 _ = self.terminal_subs.orderedRemove(i);
-                self.alloc.destroy(s);
-                return true;
+                target = s;
+                break;
             }
+        }
+        self.sub_mutex.unlock();
+        if (target) |s| {
+            waitUntilQuiescent(s);
+            self.alloc.destroy(s);
+            return true;
         }
         return false;
     }
 
     /// Called by the WS handler when a connection closes.
     pub fn unsubscribeAllForStream(self: *Service, stream: *std.net.Stream) void {
+        var collected: std.ArrayListUnmanaged(*TerminalSubscription) = .empty;
+        defer collected.deinit(self.alloc);
+
         self.sub_mutex.lock();
-        defer self.sub_mutex.unlock();
         var i: usize = 0;
         while (i < self.terminal_subs.items.len) {
             const s = self.terminal_subs.items[i];
             if (s.stream == stream) {
+                s.dead.store(true, .seq_cst);
                 _ = self.terminal_subs.orderedRemove(i);
-                self.alloc.destroy(s);
+                collected.append(self.alloc, s) catch {};
             } else i += 1;
+        }
+        self.sub_mutex.unlock();
+
+        for (collected.items) |s| {
+            waitUntilQuiescent(s);
+            self.alloc.destroy(s);
         }
     }
 
     fn removeSubscriptionsBySessionId(self: *Service, session_id: []const u8) void {
+        var collected: std.ArrayListUnmanaged(*TerminalSubscription) = .empty;
+        defer collected.deinit(self.alloc);
+
         self.sub_mutex.lock();
-        defer self.sub_mutex.unlock();
         var i: usize = 0;
         while (i < self.terminal_subs.items.len) {
             const s = self.terminal_subs.items[i];
             if (std.mem.eql(u8, s.session_id, session_id)) {
+                s.dead.store(true, .seq_cst);
                 _ = self.terminal_subs.orderedRemove(i);
-                self.alloc.destroy(s);
+                collected.append(self.alloc, s) catch {};
             } else i += 1;
+        }
+        self.sub_mutex.unlock();
+
+        for (collected.items) |s| {
+            waitUntilQuiescent(s);
+            self.alloc.destroy(s);
         }
     }
 
@@ -642,7 +678,12 @@ pub const Service = struct {
 
     fn deliverTerminalPushes(self: *Service, entry: pty_pump.Entry) void {
         // Snapshot matching subscriber pointers so we don't hold sub_mutex
-        // across PTY/terminal locking and network writes.
+        // across PTY/terminal locking and network writes. Each snapshot
+        // bumps the sub's `in_flight` counter while `sub_mutex` is held;
+        // the per-sub loop below decrements it. Unsubscribe waits for
+        // that counter to hit zero before freeing the allocation, so
+        // the pointer we carry across the sub_mutex release can never
+        // dangle.
         var matching: std.ArrayListUnmanaged(*TerminalSubscription) = .empty;
         defer matching.deinit(self.alloc);
 
@@ -651,6 +692,7 @@ pub const Service = struct {
             if (sub.dead.load(.seq_cst)) continue;
             if (std.mem.eql(u8, sub.session_id, entry.session_id)) {
                 matching.append(self.alloc, sub) catch break;
+                _ = sub.in_flight.fetchAdd(1, .seq_cst);
             }
         }
         self.sub_mutex.unlock();
@@ -671,10 +713,22 @@ pub const Service = struct {
         }
 
         for (matching.items) |sub| {
+            defer _ = sub.in_flight.fetchSub(1, .seq_cst);
             if (sub.dead.load(.seq_cst)) continue;
             self.pushOneSubscriber(entry, sub) catch {
                 sub.dead.store(true, .seq_cst);
             };
+        }
+    }
+
+    /// Spin-wait for a retiring subscription's `in_flight` counter to
+    /// drop to zero. Called by `unsubscribeTerminal` and friends after
+    /// removing the sub from `terminal_subs` (so no new push can see
+    /// it) and before freeing the allocation. Free-standing (not a
+    /// method on Service) because it does not need the service itself.
+    fn waitUntilQuiescent(sub: *TerminalSubscription) void {
+        while (sub.in_flight.load(.seq_cst) > 0) {
+            std.atomic.spinLoopHint();
         }
     }
 
