@@ -11818,14 +11818,10 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
-        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
-            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-            owningTabManager?.closeWorkspaceWithConfirmation(self)
-            return false
-        }
-
         // Editor panels need their own save/discard/cancel dialog when the buffer
-        // is dirty. Handle this branch before the terminal-specific path below.
+        // is dirty. This runs before the "close workspace on last surface" branch
+        // so that closing the last editor tab does not silently route through the
+        // workspace-close path and drop unsaved edits.
         if let panelId = panelIdFromSurfaceId(tab.id),
            let editorPanel = editorPanel(for: panelId),
            editorPanel.isDirty {
@@ -11857,6 +11853,12 @@ extension Workspace: BonsplitDelegate {
                     }
                 }
             }
+            return false
+        }
+
+        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            owningTabManager?.closeWorkspaceWithConfirmation(self)
             return false
         }
 

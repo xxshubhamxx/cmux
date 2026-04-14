@@ -188,6 +188,7 @@ final class EditorPanel: Panel, ObservableObject {
             let flags = source.data
             if flags.contains(.delete) || flags.contains(.rename) {
                 DispatchQueue.main.async {
+                    guard !self.isClosed else { return }
                     // Always clear the suppression flag when an event fires so a
                     // missed event can't silently swallow future external edits.
                     let wasSuppressed = self.suppressNextReload
@@ -213,6 +214,7 @@ final class EditorPanel: Panel, ObservableObject {
                 }
             } else {
                 DispatchQueue.main.async {
+                    guard !self.isClosed else { return }
                     let wasSuppressed = self.suppressNextReload
                     self.suppressNextReload = false
                     if !wasSuppressed && !self.isDirty {
@@ -230,21 +232,28 @@ final class EditorPanel: Panel, ObservableObject {
         fileWatchSource = source
     }
 
-    /// Keep retrying until the file reappears or the panel is closed. Atomic saves by
-    /// external editors may take longer than a fixed window, so there is no attempt cap.
+    /// Keep retrying until the file reappears AND we successfully install a watcher,
+    /// or the panel is closed. Atomic saves by external editors may take longer than
+    /// a fixed window, so there is no attempt cap.
     private func scheduleReattach() {
         watchQueue.asyncAfter(deadline: .now() + Self.reattachDelay) { [weak self] in
             guard let self else { return }
             DispatchQueue.main.async {
                 guard !self.isClosed else { return }
-                if FileManager.default.fileExists(atPath: self.filePath) {
-                    self.isFileUnavailable = false
-                    if !self.isDirty {
-                        self.loadFileContent()
-                    }
-                    self.startFileWatcher()
-                } else {
+                guard FileManager.default.fileExists(atPath: self.filePath) else {
                     self.scheduleReattach()
+                    return
+                }
+                if !self.isDirty {
+                    self.loadFileContent()
+                }
+                self.startFileWatcher()
+                // Only consider the reattach successful once a watcher is actually
+                // installed and the load didn't fail; otherwise keep retrying.
+                if self.fileWatchSource == nil || self.isFileUnavailable {
+                    self.scheduleReattach()
+                } else {
+                    self.isFileUnavailable = false
                 }
             }
         }
