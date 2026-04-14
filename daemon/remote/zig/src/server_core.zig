@@ -59,6 +59,7 @@ fn dispatchInner(service: *session_service.Service, req: *const json_rpc.Request
                     "terminal.stream",
                     "terminal.subscribe",
                     "workspace.subscribe",
+                    "workspace.sync",
                     "workspace.set_color",
                     "notifications.push",
                     "notifications.remote",
