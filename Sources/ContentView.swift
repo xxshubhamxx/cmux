@@ -2104,7 +2104,7 @@ struct ContentView: View {
             liveSnapshot: workspace.bonsplitController.layoutSnapshot()
         )
         let contentView = window.contentView
-        let visibleNotificationSurfaceIds = selectedWorkspaceNotificationSnapshot.visibleSurfaceIds
+        let visibleNotificationSurfaceIds = workspaceNotificationSnapshot(for: workspace.id).visibleSurfaceIds
 
         let unreadRects: [CGRect]
         if let layoutSnapshot, let contentView {
@@ -2973,6 +2973,31 @@ struct ContentView: View {
         selectedWorkspaceNotificationSnapshot = notificationStore.workspaceSnapshot(forTabId: selectedTabId)
     }
 
+    static func resolvedWorkspaceNotificationSnapshot(
+        selectedWorkspaceNotificationSnapshot: TerminalNotificationWorkspaceSnapshot,
+        workspaceId: UUID,
+        notificationStore: TerminalNotificationStore
+    ) -> TerminalNotificationWorkspaceSnapshot {
+        guard selectedWorkspaceNotificationSnapshot.tabId == workspaceId else {
+            return notificationStore.workspaceSnapshot(forTabId: workspaceId)
+        }
+        return selectedWorkspaceNotificationSnapshot
+    }
+
+    private func workspaceNotificationSnapshot(for workspaceId: UUID) -> TerminalNotificationWorkspaceSnapshot {
+        Self.resolvedWorkspaceNotificationSnapshot(
+            selectedWorkspaceNotificationSnapshot: selectedWorkspaceNotificationSnapshot,
+            workspaceId: workspaceId,
+            notificationStore: notificationStore
+        )
+    }
+
+    private func pruneNotificationPresentationStores() {
+        notificationPresentationStoreCache.removeStaleStores(
+            keepingTabIds: Set(tabManager.tabs.map(\.id))
+        )
+    }
+
     private func syncFileExplorerDirectory() {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
@@ -3110,6 +3135,7 @@ struct ContentView: View {
         view = AnyView(view.onAppear {
             tabManager.applyWindowBackgroundForSelectedTab()
             refreshSelectedWorkspaceNotificationSnapshot()
+            pruneNotificationPresentationStores()
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
             installSidebarResizerPointerMonitorIfNeeded()
@@ -3216,6 +3242,10 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: selectedTabIds) { _ in
             syncSidebarSelectedWorkspaceIds()
+        })
+
+        view = AnyView(view.onChange(of: tabManager.tabs.map(\.id)) { _ in
+            pruneNotificationPresentationStores()
         })
 
         // File explorer: reactively sync CWD when selected workspace or its directory changes.
@@ -6483,15 +6513,11 @@ struct ContentView: View {
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasUnread,
-                selectedWorkspaceNotificationSnapshot.tabId == workspace.id
-                    ? selectedWorkspaceNotificationSnapshot.hasUnreadNotifications
-                    : notificationStore.workspaceSnapshot(forTabId: workspace.id).hasUnreadNotifications
+                workspaceNotificationSnapshot(for: workspace.id).hasUnreadNotifications
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasRead,
-                selectedWorkspaceNotificationSnapshot.tabId == workspace.id
-                    ? selectedWorkspaceNotificationSnapshot.hasReadNotifications
-                    : notificationStore.workspaceSnapshot(forTabId: workspace.id).hasReadNotifications
+                workspaceNotificationSnapshot(for: workspace.id).hasReadNotifications
             )
         }
 
@@ -6508,10 +6534,7 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
-            let workspaceNotificationSnapshot =
-                selectedWorkspaceNotificationSnapshot.tabId == workspace.id
-                ? selectedWorkspaceNotificationSnapshot
-                : notificationStore.workspaceSnapshot(forTabId: workspace.id)
+            let workspaceNotificationSnapshot = workspaceNotificationSnapshot(for: workspace.id)
             let hasUnread = workspace.manualUnreadPanelIds.contains(panelId)
                 || workspaceNotificationSnapshot.hasUnreadNotification(surfaceId: panelId)
             snapshot.setBool(CommandPaletteContextKeys.panelHasUnread, hasUnread)
@@ -10297,7 +10320,6 @@ struct VerticalTabsSidebar: View {
             .frame(width: 0, height: 0)
         )
         .onAppear {
-            notificationPresentationStoreCache.removeStaleStores(keepingTabIds: Set(tabManager.tabs.map(\.id)))
             modifierKeyMonitor.start()
             draggedTabId = nil
             dropIndicator = nil
@@ -10334,9 +10356,6 @@ struct VerticalTabsSidebar: View {
             dragFailsafeMonitor.stop()
             dragAutoScrollController.stop()
             dropIndicator = nil
-        }
-        .onChange(of: tabs.map(\.id)) { tabIds in
-            notificationPresentationStoreCache.removeStaleStores(keepingTabIds: Set(tabIds))
         }
         .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.requestClear)) { notification in
             guard draggedTabId != nil else { return }

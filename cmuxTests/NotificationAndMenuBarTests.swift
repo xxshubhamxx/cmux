@@ -1298,4 +1298,63 @@ final class WorkspaceNotificationPresentationStoreTests: XCTestCase {
         XCTAssertFalse(presentation.hasUnreadNotifications)
         XCTAssertTrue(presentation.hasReadNotifications)
     }
+
+    func testResolvedWorkspaceNotificationSnapshotFallsBackWhenSelectedSnapshotIsStale() {
+        let store = TerminalNotificationStore.shared
+        let previousWorkspaceId = UUID()
+        let previousPanelId = UUID()
+        let selectedWorkspaceId = UUID()
+        let selectedPanelId = UUID()
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: previousWorkspaceId,
+                surfaceId: previousPanelId,
+                title: "Previous",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false
+            ),
+            TerminalNotification(
+                id: UUID(),
+                tabId: selectedWorkspaceId,
+                surfaceId: selectedPanelId,
+                title: "Selected",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false
+            )
+        ])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let staleSnapshot = store.workspaceSnapshot(forTabId: previousWorkspaceId)
+
+        let resolvedSnapshot = ContentView.resolvedWorkspaceNotificationSnapshot(
+            selectedWorkspaceNotificationSnapshot: staleSnapshot,
+            workspaceId: selectedWorkspaceId,
+            notificationStore: store
+        )
+
+        XCTAssertEqual(resolvedSnapshot.tabId, selectedWorkspaceId)
+        XCTAssertTrue(resolvedSnapshot.hasUnreadNotification(surfaceId: selectedPanelId))
+        XCTAssertFalse(resolvedSnapshot.hasVisibleNotificationIndicator(surfaceId: previousPanelId))
+    }
+
+    @MainActor
+    func testWorkspaceNotificationPresentationStoreCacheRemovesStaleStores() {
+        let cache = WorkspaceNotificationPresentationStoreCache(notificationStore: .shared)
+        let keptWorkspaceId = UUID()
+        let removedWorkspaceId = UUID()
+
+        let keptStore = cache.store(for: keptWorkspaceId)
+        let removedStore = cache.store(for: removedWorkspaceId)
+
+        cache.removeStaleStores(keepingTabIds: Set([keptWorkspaceId]))
+
+        XCTAssertTrue(keptStore === cache.store(for: keptWorkspaceId))
+        XCTAssertFalse(removedStore === cache.store(for: removedWorkspaceId))
+    }
 }
