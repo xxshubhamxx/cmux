@@ -656,18 +656,21 @@ final class DaemonConnection: @unchecked Sendable {
     private func handleEvent(_ event: String, _ obj: [String: Any]) {
         switch event {
         case "terminal.output":
-            guard let params = obj["params"] as? [String: Any],
-                  let sid = params["session_id"] as? String else { return }
-            if let base64 = params["data"] as? String,
+            // Daemon emits event fields at the top level of the frame
+            // (see session_service.pushOneSubscriber and the integration
+            // tests in daemon/remote/zig/tests/integration.zig which
+            // read session_id/data/offset directly off the object).
+            guard let sid = obj["session_id"] as? String else { return }
+            if let base64 = obj["data"] as? String,
                let data = Data(base64Encoded: base64), !data.isEmpty {
                 deliverTerminalOutput(sessionID: sid, data: data)
             }
-            if let off = params["offset"] as? UInt64 {
+            if let off = obj["offset"] as? UInt64 {
                 updateTerminalOffset(sessionID: sid, offset: off)
-            } else if let off = params["offset"] as? Int {
+            } else if let off = obj["offset"] as? Int {
                 updateTerminalOffset(sessionID: sid, offset: UInt64(off))
             }
-            if let eof = params["eof"] as? Bool, eof {
+            if let eof = obj["eof"] as? Bool, eof {
                 stateLock.lock()
                 let cb = terminalHandlers[sid]?.onDisconnect
                 terminalHandlers.removeValue(forKey: sid)
