@@ -2377,6 +2377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
     var debugCreateMainWindowSourceIsNativeFullScreenOverride: Bool?
+    var debugLifecycleSurfaceRefreshHandler: ((String) -> Void)?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
 
@@ -2451,6 +2452,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // so applicationShouldTerminate does not show a second alert.
     private var isQuitWarningConfirmed = false
     private var didInstallLifecycleSnapshotObservers = false
+    private var lifecycleSurfaceRefreshGeneration: UInt64 = 0
     private var didDisableSuddenTermination = false
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
     private var commandPalettePendingOpenByWindowId: [UUID: Bool] = [:]
@@ -4369,6 +4371,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         lifecycleSnapshotObservers.append(sessionResignObserver)
 
+        let sessionBecomeActiveObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.sessionDidBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleLifecycleSurfaceRefreshes(source: "workspace.sessionDidBecomeActive")
+            }
+        }
+        lifecycleSnapshotObservers.append(sessionBecomeActiveObserver)
+
+        let screensDidWakeObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleLifecycleSurfaceRefreshes(source: "workspace.screensDidWake")
+            }
+        }
+        lifecycleSnapshotObservers.append(screensDidWakeObserver)
+
         let didWakeObserver = workspaceCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
@@ -4376,9 +4400,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
+                self?.scheduleLifecycleSurfaceRefreshes(source: "workspace.didWake")
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
+    }
+
+    @MainActor
+    func scheduleLifecycleSurfaceRefreshes(source: String) {
+        lifecycleSurfaceRefreshGeneration &+= 1
+        let generation = lifecycleSurfaceRefreshGeneration
+        let passDelays: [TimeInterval] = [0, 0.12, 0.4]
+
+        for (index, delay) in passDelays.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                guard generation == self.lifecycleSurfaceRefreshGeneration else { return }
+                self.refreshTerminalSurfacesAfterLifecycleChange(
+                    source: "\(source).pass\(index + 1)"
+                )
+            }
+        }
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
@@ -5877,6 +5919,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #if DEBUG
         dlog("reload.config.surfaceRefresh source=\(source) count=\(refreshedCount)")
+#endif
+    }
+
+    @MainActor
+    private func refreshTerminalSurfacesAfterLifecycleChange(source: String) {
+#if DEBUG
+        if let debugLifecycleSurfaceRefreshHandler {
+            debugLifecycleSurfaceRefreshHandler(source)
+            return
+        }
+#endif
+
+        NSApp.windows.forEach { window in
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.contentView?.displayIfNeeded()
+        }
+
+        var refreshedCount = 0
+        var reattachCount = 0
+        var restartCount = 0
+
+        forEachTerminalPanel { terminalPanel in
+            let hostedView = terminalPanel.hostedView
+            let isAttached = hostedView.window != nil && hostedView.superview != nil
+            let hasUsableBounds = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
+
+            if !isAttached || !hasUsableBounds {
+                terminalPanel.requestViewReattach()
+                reattachCount += 1
+            }
+
+            hostedView.reconcileGeometryNow()
+
+            if terminalPanel.surface.surface != nil {
+                terminalPanel.surface.forceRefresh(reason: "appDelegate.\(source)")
+                refreshedCount += 1
+            } else if isAttached && hasUsableBounds {
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                restartCount += 1
+            }
+        }
+
+#if DEBUG
+        dlog(
+            "lifecycle.surfaceRefresh source=\(source) refreshed=\(refreshedCount) " +
+            "reattach=\(reattachCount) restarted=\(restartCount)"
+        )
 #endif
     }
 

@@ -67,6 +67,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
         AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
+        AppDelegate.shared?.debugLifecycleSurfaceRefreshHandler = nil
         AppDelegate.shared?.dismissNotificationsPopoverIfShown()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         for action in KeyboardShortcutSettings.Action.allCases {
@@ -83,6 +84,34 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             UserDefaults.standard.removeObject(forKey: QuitWarningSettings.warnBeforeQuitKey)
         }
         super.tearDown()
+    }
+
+    func testWorkspaceDidWakeSchedulesLifecycleSurfaceRefreshPasses() async {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let refreshExpectation = expectation(description: "Expected lifecycle refresh passes after wake")
+        refreshExpectation.expectedFulfillmentCount = 3
+        var observedSources: [String] = []
+
+        appDelegate.debugLifecycleSurfaceRefreshHandler = { source in
+            observedSources.append(source)
+            refreshExpectation.fulfill()
+        }
+
+        appDelegate.scheduleLifecycleSurfaceRefreshes(source: "workspace.didWake")
+
+        await fulfillment(of: [refreshExpectation], timeout: 1.5)
+        XCTAssertEqual(
+            observedSources,
+            [
+                "workspace.didWake.pass1",
+                "workspace.didWake.pass2",
+                "workspace.didWake.pass3"
+            ]
+        )
     }
 
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
