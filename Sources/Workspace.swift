@@ -503,7 +503,10 @@ extension Workspace {
             editorSnapshot = SessionEditorPanelSnapshot(
                 filePath: edPanel.filePath,
                 cursorLocation: edPanel.cursorLocation,
-                cursorLength: edPanel.cursorLength
+                cursorLength: edPanel.cursorLength,
+                scrollTopFraction: edPanel.scrollTopFraction,
+                monacoViewState: edPanel.monacoViewState,
+                lastOpenedAt: edPanel.lastOpenedAt
             )
         }
 
@@ -707,6 +710,9 @@ extension Workspace {
             }
             if let loc = snapshot.editor?.cursorLocation { edPanel.cursorLocation = loc }
             if let len = snapshot.editor?.cursorLength { edPanel.cursorLength = len }
+            if let frac = snapshot.editor?.scrollTopFraction { edPanel.scrollTopFraction = frac }
+            if let view = snapshot.editor?.monacoViewState { edPanel.monacoViewState = view }
+            if let openedAt = snapshot.editor?.lastOpenedAt { edPanel.lastOpenedAt = openedAt }
             applySessionPanelMetadata(snapshot, toPanelId: edPanel.id)
             return edPanel.id
         }

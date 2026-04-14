@@ -150,6 +150,7 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    @AppStorage(EditorBackendSettings.defaultsKey) private var editorBackendMonaco = false
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     private var browserToolbarAccessorySpacing: Int {
@@ -533,6 +534,13 @@ struct cmuxApp: App {
                     String(localized: "debug.devBuildBanner.show", defaultValue: "Show Dev Build Banner"),
                     isOn: $showSidebarDevBuildBanner
                 )
+                Toggle("Use Monaco Editor Backend", isOn: Binding(
+                    get: { editorBackendMonaco },
+                    set: { newValue in
+                        editorBackendMonaco = newValue
+                        EditorBackendSettings.setUseMonaco(newValue)
+                    }
+                ))
 
                 Divider()
 

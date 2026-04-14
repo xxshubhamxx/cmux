@@ -41,6 +41,19 @@ final class EditorPanel: Panel, ObservableObject {
     var cursorLocation: Int = 0
     var cursorLength: Int = 0
 
+    /// Scroll offset as a 0..1 fraction of the scrollable range. Shared across
+    /// both editor backends so toggling between native and Monaco preserves
+    /// approximate viewport even when window size changed in between.
+    var scrollTopFraction: Double = 0
+
+    /// Opaque JSON-encoded Monaco `ICodeEditorViewState`. Preferred over the
+    /// flat cursor/scroll fields when the Monaco backend restores the panel.
+    var monacoViewState: String?
+
+    /// Seconds since epoch the panel was last interacted with. Updated from
+    /// view-state events and consumed by session persistence for MRU sorting.
+    var lastOpenedAt: Double = Date().timeIntervalSince1970
+
     /// Encoding detected when the file was loaded. Preserved on save so legacy-encoded
     /// files are not silently re-encoded to UTF-8.
     private var originalEncoding: String.Encoding = .utf8

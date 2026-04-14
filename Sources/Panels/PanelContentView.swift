@@ -57,13 +57,23 @@ struct PanelContentView: View {
             }
         case .editor:
             if let editorPanel = panel as? EditorPanel {
-                EditorPanelView(
-                    panel: editorPanel,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPriority: portalPriority,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
+                if EditorBackendSettings.useMonaco() {
+                    MonacoEditorView(
+                        panel: editorPanel,
+                        isFocused: isFocused,
+                        isVisibleInUI: isVisibleInUI,
+                        portalPriority: portalPriority,
+                        onRequestPanelFocus: onRequestPanelFocus
+                    )
+                } else {
+                    EditorPanelView(
+                        panel: editorPanel,
+                        isFocused: isFocused,
+                        isVisibleInUI: isVisibleInUI,
+                        portalPriority: portalPriority,
+                        onRequestPanelFocus: onRequestPanelFocus
+                    )
+                }
             }
         }
     }

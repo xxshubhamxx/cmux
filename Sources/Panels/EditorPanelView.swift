@@ -181,9 +181,24 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
         let location = min(max(panel.cursorLocation, 0), totalLength)
         let length = min(max(panel.cursorLength, 0), totalLength - location)
         textView.selectedRange = NSRange(location: location, length: length)
-        DispatchQueue.main.async { [weak textView] in
-            textView?.scrollRangeToVisible(NSRange(location: location, length: 0))
+        let restoreFraction = panel.scrollTopFraction
+        DispatchQueue.main.async { [weak scrollView, weak textView] in
+            guard let scrollView, let textView else { return }
+            if restoreFraction > 0, let doc = scrollView.documentView {
+                // Prefer the persisted scroll fraction over the cursor reveal so
+                // reopening a tab returns the viewport to where the user left it.
+                let contentHeight = scrollView.contentView.bounds.height
+                let docHeight = doc.bounds.height
+                let maxOffset = max(0, docHeight - contentHeight)
+                let offsetY = min(maxOffset, max(0, restoreFraction * maxOffset))
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: offsetY))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            } else {
+                textView.scrollRangeToVisible(NSRange(location: location, length: 0))
+            }
         }
+
+        context.coordinator.attachScrollObserver(for: scrollView)
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
@@ -236,15 +251,58 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
             : .black
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var panel: EditorPanel
         var onRequestPanelFocus: () -> Void
         weak var textView: NSTextView?
         var isEditing: Bool = false
+        private weak var observedScrollView: NSScrollView?
+        private var scrollObserver: Any?
 
         init(panel: EditorPanel, onRequestPanelFocus: @escaping () -> Void) {
             self.panel = panel
             self.onRequestPanelFocus = onRequestPanelFocus
+        }
+
+        deinit {
+            if let observer = scrollObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+
+        func attachScrollObserver(for scrollView: NSScrollView) {
+            if let existing = scrollObserver {
+                NotificationCenter.default.removeObserver(existing)
+                scrollObserver = nil
+            }
+            observedScrollView = scrollView
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self] _ in
+                self?.updateScrollFractionIfNeeded()
+            }
+        }
+
+        private func updateScrollFractionIfNeeded() {
+            guard let scrollView = observedScrollView,
+                  let doc = scrollView.documentView else { return }
+            let contentHeight = scrollView.contentView.bounds.height
+            let docHeight = doc.bounds.height
+            let maxOffset = max(0, docHeight - contentHeight)
+            guard maxOffset > 0 else {
+                panel.scrollTopFraction = 0
+                return
+            }
+            let offsetY = scrollView.contentView.bounds.origin.y
+            let clamped = min(1, max(0, offsetY / maxOffset))
+            if abs(panel.scrollTopFraction - clamped) > 0.0005 {
+                panel.scrollTopFraction = clamped
+                panel.lastOpenedAt = Date().timeIntervalSince1970
+            }
         }
 
         func textDidBeginEditing(_ notification: Notification) {

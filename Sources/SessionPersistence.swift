@@ -244,6 +244,16 @@ struct SessionEditorPanelSnapshot: Codable, Sendable {
     var filePath: String
     var cursorLocation: Int?
     var cursorLength: Int?
+    /// Scroll position as a 0..1 fraction of the scrollable range. Portable
+    /// across window sizes and editor backends (native and Monaco).
+    var scrollTopFraction: Double?
+    /// Monaco-only opaque blob (JSON-encoded `ICodeEditorViewState`). Takes
+    /// precedence over the flat cursor/scroll fields when the Monaco backend
+    /// is active and the blob parses successfully.
+    var monacoViewState: String?
+    /// Seconds since epoch the panel was last interacted with. Surfaces MRU
+    /// ordering without adding a separate store.
+    var lastOpenedAt: Double?
 }
 
 struct SessionPanelSnapshot: Codable, Sendable {
