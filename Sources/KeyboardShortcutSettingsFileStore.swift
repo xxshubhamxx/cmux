@@ -38,6 +38,7 @@ final class CmuxSettingsFileStore {
         "app.warnBeforeQuit",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
+        "terminal.showScrollBar",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
@@ -73,6 +74,8 @@ final class CmuxSettingsFileStore {
         "automation.socketPassword",
         "automation.claudeCodeIntegration",
         "automation.claudeBinaryPath",
+        "automation.cursorIntegration",
+        "automation.geminiIntegration",
         "automation.portBase",
         "automation.portRange",
         "customCommands.trustedDirectories",
@@ -349,6 +352,9 @@ final class CmuxSettingsFileStore {
         if let appSection = root["app"] as? [String: Any] {
             parseAppSection(appSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let terminalSection = root["terminal"] as? [String: Any] {
+            parseTerminalSection(terminalSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let notificationsSection = root["notifications"] as? [String: Any] {
             parseNotificationsSection(notificationsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -472,6 +478,18 @@ final class CmuxSettingsFileStore {
         }
         if let raw = jsonString(section["command"]) {
             snapshot.managedUserDefaults[NotificationSoundSettings.customCommandKey] = .string(raw)
+        }
+    }
+
+    private func parseTerminalSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["showScrollBar"]) {
+            snapshot.managedUserDefaults[TerminalScrollBarSettings.showScrollBarKey] = .bool(value)
+        } else if section.keys.contains("showScrollBar") {
+            logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
     }
 
@@ -699,6 +717,12 @@ final class CmuxSettingsFileStore {
         }
         if let raw = jsonString(section["claudeBinaryPath"]) {
             snapshot.managedUserDefaults[ClaudeCodeIntegrationSettings.customClaudePathKey] = .string(raw)
+        }
+        if let value = jsonBool(section["cursorIntegration"]) {
+            snapshot.managedUserDefaults[CursorIntegrationSettings.hooksEnabledKey] = .bool(value)
+        }
+        if let value = jsonBool(section["geminiIntegration"]) {
+            snapshot.managedUserDefaults[GeminiIntegrationSettings.hooksEnabledKey] = .bool(value)
         }
         if let value = jsonInt(section["portBase"]) {
             guard value > 0 else {
@@ -1105,26 +1129,31 @@ final class CmuxSettingsFileStore {
             return
         }
 
+        var didMutateStoredValue = false
         switch value {
         case .bool(let next):
             let current = defaults.object(forKey: defaultsKey) as? Bool
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
+                didMutateStoredValue = true
             }
         case .int(let next):
             let current = defaults.object(forKey: defaultsKey) as? Int
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
+                didMutateStoredValue = true
             }
         case .double(let next):
             let current = defaults.object(forKey: defaultsKey) as? Double
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
+                didMutateStoredValue = true
             }
         case .string(let next):
             let current = defaults.string(forKey: defaultsKey)
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
+                didMutateStoredValue = true
             }
         case .nullableString(let next):
             let current = defaults.string(forKey: defaultsKey)
@@ -1134,17 +1163,24 @@ final class CmuxSettingsFileStore {
                 } else {
                     defaults.removeObject(forKey: defaultsKey)
                 }
+                didMutateStoredValue = true
             }
         case .stringArray(let next):
             let current = defaults.array(forKey: defaultsKey) as? [String]
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
+                didMutateStoredValue = true
             }
         case .stringDictionary(let next):
             let current = defaults.dictionary(forKey: defaultsKey) as? [String: String]
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
+                didMutateStoredValue = true
             }
+        }
+
+        if defaultsKey == TerminalScrollBarSettings.showScrollBarKey, didMutateStoredValue {
+            TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
         }
 
         switch defaultsKey {
@@ -1187,6 +1223,10 @@ final class CmuxSettingsFileStore {
             defaults.set(value, forKey: defaultsKey)
         case .stringDictionary(let value):
             defaults.set(value, forKey: defaultsKey)
+        }
+
+        if defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
+            TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
         }
 
         switch defaultsKey {
@@ -1329,6 +1369,11 @@ final class CmuxSettingsFileStore {
                 ],
             ],
             [
+                "terminal": [
+                    "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
+                ],
+            ],
+            [
                 "notifications": [
                     "dockBadge": NotificationBadgeSettings.defaultDockBadgeEnabled,
                     "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,
@@ -1381,6 +1426,8 @@ final class CmuxSettingsFileStore {
                     "socketPassword": "",
                     "claudeCodeIntegration": ClaudeCodeIntegrationSettings.defaultHooksEnabled,
                     "claudeBinaryPath": "",
+                    "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
+                    "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
                     "portBase": 9100,
                     "portRange": 10,
                 ],
