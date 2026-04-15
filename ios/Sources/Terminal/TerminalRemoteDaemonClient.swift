@@ -164,6 +164,40 @@ struct TerminalRemoteDaemonWorkspaceEntry: Decodable, Equatable, Sendable {
     }
 }
 
+/// Response from `workspace.create` (daemon returns minted workspace_id).
+struct TerminalRemoteDaemonWorkspaceCreateResult: Decodable, Equatable, Sendable {
+    let workspaceID: String
+    let changeSeq: UInt64
+
+    private enum CodingKeys: String, CodingKey {
+        case workspaceID = "workspace_id"
+        case changeSeq = "change_seq"
+    }
+}
+
+/// Response from `workspace.open_pane` — daemon-minted session_id and
+/// pane_id for a fresh shell in the given workspace. This is the
+/// canonical way clients obtain a session_id without inventing one.
+struct TerminalRemoteDaemonWorkspaceOpenPaneResult: Decodable, Equatable, Sendable {
+    let workspaceID: String
+    let paneID: String
+    let sessionID: String
+    let attachmentID: String
+    let offset: UInt64
+    let effectiveCols: Int
+    let effectiveRows: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case workspaceID = "workspace_id"
+        case paneID = "pane_id"
+        case sessionID = "session_id"
+        case attachmentID = "attachment_id"
+        case offset
+        case effectiveCols = "effective_cols"
+        case effectiveRows = "effective_rows"
+    }
+}
+
 struct TerminalRemoteDaemonWorkspaceListResult: Decodable, Equatable, Sendable {
     let workspaces: [TerminalRemoteDaemonWorkspaceEntry]
     let selectedWorkspaceID: String?
@@ -438,6 +472,39 @@ actor TerminalRemoteDaemonClient {
 
     func workspaceSubscribe() async throws -> TerminalRemoteDaemonWorkspaceListResult {
         try await sendRequest(method: "workspace.subscribe", params: [:], as: TerminalRemoteDaemonWorkspaceListResult.self)
+    }
+
+    func workspaceCreate(title: String, directory: String? = nil) async throws -> TerminalRemoteDaemonWorkspaceCreateResult {
+        var params: [String: Any] = ["title": title]
+        if let directory { params["directory"] = directory }
+        return try await sendRequest(
+            method: "workspace.create",
+            params: params,
+            as: TerminalRemoteDaemonWorkspaceCreateResult.self
+        )
+    }
+
+    func workspaceOpenPane(
+        workspaceID: String,
+        command: String,
+        cols: Int,
+        rows: Int,
+        parentPaneID: String? = nil,
+        direction: String? = nil
+    ) async throws -> TerminalRemoteDaemonWorkspaceOpenPaneResult {
+        var params: [String: Any] = [
+            "workspace_id": workspaceID,
+            "command": command,
+            "cols": max(1, cols),
+            "rows": max(1, rows),
+        ]
+        if let parentPaneID { params["parent_pane_id"] = parentPaneID }
+        if let direction { params["direction"] = direction }
+        return try await sendRequest(
+            method: "workspace.open_pane",
+            params: params,
+            as: TerminalRemoteDaemonWorkspaceOpenPaneResult.self
+        )
     }
 
     func sessionList() async throws -> TerminalRemoteDaemonSessionListResult {

@@ -327,14 +327,21 @@ final class TerminalSidebarStore: ObservableObject {
     func startWorkspace(on host: TerminalHost) -> TerminalWorkspace.ID {
         let nextIndex = workspaceCount(for: host) + 1
         let title = nextIndex == 1 ? "\(host.name)" : "\(host.name) \(nextIndex)"
+        // Insert a placeholder workspace immediately so the UI updates
+        // without waiting for a daemon round-trip. The placeholder
+        // tmuxSessionName is replaced below with the daemon-minted
+        // session_id once `workspace.create` + `workspace.open_pane`
+        // returns, which is the value iOS + any other attached client
+        // (mac, another phone) will use to attach.
+        let placeholderSession = "cmux-pending-\(UUID().terminalShortID)"
         let workspace = TerminalWorkspace(
             hostID: host.id,
             title: title,
-            tmuxSessionName: "cmux-\(host.name.lowercased().replacingOccurrences(of: " ", with: "-"))-\(UUID().terminalShortID)",
+            tmuxSessionName: placeholderSession,
             preview: host.subtitle,
             lastActivity: .now,
             unread: false,
-            phase: .idle
+            phase: .connecting
         )
         workspaces.insert(workspace, at: 0)
         selectedWorkspaceID = workspace.id
@@ -342,7 +349,70 @@ final class TerminalSidebarStore: ObservableObject {
         persist()
         ensureBackendIdentityIfNeeded(for: workspace.id)
         startWorkspaceMetadataObservationIfNeeded(for: workspace.id)
+
+        // Daemon-authoritative path: if the host speaks remote-daemon,
+        // ask the daemon to mint the workspace + pane and swap in the
+        // returned session_id. This is what lets mac + other clients
+        // see and attach to the same shell.
+        if host.transportPreference == .remoteDaemon, let connection = daemonConnection(for: host) {
+            let workspaceID = workspace.id
+            let workspaceTitle = title
+            let directory = host.subtitle
+            Task { [weak self] in
+                do {
+                    let created = try await connection.acquireClient().0.workspaceCreate(
+                        title: workspaceTitle,
+                        directory: directory.isEmpty ? nil : directory
+                    )
+                    let opened = try await connection.acquireClient().0.workspaceOpenPane(
+                        workspaceID: created.workspaceID,
+                        command: "TERM=xterm-256color COLORTERM=truecolor /bin/zsh -l",
+                        cols: 80,
+                        rows: 24
+                    )
+                    await MainActor.run {
+                        self?.applyDaemonMintedIdentity(
+                            workspaceID: workspaceID,
+                            remoteWorkspaceID: created.workspaceID,
+                            sessionID: opened.sessionID
+                        )
+                    }
+                } catch {
+                    NSLog("📱 startWorkspace: daemon open_pane failed: %@", (error as NSError).localizedDescription)
+                    await MainActor.run { self?.markWorkspaceFailed(workspaceID: workspaceID) }
+                }
+            }
+        }
         return workspace.id
+    }
+
+    /// Called on the main actor once `workspace.create` +
+    /// `workspace.open_pane` returns. Swaps the placeholder
+    /// `tmuxSessionName` for the daemon-minted `session_id` and
+    /// records the `remoteWorkspaceID` so the UI row maps to the
+    /// daemon's workspace entry.
+    private func applyDaemonMintedIdentity(
+        workspaceID: TerminalWorkspace.ID,
+        remoteWorkspaceID: String,
+        sessionID: String
+    ) {
+        guard let idx = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
+        var updated = workspaces[idx]
+        updated.tmuxSessionName = sessionID
+        updated.remoteWorkspaceID = remoteWorkspaceID
+        updated.phase = .idle
+        workspaces[idx] = updated
+        persist()
+    }
+
+    /// Mark a workspace that failed to materialize on the daemon so
+    /// the UI shows a distinct state instead of a silent hang.
+    private func markWorkspaceFailed(workspaceID: TerminalWorkspace.ID) {
+        guard let idx = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
+        var updated = workspaces[idx]
+        updated.phase = .failed
+        workspaces[idx] = updated
+        persist()
     }
 
     func closeWorkspace(_ workspace: TerminalWorkspace) {

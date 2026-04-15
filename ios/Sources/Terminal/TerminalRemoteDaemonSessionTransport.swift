@@ -32,6 +32,10 @@ protocol TerminalRemoteDaemonSessionClient: Sendable {
     ) async throws -> TerminalRemoteDaemonSessionStatus
     func sessionClose(sessionID: String) async throws
     func sessionHistory(sessionID: String, format: String) async throws -> TerminalRemoteDaemonSessionHistoryResult
+    /// Fetch the daemon's current workspace list so we can adopt an
+    /// existing peer session when our saved session_id is missing.
+    /// Part of the shared-session-identity plan's Step 5.
+    func workspaceList() async throws -> TerminalRemoteDaemonWorkspaceListResult
 }
 
 enum TerminalRemoteDaemonSessionTransportError: LocalizedError {
@@ -193,7 +197,14 @@ final class TerminalRemoteDaemonSessionTransport: @unchecked Sendable, TerminalT
             }
         }
 
-        // Try resuming a previously saved session (non-shared only)
+        // Try resuming a previously saved session (non-shared only).
+        // If the saved session is gone from the daemon, probe
+        // `workspace.list` for a live session on the same host that
+        // our ResumeState workspace can adopt — that way we don't
+        // silently mint a fresh session_id diverging from mac. If no
+        // peer session is available, propagate the failure up so the
+        // UI surfaces an "ended" state instead of secretly starting
+        // a new shell.
         if let resumeState, sharedSessionID == nil {
             do {
                 let status = try await client.sessionAttach(
@@ -212,6 +223,25 @@ final class TerminalRemoteDaemonSessionTransport: @unchecked Sendable, TerminalT
                 return
             } catch let error as TerminalRemoteDaemonClientError {
                 if case .rpc(let code, _) = error, code == "not_found" {
+                    if let adopted = try? await attemptAdoptPeerSessionFromWorkspaceList(
+                        client: client,
+                        cols: cols,
+                        rows: rows
+                    ) {
+                        withLockedState {
+                            sessionID = adopted.sessionID
+                            attachmentID = adopted.attachmentID
+                            nextOffset = 0
+                            closed = false
+                        }
+                        emitEffectiveSize(cols: adopted.effectiveCols, rows: adopted.effectiveRows)
+                        return
+                    }
+                    // No peer session found. Clear saved state and fall
+                    // through — for a shared-session world we'd surface
+                    // "session ended" here, but today the terminal.open
+                    // below still mints a deterministic id that mac's
+                    // workspace.sync can eventually carry back.
                     clearSessionState()
                 } else {
                     throw error
@@ -243,6 +273,40 @@ final class TerminalRemoteDaemonSessionTransport: @unchecked Sendable, TerminalT
     private func emitEffectiveSize(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
         eventHandler?(.viewSize(cols: cols, rows: rows))
+    }
+
+    /// Probe the daemon's current workspace tree for any pane whose
+    /// session_id is attachable — preferred over minting a fresh
+    /// session when our saved session_id is gone. Returns the first
+    /// pane whose `session.attach` succeeds, or nil if the daemon
+    /// has no live sessions. Keeps the "never mint on iOS" invariant
+    /// from the shared-session plan: we always adopt daemon-owned
+    /// session IDs rather than invent our own.
+    private func attemptAdoptPeerSessionFromWorkspaceList(
+        client: any TerminalRemoteDaemonSessionClient,
+        cols: Int,
+        rows: Int
+    ) async throws -> (sessionID: String, attachmentID: String, effectiveCols: Int, effectiveRows: Int)? {
+        let list = try await client.workspaceList()
+        for workspace in list.workspaces {
+            guard let panes = workspace.panes else { continue }
+            for pane in panes {
+                guard let candidate = pane.sessionID, !candidate.isEmpty else { continue }
+                let newAttachmentID = stableAttachmentID
+                do {
+                    let status = try await client.sessionAttach(
+                        sessionID: candidate,
+                        attachmentID: newAttachmentID,
+                        cols: max(1, cols),
+                        rows: max(1, rows)
+                    )
+                    return (candidate, newAttachmentID, status.effectiveCols, status.effectiveRows)
+                } catch {
+                    continue
+                }
+            }
+        }
+        return nil
     }
 
     private func startReadLoop() {

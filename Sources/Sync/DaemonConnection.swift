@@ -214,6 +214,50 @@ final class DaemonConnection: @unchecked Sendable {
         }
     }
 
+    // MARK: - Public API: workspace.open_pane (daemon-minted session IDs)
+
+    /// Ask the daemon to mint a new terminal session and bind it to a
+    /// pane in the given workspace. This is the canonical path for
+    /// creating a new shell — the daemon returns the session_id, and
+    /// every other client (iOS included) discovers it via
+    /// `workspace.list`. Call sites never need to invent a session_id
+    /// themselves when they use this.
+    ///
+    /// On success the completion receives `(sessionID, paneID)`. On any
+    /// failure (daemon not reachable, workspace missing, RPC malformed)
+    /// the completion receives nil and callers can fall back to the
+    /// legacy deterministic scheme (`computeSessionID`) during the
+    /// migration period.
+    func openPane(
+        workspaceID: UUID,
+        command: String,
+        cols: Int,
+        rows: Int,
+        parentPaneID: String? = nil,
+        direction: String? = nil,
+        completion: @escaping (_ sessionID: String?, _ paneID: String?) -> Void
+    ) {
+        var params: [String: Any] = [
+            "workspace_id": workspaceID.uuidString.lowercased(),
+            "command": command,
+            "cols": max(1, cols),
+            "rows": max(1, rows),
+        ]
+        if let parentPaneID { params["parent_pane_id"] = parentPaneID }
+        if let direction { params["direction"] = direction }
+        sendRPCAsync(method: "workspace.open_pane", params: params) { result in
+            if case .success(let resp) = result,
+               let ok = resp["ok"] as? Bool, ok,
+               let r = resp["result"] as? [String: Any],
+               let sid = r["session_id"] as? String,
+               let pid = r["pane_id"] as? String {
+                completion(sid, pid)
+                return
+            }
+            completion(nil, nil)
+        }
+    }
+
     // MARK: - Public API: workspace sync (replaces WorkspaceDaemonBridge.performSync)
 
     func sendWorkspaceSync(_ params: [String: Any]) {
