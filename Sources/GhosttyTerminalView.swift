@@ -4265,10 +4265,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let daemonPath = MobileDaemonBridgeInline.shared.daemonSocketPath
         NSLog("📱 surface.checkDaemon running=%d path=%@", daemonRunning ? 1 : 0, daemonPath ?? "nil")
         if let daemonSocket = daemonPath, daemonRunning {
-            // Prefer the saved daemon session ID from a previous app session
-            // (quit with "Keep Daemon"). This lets us reattach to the same
-            // daemon session, preserving running TUIs like vim/btop.
-            let sessionID = savedDaemonSessionID ?? DaemonTerminalBridge.computeSessionID(workspaceID: tabId, surfaceID: id)
+            // Prefer the saved daemon session id from a previous restore
+            // (quit with "Keep Daemon" or session persistence). When nil
+            // we fire `workspace.open_pane` asynchronously below and let
+            // the bridge buffer writes until the daemon mints an id.
+            let initialSessionID = savedDaemonSessionID
             let shell = (env["SHELL"]?.isEmpty == false ? env["SHELL"] : nil)
                 ?? getenv("SHELL").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["SHELL"]
@@ -4289,7 +4290,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
             let bridge = DaemonTerminalBridge(
                 socketPath: daemonSocket,
-                sessionID: sessionID,
+                sessionID: initialSessionID,
                 shellCommand: shellCommand
             )
             self.daemonBridge = bridge
@@ -4305,7 +4306,34 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
             surfaceConfig.io_write_userdata = bridgePtr
 
-            dlog("surface.daemonBridge session=\(sessionID) socket=\(daemonSocket)")
+            if let sid = initialSessionID {
+                dlog("surface.daemonBridge session=\(sid) socket=\(daemonSocket) origin=saved")
+            } else {
+                dlog("surface.daemonBridge session=pending socket=\(daemonSocket) origin=openPane")
+                // Ask the daemon to mint a session bound to a pane in this
+                // workspace. Buffered writes/resizes/start flush on assign.
+                // The deferred resize after initial layout (below) will
+                // correct the daemon's grid from the default 80x24 to
+                // the actual surface dimensions.
+                let surfaceID = self.id
+                let workspaceID = self.tabId
+                DaemonConnection.shared.openPane(
+                    workspaceID: workspaceID,
+                    command: shellCommand,
+                    cols: 80,
+                    rows: 24
+                ) { [weak self, weak bridge] sid, _ in
+                    guard let sid else {
+                        NSLog("📱 surface.openPane failed tab=%@ surface=%@", workspaceID.uuidString, surfaceID.uuidString)
+                        return
+                    }
+                    DispatchQueue.main.async {
+                        self?.savedDaemonSessionID = sid
+                        bridge?.assignSessionID(sid)
+                        dlog("surface.daemonBridge.assign session=\(sid)")
+                    }
+                }
+            }
         }
         #endif
 
@@ -4360,8 +4388,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             bridge.start(cols: cols > 0 ? cols : 80, rows: rows > 0 ? rows : 24)
             // The surface may not have its final layout yet at this point.
             // Schedule a deferred resize after layout so the daemon gets
-            // the real dimensions. Without this, the PTY keeps the size
-            // from preCreateSession (default 80x24) and line wrapping breaks.
+            // the real dimensions. Without this, the PTY keeps its initial
+            // size (default 80x24 when openPane minted it) and line wrapping breaks.
             DispatchQueue.main.async { [weak self] in
                 guard let self, let surface = self.surface, let bridge = self.daemonBridge else { return }
                 let realSize = ghostty_surface_size(surface)

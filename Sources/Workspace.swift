@@ -571,26 +571,21 @@ extension Workspace {
             let daemonRunning = MobileDaemonBridgeInline.shared.isRunning
             let daemonPath = MobileDaemonBridgeInline.shared.daemonSocketPath
             if let socket = daemonPath, daemonRunning {
+                _ = socket
                 dlog("preCreateDaemonSessions.ready workspace=\(workspaceID.uuidString.prefix(8)) attempts=\(attempts)")
                 for info in panelInfo {
+                    // Only pre-create when we have a persisted daemon
+                    // session id to restore. Fresh panels (no saved id)
+                    // get their id minted by `workspace.open_pane` when
+                    // the surface comes up, not here.
+                    guard let sessionID = info.savedSessionID else { continue }
                     let shellCommand = buildPreCreateShellCommand(
                         workspaceID: workspaceID,
                         surfaceID: info.surfaceID
                     )
-                    // Use the saved session ID if available. This ensures
-                    // the pre-created session matches what the bridge will
-                    // use on attach, whether the daemon was reused or fresh.
-                    let sessionID = info.savedSessionID
-                        ?? DaemonTerminalBridge.computeSessionID(
-                            workspaceID: workspaceID,
-                            surfaceID: info.surfaceID
-                        )
-                    DaemonTerminalBridge.preCreateSession(
-                        socketPath: socket,
-                        workspaceID: workspaceID,
-                        surfaceID: info.surfaceID,
-                        shellCommand: shellCommand,
-                        sessionID: sessionID
+                    DaemonConnection.ensureSession(
+                        sessionID: sessionID,
+                        shellCommand: shellCommand
                     )
                 }
                 return
@@ -774,18 +769,15 @@ extension Workspace {
         }
 
         // Save the daemon session ID so it persists across quit+reopen.
-        // Prefer the saved ID (from a previous restore) over computing a
-        // new one. Without this, each restart cycle would save the
-        // computed ID (from the new surface UUID) instead of the original
-        // daemon session ID, breaking session persistence.
+        // Prefer the saved ID (from a previous restore) over the live
+        // bridge id so round-trip restarts keep the same daemon session.
+        // Nil is valid: fresh panels whose bridge hasn't yet received a
+        // daemon-minted id (via `workspace.open_pane`) snapshot without
+        // a daemonSessionID, and restore will re-open a fresh pane.
         let daemonSID: String? = {
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
             return terminalPanel.surface.savedDaemonSessionID
                 ?? terminalPanel.surface.daemonBridge?.sessionID
-                ?? DaemonTerminalBridge.computeSessionID(
-                    workspaceID: self.id,
-                    surfaceID: terminalPanel.surface.id
-                )
         }()
 
         return SessionPanelSnapshot(

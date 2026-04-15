@@ -169,37 +169,20 @@ final class DaemonConnection: @unchecked Sendable {
     var statusDescription: String { isConnected ? "connected" : "disconnected" }
     var currentSocketPath: String { socketPath }
 
-    // MARK: - Compatibility statics (drop-in replacements for DaemonTerminalBridge)
+    // MARK: - Session bootstrap for restored panels
 
-    /// Deterministic fallback session id used by the mac's synchronous
-    /// surface creation path. Prefer `openPane(workspaceID:command:cols:rows:)`
-    /// on any new call site — that gets a daemon-minted id that both
-    /// mac and iOS discover via `workspace.list`. This function is the
-    /// only remaining mac-side session_id minter; deleting it requires
-    /// making surface creation async, which is tracked as a follow-up
-    /// in shared-session-identity.md.
-    ///
-    /// Stable across app restarts; uses surface ID only because it persists in snapshots
-    /// while workspace IDs are regenerated.
-    @available(*, deprecated, message: "Use openPane(workspaceID:command:cols:rows:); the daemon mints authoritative session ids.")
-    static func computeSessionID(workspaceID: UUID, surfaceID: UUID) -> String {
-        "ws-\(surfaceID.uuidString.lowercased())"
-    }
-
-    /// Pre-create a daemon session so iOS clients can attach before the desktop
-    /// surface is materialized. Idempotent (already_exists is treated as success).
-    @available(*, deprecated, message: "Use openPane(workspaceID:command:cols:rows:); the daemon mints authoritative session ids.")
-    static func preCreateSession(
-        socketPath: String = DaemonConnection.defaultSocketPath,
-        workspaceID: UUID,
-        surfaceID: UUID,
+    /// Ensure a daemon session with a known id exists (idempotent). Used by the
+    /// session-restore path to bring the daemon's view in line with saved
+    /// ids so iOS clients can attach before the desktop surface materializes.
+    /// Fresh panels (no saved id) must use `openPane(workspaceID:...)` instead —
+    /// the daemon mints the authoritative id.
+    static func ensureSession(
+        sessionID: String,
         shellCommand: String,
         cols: Int = 80,
-        rows: Int = 24,
-        sessionID: String? = nil
+        rows: Int = 24
     ) {
-        let sid = sessionID ?? computeSessionID(workspaceID: workspaceID, surfaceID: surfaceID)
-        DaemonConnection.shared.preCreate(sessionID: sid, shellCommand: shellCommand, cols: cols, rows: rows)
+        DaemonConnection.shared.preCreate(sessionID: sessionID, shellCommand: shellCommand, cols: cols, rows: rows)
     }
 
     private func preCreate(sessionID: String, shellCommand: String, cols: Int, rows: Int) {
@@ -211,7 +194,7 @@ final class DaemonConnection: @unchecked Sendable {
         ]) { [weak self] result in
             guard let self else { return }
             // Detach the bootstrap attachment so the session has zero attachments
-            // until something subscribes (matches old preCreateSession behavior).
+            // until something subscribes.
             if case .success(let resp) = result,
                let ok = resp["ok"] as? Bool, ok,
                let r = resp["result"] as? [String: Any],
@@ -235,9 +218,8 @@ final class DaemonConnection: @unchecked Sendable {
     ///
     /// On success the completion receives `(sessionID, paneID)`. On any
     /// failure (daemon not reachable, workspace missing, RPC malformed)
-    /// the completion receives nil and callers can fall back to the
-    /// legacy deterministic scheme (`computeSessionID`) during the
-    /// migration period.
+    /// the completion receives nil and callers must surface the
+    /// failure rather than fabricating an id.
     func openPane(
         workspaceID: UUID,
         command: String,
@@ -288,9 +270,8 @@ final class DaemonConnection: @unchecked Sendable {
             }
             // Likely `not_found` because workspace.sync / workspace.create
             // hasn't landed yet on the daemon. Retry a few times with
-            // backoff before giving up; the caller's fallback
-            // (computeSessionID + terminal.open) keeps the surface
-            // functional regardless.
+            // backoff before giving up. Callers surface failure rather
+            // than fabricating a local id.
             guard let self, attempt < 5 else {
                 completion(nil, nil)
                 return

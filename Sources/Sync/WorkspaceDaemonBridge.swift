@@ -274,23 +274,20 @@ final class WorkspaceDaemonBridge {
         let workspaces: [[String: Any]] = tabManager.tabs.map { workspace in
             let preview = workspacePreview(for: workspace)
             let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
-            let sessionIDs: [String] = terminalPanels.map { panel in
+            // Only surface panels whose daemon session id is already known.
+            // A newly-created panel whose `workspace.open_pane` RPC is still
+            // in flight has no authoritative id yet; the daemon has already
+            // recorded the pane (openPane is what bound it), so omitting
+            // it here is preferable to inventing a fabricated id.
+            let sessionIDs: [String] = terminalPanels.compactMap { panel in
                 panel.surface.savedDaemonSessionID
-                    ?? DaemonConnection.computeSessionID(
-                        workspaceID: workspace.id,
-                        surfaceID: panel.surface.id
-                    )
             }
-            let paneInfos: [[String: Any]] = terminalPanels.map { panel in
+            let paneInfos: [[String: Any]] = terminalPanels.compactMap { panel in
+                guard let paneSID = panel.surface.savedDaemonSessionID else { return nil }
                 let customTitle = workspace.panelCustomTitles[panel.id]?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let resolvedTitle = (customTitle?.isEmpty == false ? customTitle : nil)
                     ?? panel.title
-                let paneSID = panel.surface.savedDaemonSessionID
-                    ?? DaemonConnection.computeSessionID(
-                        workspaceID: workspace.id,
-                        surfaceID: panel.surface.id
-                    )
                 return [
                     "session_id": paneSID,
                     "title": resolvedTitle,

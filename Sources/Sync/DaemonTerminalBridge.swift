@@ -2,24 +2,28 @@ import Foundation
 
 /// Thin facade preserving the old per-surface bridge API while routing all
 /// socket I/O through the single shared `DaemonConnection`. Creates no socket
-/// of its own. Call sites (GhosttyTerminalView, TerminalController) remain
-/// unchanged; they construct one of these per surface and use the same
-/// methods as before, but the daemon traffic funnels into one connection.
+/// of its own.
+///
+/// The bridge can be constructed with a nil `sessionID` (daemon hasn't minted
+/// one yet via `workspace.open_pane`). Writes and `start(cols:rows:)` calls
+/// are buffered until `assignSessionID(_:)` lands, at which point the pending
+/// subscription fires and buffered writes flush in order.
 final class DaemonTerminalBridge: @unchecked Sendable {
-    let sessionID: String
+    private(set) var sessionID: String?
     private let shellCommand: String
     private var started = false
+    private var subscribed = false
     private let lock = NSLock()
+    private var pendingStart: (cols: Int, rows: Int)?
+    private var pendingWrites: [Data] = []
+    private var pendingResize: (cols: Int, rows: Int)?
 
     var onOutput: ((_ data: Data) -> Void)?
     var onDisconnect: ((_ error: String?) -> Void)?
     /// Authoritative `session.view_size` delivery from the daemon.
-    /// Callers apply this directly to the Ghostty surface without
-    /// inference or thresholding — the daemon's value is the rendering
-    /// grid for every attached client.
     var onViewSize: ((_ cols: Int, _ rows: Int) -> Void)?
 
-    init(socketPath: String, sessionID: String, shellCommand: String) {
+    init(socketPath: String, sessionID: String?, shellCommand: String) {
         // socketPath is ignored — DaemonConnection owns the socket path.
         _ = socketPath
         self.sessionID = sessionID
@@ -28,37 +32,55 @@ final class DaemonTerminalBridge: @unchecked Sendable {
 
     deinit { stopInternal() }
 
-    @available(*, deprecated, message: "Use DaemonConnection.openPane; the daemon mints authoritative session ids.")
-    static func computeSessionID(workspaceID: UUID, surfaceID: UUID) -> String {
-        DaemonConnection.computeSessionID(workspaceID: workspaceID, surfaceID: surfaceID)
-    }
+    /// Populate the daemon-minted session id. Flushes any buffered
+    /// `start`/`writeToSession`/`resize` calls in order.
+    func assignSessionID(_ sid: String) {
+        lock.lock()
+        guard sessionID == nil else { lock.unlock(); return }
+        sessionID = sid
+        let shouldStart = started && !subscribed
+        let pendingStart = self.pendingStart
+        let pendingResize = self.pendingResize
+        let pendingWrites = self.pendingWrites
+        self.pendingStart = nil
+        self.pendingResize = nil
+        self.pendingWrites = []
+        lock.unlock()
 
-    @available(*, deprecated, message: "Use DaemonConnection.openPane; the daemon mints authoritative session ids.")
-    static func preCreateSession(
-        socketPath: String,
-        workspaceID: UUID,
-        surfaceID: UUID,
-        shellCommand: String,
-        cols: Int = 80,
-        rows: Int = 24,
-        sessionID: String? = nil
-    ) {
-        _ = socketPath
-        DaemonConnection.preCreateSession(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            shellCommand: shellCommand,
-            cols: cols,
-            rows: rows,
-            sessionID: sessionID
-        )
+        if shouldStart, let ps = pendingStart {
+            subscribe(cols: ps.cols, rows: ps.rows)
+        }
+        if let pr = pendingResize {
+            DaemonConnection.shared.resizeSession(sessionID: sid, cols: pr.cols, rows: pr.rows)
+        }
+        for data in pendingWrites {
+            DaemonConnection.shared.writeToSession(sessionID: sid, data: data)
+        }
     }
 
     func start(cols: Int, rows: Int) {
         lock.lock()
         guard !started else { lock.unlock(); return }
         started = true
+        guard let sid = sessionID else {
+            pendingStart = (cols, rows)
+            lock.unlock()
+            return
+        }
+        subscribed = true
         lock.unlock()
+        subscribe(sessionID: sid, cols: cols, rows: rows)
+    }
+
+    private func subscribe(cols: Int, rows: Int) {
+        guard let sid = sessionID else { return }
+        lock.lock()
+        subscribed = true
+        lock.unlock()
+        subscribe(sessionID: sid, cols: cols, rows: rows)
+    }
+
+    private func subscribe(sessionID: String, cols: Int, rows: Int) {
         DaemonConnection.shared.subscribeTerminal(
             sessionID: sessionID,
             shellCommand: shellCommand,
@@ -75,17 +97,37 @@ final class DaemonTerminalBridge: @unchecked Sendable {
     private func stopInternal() {
         lock.lock()
         let wasStarted = started
+        let wasSubscribed = subscribed
+        let sid = sessionID
         started = false
+        subscribed = false
+        pendingStart = nil
+        pendingResize = nil
+        pendingWrites.removeAll()
         lock.unlock()
-        guard wasStarted else { return }
-        DaemonConnection.shared.unsubscribeTerminal(sessionID: sessionID)
+        guard wasStarted, wasSubscribed, let sid else { return }
+        DaemonConnection.shared.unsubscribeTerminal(sessionID: sid)
     }
 
     func writeToSession(_ data: Data) {
-        DaemonConnection.shared.writeToSession(sessionID: sessionID, data: data)
+        lock.lock()
+        if let sid = sessionID {
+            lock.unlock()
+            DaemonConnection.shared.writeToSession(sessionID: sid, data: data)
+            return
+        }
+        pendingWrites.append(data)
+        lock.unlock()
     }
 
     func resize(cols: Int, rows: Int) {
-        DaemonConnection.shared.resizeSession(sessionID: sessionID, cols: cols, rows: rows)
+        lock.lock()
+        if let sid = sessionID {
+            lock.unlock()
+            DaemonConnection.shared.resizeSession(sessionID: sid, cols: cols, rows: rows)
+            return
+        }
+        pendingResize = (cols, rows)
+        lock.unlock()
     }
 }

@@ -3862,18 +3862,30 @@ class TerminalController {
                 // bridge directly if the daemon is running.
                 guard let daemonSocket = MobileDaemonBridgeInline.shared.daemonSocketPath,
                       MobileDaemonBridgeInline.shared.isRunning else { continue }
-                let sessionID = surface.savedDaemonSessionID
-                    ?? DaemonTerminalBridge.computeSessionID(
-                        workspaceID: ws.id,
-                        surfaceID: surface.id
-                    )
+                let savedSessionID = surface.savedDaemonSessionID
                 let bridge = DaemonTerminalBridge(
                     socketPath: daemonSocket,
-                    sessionID: sessionID,
+                    sessionID: savedSessionID,
                     shellCommand: "/bin/zsh -l"
                 )
                 surface.daemonBridge = bridge
                 bridge.start(cols: 80, rows: 24)
+                if savedSessionID == nil {
+                    // Mint a daemon-owned session bound to a pane in this workspace.
+                    // Buffered start+writes flush when assignSessionID lands.
+                    DaemonConnection.shared.openPane(
+                        workspaceID: ws.id,
+                        command: "/bin/zsh -l",
+                        cols: 80,
+                        rows: 24
+                    ) { [weak surface, weak bridge] sid, _ in
+                        guard let sid else { return }
+                        DispatchQueue.main.async {
+                            surface?.savedDaemonSessionID = sid
+                            bridge?.assignSessionID(sid)
+                        }
+                    }
+                }
                 created += 1
             }
         }
