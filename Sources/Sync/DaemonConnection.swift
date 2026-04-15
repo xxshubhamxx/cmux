@@ -245,6 +245,28 @@ final class DaemonConnection: @unchecked Sendable {
         direction: String? = nil,
         completion: @escaping (_ sessionID: String?, _ paneID: String?) -> Void
     ) {
+        openPaneWithRetry(
+            workspaceID: workspaceID,
+            command: command,
+            cols: cols,
+            rows: rows,
+            parentPaneID: parentPaneID,
+            direction: direction,
+            attempt: 0,
+            completion: completion
+        )
+    }
+
+    private func openPaneWithRetry(
+        workspaceID: UUID,
+        command: String,
+        cols: Int,
+        rows: Int,
+        parentPaneID: String?,
+        direction: String?,
+        attempt: Int,
+        completion: @escaping (_ sessionID: String?, _ paneID: String?) -> Void
+    ) {
         var params: [String: Any] = [
             "workspace_id": workspaceID.uuidString.lowercased(),
             "command": command,
@@ -253,7 +275,7 @@ final class DaemonConnection: @unchecked Sendable {
         ]
         if let parentPaneID { params["parent_pane_id"] = parentPaneID }
         if let direction { params["direction"] = direction }
-        sendRPCAsync(method: "workspace.open_pane", params: params) { result in
+        sendRPCAsync(method: "workspace.open_pane", params: params) { [weak self] result in
             if case .success(let resp) = result,
                let ok = resp["ok"] as? Bool, ok,
                let r = resp["result"] as? [String: Any],
@@ -262,7 +284,28 @@ final class DaemonConnection: @unchecked Sendable {
                 completion(sid, pid)
                 return
             }
-            completion(nil, nil)
+            // Likely `not_found` because workspace.sync / workspace.create
+            // hasn't landed yet on the daemon. Retry a few times with
+            // backoff before giving up; the caller's fallback
+            // (computeSessionID + terminal.open) keeps the surface
+            // functional regardless.
+            guard let self, attempt < 5 else {
+                completion(nil, nil)
+                return
+            }
+            let delay = Double(min(attempt + 1, 5)) * 0.1
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.openPaneWithRetry(
+                    workspaceID: workspaceID,
+                    command: command,
+                    cols: cols,
+                    rows: rows,
+                    parentPaneID: parentPaneID,
+                    direction: direction,
+                    attempt: attempt + 1,
+                    completion: completion
+                )
+            }
         }
     }
 
