@@ -1987,15 +1987,13 @@ final class WorkspacePaneDropRoutingTests: XCTestCase {
             for: CGPoint(x: 8, y: size.height * 0.5),
             in: size,
             targetPaneId: targetPaneId,
-            sourcePaneId: sourcePaneId,
-            draggedKind: .terminal
+            sourcePaneId: sourcePaneId
         )
 
         XCTAssertEqual(decision.defaultZone, .left)
         XCTAssertEqual(decision.finalZone, .left)
         XCTAssertEqual(decision.targetPaneId, targetPaneId)
         XCTAssertEqual(decision.sourcePaneId, sourcePaneId)
-        XCTAssertEqual(decision.draggedKind, .terminal)
         XCTAssertNil(decision.remapReason)
     }
 
@@ -2008,15 +2006,13 @@ final class WorkspacePaneDropRoutingTests: XCTestCase {
             for: CGPoint(x: size.width - 8, y: size.height * 0.5),
             in: size,
             targetPaneId: targetPaneId,
-            sourcePaneId: sourcePaneId,
-            draggedKind: .terminal
+            sourcePaneId: sourcePaneId
         )
 
         XCTAssertEqual(decision.defaultZone, .right)
         XCTAssertEqual(decision.finalZone, .right)
         XCTAssertEqual(decision.targetPaneId, targetPaneId)
         XCTAssertEqual(decision.sourcePaneId, sourcePaneId)
-        XCTAssertEqual(decision.draggedKind, .terminal)
         XCTAssertNil(decision.remapReason)
     }
 
@@ -2028,15 +2024,13 @@ final class WorkspacePaneDropRoutingTests: XCTestCase {
             for: CGPoint(x: size.width * 0.5, y: size.height - 8),
             in: size,
             targetPaneId: targetPaneId,
-            sourcePaneId: nil,
-            draggedKind: nil
+            sourcePaneId: nil
         )
 
         XCTAssertEqual(decision.defaultZone, .top)
         XCTAssertEqual(decision.finalZone, .top)
         XCTAssertEqual(decision.targetPaneId, targetPaneId)
         XCTAssertNil(decision.sourcePaneId)
-        XCTAssertNil(decision.draggedKind)
         XCTAssertNil(decision.remapReason)
     }
 }

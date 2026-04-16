@@ -1678,7 +1678,7 @@ private final class WorkspaceLayoutTabDocumentView: NSView {
     private func validateSplitTabDrop(_ sender: NSDraggingInfo) -> Bool {
         guard let controller else { return false }
         guard controller.internalController.isInteractive else { return false }
-        if controller.internalController.activeDragTab != nil || controller.internalController.draggingTab != nil {
+        if controller.internalController.activeDragTabId != nil || controller.internalController.draggingTabId != nil {
             return true
         }
         guard let transfer = workspaceSplitDecodeTransfer(from: sender.draggingPasteboard),
@@ -1712,10 +1712,10 @@ private final class WorkspaceLayoutTabDocumentView: NSView {
         guard let snapshot, let controller else { return false }
         let destinationIndex = targetIndex(for: convert(sender.draggingLocation, from: nil))
 
-        if let draggedTab = controller.internalController.activeDragTab ?? controller.internalController.draggingTab,
+        if let draggedTabId = controller.internalController.activeDragTabId ?? controller.internalController.draggingTabId,
            let sourcePaneId = controller.internalController.activeDragSourcePaneId ?? controller.internalController.dragSourcePaneId {
             if sourcePaneId == snapshot.paneId,
-               let sourceIndex = snapshot.tabs.firstIndex(where: { $0.tab.id == draggedTab.id }),
+               let sourceIndex = snapshot.tabs.firstIndex(where: { $0.tab.id == draggedTabId }),
                (destinationIndex == sourceIndex || destinationIndex == sourceIndex + 1) {
                 workspaceSplitClearDragState(controller.internalController)
                 updateDropIndicator(targetIndex: nil)
@@ -1724,14 +1724,14 @@ private final class WorkspaceLayoutTabDocumentView: NSView {
 
             if sourcePaneId == snapshot.paneId {
                 _ = controller.moveTab(
-                    draggedTab.id,
+                    draggedTabId,
                     toPane: snapshot.paneId,
                     atIndex: destinationIndex
                 )
                 controller.focusPane(snapshot.paneId)
             } else {
                 _ = controller.moveTab(
-                    draggedTab.id,
+                    draggedTabId,
                     toPane: snapshot.paneId,
                     atIndex: destinationIndex
                 )
@@ -1749,7 +1749,7 @@ private final class WorkspaceLayoutTabDocumentView: NSView {
         }
 
         let request = WorkspaceLayoutController.ExternalTabDropRequest(
-            tabId: transfer.tab.id,
+            tabId: transfer.tabId,
             sourcePaneId: PaneID(id: transfer.sourcePaneId),
             destination: .insert(targetPane: snapshot.paneId, targetIndex: destinationIndex)
         )
@@ -2402,16 +2402,16 @@ final class WorkspaceLayoutNativeTabButtonView: NSView, NSDraggingSource {
         guard distance >= 3 else { return }
         dragStarted = true
 
-        let transferTab = transferTab()
+        let transferTabId = tab.id
         splitViewController.dragGeneration += 1
-        splitViewController.draggingTab = transferTab
+        splitViewController.draggingTabId = transferTabId
         splitViewController.dragSourcePaneId = paneId
-        splitViewController.activeDragTab = transferTab
+        splitViewController.activeDragTabId = transferTabId
         splitViewController.activeDragSourcePaneId = paneId
 
         let pasteboardItem = NSPasteboardItem()
         if let data = try? JSONEncoder().encode(
-            TabTransferData(tab: transferTab, sourcePaneId: paneId.id)
+            TabTransferData(tabId: transferTabId, sourcePaneId: paneId.id)
         ) {
             pasteboardItem.setData(data, forType: NSPasteboard.PasteboardType(UTType.tabTransfer.identifier))
         }
@@ -2430,10 +2430,6 @@ final class WorkspaceLayoutNativeTabButtonView: NSView, NSDraggingSource {
         }
         guard !dragStarted else { return }
         onSelect?()
-    }
-
-    private func transferTab() -> WorkspaceLayout.Tab {
-        tab
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -2896,21 +2892,19 @@ private final class WorkspaceLayoutPaneDropOverlayView: NSView {
         guard controller.internalController.isInteractive else { return [] }
 
         if sender.draggingPasteboard.availableType(from: [NSPasteboard.PasteboardType(UTType.tabTransfer.identifier)]) != nil {
-            guard controller.internalController.activeDragTab != nil
-                || controller.internalController.draggingTab != nil
+            guard controller.internalController.activeDragTabId != nil
+                || controller.internalController.draggingTabId != nil
                 || workspaceSplitDecodeTransfer(from: sender.draggingPasteboard)?.isFromCurrentProcess == true else {
                 return []
             }
             let location = convert(sender.draggingLocation, from: nil)
             let sourcePaneId = controller.internalController.activeDragSourcePaneId
                 ?? controller.internalController.dragSourcePaneId
-            let draggedKind = (controller.internalController.activeDragTab ?? controller.internalController.draggingTab)?.kind
             let decision = WorkspacePaneDropRouting.decision(
                 for: location,
                 in: bounds.size,
                 targetPaneId: paneId,
-                sourcePaneId: sourcePaneId,
-                draggedKind: draggedKind
+                sourcePaneId: sourcePaneId
             )
             let zone = decision.finalZone
             activeDropZone = zone
@@ -2946,7 +2940,7 @@ private final class WorkspaceLayoutPaneDropOverlayView: NSView {
                 in: bounds.size
             )
 
-            if let draggedTab = controller.internalController.activeDragTab ?? controller.internalController.draggingTab,
+            if let draggedTabId = controller.internalController.activeDragTabId ?? controller.internalController.draggingTabId,
                let sourcePaneId = controller.internalController.activeDragSourcePaneId ?? controller.internalController.dragSourcePaneId {
                 workspaceSplitClearDragState(controller.internalController)
                 activeDropZone = nil
@@ -2954,7 +2948,7 @@ private final class WorkspaceLayoutPaneDropOverlayView: NSView {
 
                 if zone == .center {
                     if sourcePaneId != paneId {
-                        _ = controller.moveTab(draggedTab.id, toPane: paneId, atIndex: nil)
+                        _ = controller.moveTab(draggedTabId, toPane: paneId, atIndex: nil)
                     }
                     onDropPerformed?()
                     return true
@@ -2964,7 +2958,7 @@ private final class WorkspaceLayoutPaneDropOverlayView: NSView {
                 _ = controller.splitPane(
                     paneId,
                     orientation: orientation,
-                    movingTab: draggedTab.id,
+                    movingTab: draggedTabId,
                     insertFirst: zone.insertsFirst
                 )
                 onDropPerformed?()
@@ -2988,7 +2982,7 @@ private final class WorkspaceLayoutPaneDropOverlayView: NSView {
             }
 
             let request = WorkspaceLayoutController.ExternalTabDropRequest(
-                tabId: transfer.tab.id,
+                tabId: transfer.tabId,
                 sourcePaneId: PaneID(id: transfer.sourcePaneId),
                 destination: destination
             )
@@ -4421,9 +4415,9 @@ private func workspaceSplitAdjustColor(_ color: NSColor, by delta: CGFloat) -> N
 
 @MainActor
 private func workspaceSplitClearDragState(_ controller: SplitViewController) {
-    controller.draggingTab = nil
+    controller.draggingTabId = nil
     controller.dragSourcePaneId = nil
-    controller.activeDragTab = nil
+    controller.activeDragTabId = nil
     controller.activeDragSourcePaneId = nil
 }
 
@@ -4432,7 +4426,6 @@ struct WorkspacePaneDropZoneDecision: Equatable {
     let finalZone: DropZone
     let targetPaneId: PaneID
     let sourcePaneId: PaneID?
-    let draggedKind: PanelType?
     let remapReason: String?
 }
 
@@ -4503,8 +4496,7 @@ enum WorkspacePaneDropRouting {
         for location: CGPoint,
         in size: CGSize,
         targetPaneId: PaneID,
-        sourcePaneId: PaneID?,
-        draggedKind: PanelType?
+        sourcePaneId: PaneID?
     ) -> WorkspacePaneDropZoneDecision {
         let defaultZone = zone(for: location, in: size)
         return WorkspacePaneDropZoneDecision(
@@ -4512,7 +4504,6 @@ enum WorkspacePaneDropRouting {
             finalZone: defaultZone,
             targetPaneId: targetPaneId,
             sourcePaneId: sourcePaneId,
-            draggedKind: draggedKind,
             remapReason: nil
         )
     }

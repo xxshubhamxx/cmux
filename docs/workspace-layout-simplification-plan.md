@@ -15,6 +15,7 @@ Implemented on `issue-2289-appkit-split-host`:
 - restore/import and placeholder-repair paths inside `Workspace` now also go through those typed helpers
 - the old raw create-split methods are now private implementation detail inside `Workspace`, and tests were migrated to the typed helper API
 - `WorkspaceLayoutController.createTab` now only accepts the layout-owned fields that survive into `TabItem`, and detached-surface transfer payloads no longer carry dead chrome data
+- split-view drag state and same-process tab transfer payloads now carry stable `TabID` values instead of duplicating full tab chrome payload across controller state and pasteboard transport
 - the layout host command and drag path now use typed `PanelType` surface kinds instead of raw `"terminal"` and `"browser"` strings
 - browser portal and visibility assumptions now sit behind a dedicated `BrowserPanelWorkspaceContentView` mounting adapter instead of leaking through `WorkspaceSplitNativeHost`
 - the keyboard/browser "insert at end" path now uses the correct reorder slot semantics, which restored the existing append-at-end invariant

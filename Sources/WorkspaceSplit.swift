@@ -770,12 +770,12 @@ struct TabItem: Identifiable, Hashable, Codable {
 
 /// Transfer data that includes source pane information for cross-pane moves
 struct TabTransferData: Codable, Transferable {
-    let tab: WorkspaceLayout.Tab
+    let tabId: TabID
     let sourcePaneId: UUID
     let sourceProcessId: Int32
 
-    init(tab: WorkspaceLayout.Tab, sourcePaneId: UUID, sourceProcessId: Int32 = Int32(ProcessInfo.processInfo.processIdentifier)) {
-        self.tab = tab
+    init(tabId: TabID, sourcePaneId: UUID, sourceProcessId: Int32 = Int32(ProcessInfo.processInfo.processIdentifier)) {
+        self.tabId = tabId
         self.sourcePaneId = sourcePaneId
         self.sourceProcessId = sourceProcessId
     }
@@ -785,6 +785,7 @@ struct TabTransferData: Codable, Transferable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case tabId
         case tab
         case sourcePaneId
         case sourceProcessId
@@ -792,7 +793,12 @@ struct TabTransferData: Codable, Transferable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.tab = try container.decode(WorkspaceLayout.Tab.self, forKey: .tab)
+        if let tabId = try container.decodeIfPresent(TabID.self, forKey: .tabId) {
+            self.tabId = tabId
+        } else {
+            let legacyTab = try container.decode(WorkspaceLayout.Tab.self, forKey: .tab)
+            self.tabId = legacyTab.id
+        }
         self.sourcePaneId = try container.decode(UUID.self, forKey: .sourcePaneId)
         // Legacy payloads won't include this field. Treat as foreign process to reject cross-instance drops.
         self.sourceProcessId = try container.decodeIfPresent(Int32.self, forKey: .sourceProcessId) ?? -1
@@ -800,7 +806,7 @@ struct TabTransferData: Codable, Transferable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(tab, forKey: .tab)
+        try container.encode(tabId, forKey: .tabId)
         try container.encode(sourcePaneId, forKey: .sourcePaneId)
         try container.encode(sourceProcessId, forKey: .sourceProcessId)
     }
@@ -1104,7 +1110,7 @@ final class SplitViewController {
 
     /// Tab currently being dragged (for visual feedback and hit-testing).
     /// This is @Observable so SwiftUI views react (e.g. allowsHitTesting).
-    var draggingTab: WorkspaceLayout.Tab?
+    var draggingTabId: TabID?
 
     /// Monotonic counter incremented on each drag start. Used to invalidate stale
     /// timeout timers that would otherwise cancel a new drag of the same tab.
@@ -1116,7 +1122,7 @@ final class SplitViewController {
     /// Non-observable drag session state. Drop delegates read these instead of the
     /// @Observable properties above, because SwiftUI batches observable updates and
     /// createItemProvider's writes may not be visible to validateDrop/performDrop yet.
-    @ObservationIgnored var activeDragTab: WorkspaceLayout.Tab?
+    @ObservationIgnored var activeDragTabId: TabID?
     @ObservationIgnored var activeDragSourcePaneId: PaneID?
 
     /// When false, drop delegates reject all drags and NSViews are hidden.
