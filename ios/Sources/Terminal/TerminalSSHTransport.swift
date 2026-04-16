@@ -190,18 +190,14 @@ final class TerminalSSHTransport: @unchecked Sendable, TerminalTransport {
     func connect(initialSize: TerminalGridSize) async throws {
         let connection = try await terminalOpenSSHConnection(host: host, credentials: credentials)
         let rootChannel = connection.rootChannel
-        lock.lock()
-        self.rootChannel = rootChannel
-        lock.unlock()
+        lock.withLock { self.rootChannel = rootChannel }
 
         rootChannel.closeFuture.whenComplete { [weak self] result in
             self?.finishDisconnect(error: result.failureReason?.localizedDescription)
         }
 
         let shellChannel = try await terminalOpenSSHSessionChannel(rootChannel: rootChannel)
-        lock.lock()
-        self.shellChannel = shellChannel
-        lock.unlock()
+        lock.withLock { self.shellChannel = shellChannel }
 
         let shellHandler = TerminalSSHShellHandler(
             eventLoop: shellChannel.eventLoop,
@@ -223,9 +219,7 @@ final class TerminalSSHTransport: @unchecked Sendable, TerminalTransport {
     }
 
     func send(_ data: Data) async throws {
-        lock.lock()
-        let channel = shellChannel
-        lock.unlock()
+        let channel = lock.withLock { shellChannel }
         guard let channel else { return }
         try await channel.eventLoop.submit {
             var buffer = channel.allocator.buffer(capacity: data.count)
@@ -239,9 +233,7 @@ final class TerminalSSHTransport: @unchecked Sendable, TerminalTransport {
     }
 
     func resize(_ size: TerminalGridSize) async {
-        lock.lock()
-        let channel = shellChannel
-        lock.unlock()
+        let channel = lock.withLock { shellChannel }
         guard let channel else { return }
         let request = SSHChannelRequestEvent.WindowChangeRequest(
             terminalCharacterWidth: max(1, size.columns),
@@ -257,22 +249,19 @@ final class TerminalSSHTransport: @unchecked Sendable, TerminalTransport {
     }
 
     func disconnect() async {
-        lock.lock()
-        let channel = rootChannel
-        lock.unlock()
+        let channel = lock.withLock { rootChannel }
         guard let channel else { return }
         try? await channel.close().get()
         finishDisconnect(error: nil)
     }
 
     private func finishDisconnect(error: String?) {
-        lock.lock()
-        guard !closed else {
-            lock.unlock()
-            return
+        let shouldEmit = lock.withLock { () -> Bool in
+            guard !closed else { return false }
+            closed = true
+            return true
         }
-        closed = true
-        lock.unlock()
+        guard shouldEmit else { return }
         eventHandler?(.disconnected(error))
     }
 }
