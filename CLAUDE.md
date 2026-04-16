@@ -16,6 +16,32 @@ After making code changes, always run the reload script with a tag to build the 
 ./scripts/reload.sh --tag fix-zsh-autosuggestions
 ```
 
+### Cross-stack reloads (mac + iOS + daemon)
+
+iOS clients connect to mac-side `cmuxd-remote` over WebSocket. A code
+change in any one of mac swift, iOS swift, or zig daemon usually needs
+a reload of **every** affected surface. Defaulting to "only reload
+what I edited" leaves the user with stale binaries on the other side
+and produces phantom bug reports.
+
+| Edited | Mac reload | iOS reload | Notes |
+|--------|-----------|-----------|-------|
+| `Sources/**` (mac swift only) | yes | no | mac UI / control socket |
+| `daemon/remote/zig/**` | **yes** | **yes** | daemon respawns when mac launches; iOS connects over WS |
+| `ios/Sources/**` | no | **yes** | iOS UI / transport |
+| Shared RPC schema (json-rpc method names, params) | yes | yes | both sides parse the wire format |
+| `MobileDaemonBridgeInline` (mac), WS port hash, secret loader | yes | yes | iOS caches endpoint; stale port → silent connect failures |
+
+iOS reload runs from the worktree's `ios/` dir:
+
+```bash
+cd ios && ./scripts/reload.sh
+```
+
+When in doubt, reload both. End every applicable handoff stating
+exactly what was reloaded: `Reloaded mac (tag: pty-shared-size) +
+iOS simulator. iPhone unavailable.` Don't make the user infer it.
+
 By default, `reload.sh` builds but does **not** launch the app. The script prints the `.app` path so the user can cmd-click to open it. Pass `--launch` to kill any existing instance and open the app automatically:
 
 ```bash

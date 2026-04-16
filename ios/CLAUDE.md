@@ -15,6 +15,42 @@
 
 Always run `./scripts/reload.sh` after making code changes to reload the app.
 
+### Cross-stack reload checklist
+
+iOS clients connect to mac-side `cmuxd-remote` over WebSocket. Many
+"reload the app" turns touch code that affects **both** sides. Always
+reload **every** surface the change can land in:
+
+| Code area touched | Mac tagged reload | iOS reload | Daemon rebuild |
+|-------------------|-------------------|------------|----------------|
+| `daemon/remote/zig/**` | yes (mac respawns daemon on launch) | yes (iOS connects to it) | implicit via mac reload script |
+| `ios/Sources/**` | no | **yes** | no |
+| `Sources/**` (mac swift) | yes | no | no |
+| Shared protocol / RPC schema changes | yes | yes | yes |
+| `MobileDaemonBridgeInline` / WS port logic | yes | yes (iOS may cache stale port) | no |
+
+The default for ambiguous turns is "reload both". Faster than rediscovering a
+stale-state bug after the user reports it.
+
+iOS reload from this dir:
+
+```bash
+cd ios && ./scripts/reload.sh
+```
+
+If you see `error: There is no XCFramework found at .../TailscaleKit.xcframework`,
+the `vendor/libtailscale` submodule isn't built in this worktree. Build
+it once per worktree before iOS reload works:
+
+```bash
+git submodule update --init --recursive vendor/libtailscale
+cd vendor/libtailscale/swift && ./build.sh   # check exact path/script in vendor/libtailscale
+```
+
+Always state explicitly in chat handoff which surfaces were reloaded:
+"Reloaded mac (tag: <slug>) and iOS simulator. iPhone unavailable." —
+never let the user guess.
+
 ## Living Spec
 - `docs/terminal-sidebar-living-spec.md` tracks the sidebar terminal migration plan.
 - Keep this document updated as implementation status changes.
