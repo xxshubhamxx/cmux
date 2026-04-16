@@ -1,4 +1,7 @@
+import OSLog
 import SwiftUI
+
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "terminal.sidebar-view")
 
 struct TerminalSidebarRootView: View {
     @StateObject private var store: TerminalSidebarStore
@@ -45,7 +48,7 @@ struct TerminalSidebarRootView: View {
             return TerminalCacheRepository(database: database)
         } catch {
             #if DEBUG
-            print("Failed to initialize SQLite terminal cache: \(error)")
+            log.error("Failed to initialize SQLite terminal cache: \(error.localizedDescription, privacy: .public)")
             #endif
             return TerminalSnapshotStore()
         }
@@ -56,7 +59,7 @@ struct TerminalSidebarRootView: View {
             return InboxCacheRepository(database: try AppDatabase.live())
         } catch {
             #if DEBUG
-            print("Failed to initialize SQLite inbox cache: \(error)")
+            log.error("Failed to initialize SQLite inbox cache: \(error.localizedDescription, privacy: .public)")
             #endif
             return nil
         }

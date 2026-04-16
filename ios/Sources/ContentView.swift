@@ -1,8 +1,11 @@
+import OSLog
 import SwiftUI
 import Sentry
 
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "content")
+
 struct ContentView: View {
-    @StateObject private var authManager = AuthManager.shared
+    private let authManager = AuthManager.shared
     @StateObject private var terminalStore = TerminalSidebarRootView.makeLiveStore()
     @StateObject private var notificationRouteStore = NotificationRouteStore.shared
     private let uiTestTerminalSetupFixture = UITestConfig.terminalSetupFixtureEnabled
@@ -87,7 +90,7 @@ struct SessionRestoreView: View {
 }
 
 struct SettingsView: View {
-    @StateObject private var authManager = AuthManager.shared
+    private let authManager = AuthManager.shared
     @StateObject private var notifications = NotificationManager.shared
     @State private var testNotificationAlert: TestNotificationAlert?
 
@@ -145,7 +148,7 @@ struct SettingsView: View {
                                     message: "Check your device for a push notification."
                                 )
                             } catch {
-                                print("🔔 Failed to send test notification: \(error)")
+                                log.error("Failed to send test notification: \(error.localizedDescription, privacy: .public)")
                                 SentrySDK.capture(error: error)
                                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                                 testNotificationAlert = TestNotificationAlert(

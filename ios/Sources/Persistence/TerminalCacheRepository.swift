@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "persistence.terminal-cache")
 
 final class TerminalCacheRepository: TerminalSnapshotPersisting {
     private let database: AppDatabase
@@ -12,7 +15,7 @@ final class TerminalCacheRepository: TerminalSnapshotPersisting {
             return try database.readTerminalSnapshot()
         } catch {
             #if DEBUG
-            print("Failed to load terminal snapshot from SQLite: \(error)")
+            log.error("Failed to load terminal snapshot from SQLite: \(error.localizedDescription, privacy: .public)")
             #endif
             return .empty()
         }

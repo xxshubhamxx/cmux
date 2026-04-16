@@ -1,10 +1,13 @@
+import OSLog
 import StackAuth
 import SwiftUI
 import Sentry
 import UIKit
 
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "auth.signin")
+
 struct SignInView: View {
-    @StateObject private var authManager = AuthManager.shared
+    private let authManager = AuthManager.shared
     @State private var email = ""
     @State private var code = ""
     @State private var showCodeEntry = false
@@ -196,7 +199,7 @@ struct SignInView: View {
         } catch let err {
             error = detailedErrorMessage(err)
             shouldAutofocusCode = false
-            print("🔐 Email code request failed: \(err)")
+            log.error("Email code request failed: \(err.localizedDescription, privacy: .public)")
             SentrySDK.capture(error: err)
         }
     }
@@ -205,10 +208,10 @@ struct SignInView: View {
         error = nil
         do {
             try await authManager.verifyCode(code)
-            // Auth state will update automatically via @Published
+            // Auth state will update automatically via @Observable
         } catch let err {
             error = detailedErrorMessage(err)
-            print("🔐 Email code verification failed: \(err)")
+            log.error("Email code verification failed: \(err.localizedDescription, privacy: .public)")
             SentrySDK.capture(error: err)
             code = ""
         }
@@ -242,7 +245,7 @@ struct SignInView: View {
                 return
             }
             error = detailedErrorMessage(err)
-            print("🔐 Apple Sign In failed: \(err)")
+            log.error("Apple Sign In failed: \(err.localizedDescription, privacy: .public)")
             SentrySDK.capture(error: err)
         }
     }
@@ -281,7 +284,7 @@ struct SignInView: View {
                 return
             }
             error = detailedErrorMessage(err)
-            print("🔐 Google Sign In failed: \(err)")
+            log.error("Google Sign In failed: \(err.localizedDescription, privacy: .public)")
             SentrySDK.capture(error: err)
         }
     }

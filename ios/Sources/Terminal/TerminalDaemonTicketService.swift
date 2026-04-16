@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "terminal.ticket")
 
 struct TerminalDaemonTicketRequest: Encodable, Hashable, Sendable {
     var serverID: String
@@ -120,11 +123,11 @@ final class TerminalDaemonTicketService: @unchecked Sendable {
 
     func fetchTicket(request payload: TerminalDaemonTicketRequest) async throws -> TerminalDaemonTicket {
         if let cachedTicket = cachedTicket(for: payload) {
-            print("📱 TicketService: returning cached ticket")
+            log.debug("Returning cached ticket")
             return cachedTicket
         }
 
-        print("📱 TicketService: fetching ticket from \(endpoint.absoluteString)")
+        log.debug("Fetching ticket from \(self.endpoint.absoluteString, privacy: .public)")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.httpBody = try encoder.encode(payload)
@@ -132,9 +135,9 @@ final class TerminalDaemonTicketService: @unchecked Sendable {
         let token: String
         do {
             token = try await tokenProvider()
-            print("📱 TicketService: got auth token (\(token.count) chars)")
+            log.debug("Got auth token (\(token.count, privacy: .public) chars)")
         } catch {
-            print("📱 TicketService: failed to get auth token: \(error.localizedDescription)")
+            log.error("Failed to get auth token: \(error.localizedDescription, privacy: .public)")
             throw error
         }
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -143,25 +146,25 @@ final class TerminalDaemonTicketService: @unchecked Sendable {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
-            print("📱 TicketService: got response type=\(type(of: response)) dataLen=\(data.count)")
+            log.debug("Got response type=\(String(describing: type(of: response)), privacy: .public) dataLen=\(data.count, privacy: .public)")
         } catch {
-            print("📱 TicketService: network request failed: \(error.localizedDescription)")
+            log.error("Network request failed: \(error.localizedDescription, privacy: .public)")
             throw error
         }
         guard let httpResponse = response as? HTTPURLResponse else {
-            print("📱 TicketService: response is not HTTPURLResponse, throwing invalidResponse")
+            log.error("Response is not HTTPURLResponse, throwing invalidResponse")
             throw TerminalDaemonTicketServiceError.invalidResponse
         }
-        print("📱 TicketService: HTTP status=\(httpResponse.statusCode)")
+        log.debug("HTTP status=\(httpResponse.statusCode, privacy: .public)")
         guard (200 ..< 300).contains(httpResponse.statusCode) else {
             let errMsg = parseErrorMessage(from: data)
-            print("📱 TicketService: HTTP error \(httpResponse.statusCode): \(errMsg ?? "nil")")
+            log.error("HTTP error \(httpResponse.statusCode, privacy: .public): \(errMsg ?? "nil", privacy: .public)")
             throw TerminalDaemonTicketServiceError.httpError(httpResponse.statusCode, errMsg)
         }
 
         let ticket = try decoder.decode(TerminalDaemonTicket.self, from: data)
         cache(ticket, for: payload)
-        print("📱 TicketService: ticket decoded, directURL=\(ticket.directURL)")
+        log.debug("Ticket decoded, directURL=\(ticket.directURL, privacy: .public)")
         return ticket
     }
 

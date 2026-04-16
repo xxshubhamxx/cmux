@@ -1,6 +1,9 @@
 import Foundation
+import OSLog
 import UIKit
 import UserNotifications
+
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "notifications")
 
 @MainActor
 protocol NotificationPushSyncing {
@@ -233,7 +236,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
                 registerForRemoteNotifications()
             }
         } catch {
-            print("🔔 Notification permission request failed (\(trigger.rawValue)): \(error)")
+            log.error("Notification permission request failed (\(trigger.rawValue, privacy: .public)): \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -278,7 +281,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
     }
 
     func handleRegistrationFailure(_ error: Error) {
-        print("🔔 Failed to register for remote notifications: \(error)")
+        log.error("Failed to register for remote notifications: \(error.localizedDescription, privacy: .public)")
     }
 
     func handleNotificationUserInfo(_ userInfo: [AnyHashable: Any]) {
@@ -383,7 +386,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         }
 
         guard let bundleId = deviceInfo.bundleIdentifier else {
-            print("🔔 Missing bundle identifier, cannot register push token.")
+            log.error("Missing bundle identifier, cannot register push token.")
             return
         }
 
@@ -401,7 +404,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
                 deviceId: deviceId
             )
         } catch {
-            print("🔔 Failed to sync push token: \(error)")
+            log.error("Failed to sync push token: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -419,7 +422,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
             try await pushSyncer.removePushToken(token: token)
             tokenStore.clear()
         } catch {
-            print("🔔 Failed to remove push token: \(error)")
+            log.error("Failed to remove push token: \(error.localizedDescription, privacy: .public)")
         }
     }
 

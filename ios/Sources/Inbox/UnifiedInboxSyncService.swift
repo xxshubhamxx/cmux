@@ -1,5 +1,8 @@
 import Combine
 import Foundation
+import OSLog
+
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "inbox.sync")
 
 @MainActor
 protocol UnifiedInboxWorkspaceSyncing: AnyObject {
@@ -77,7 +80,7 @@ final class UnifiedInboxSyncService: UnifiedInboxWorkspaceSyncing {
             try inboxCacheRepository.save(items)
         } catch {
             #if DEBUG
-            print("Failed to persist live workspace inbox items: \(error)")
+            log.error("Failed to persist live workspace inbox items: \(error.localizedDescription, privacy: .public)")
             #endif
         }
     }

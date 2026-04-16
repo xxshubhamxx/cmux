@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "debug-log")
 
 enum DebugLog {
     private static let queue = DispatchQueue(label: "dev.cmux.debuglog", qos: .utility)
@@ -85,7 +88,7 @@ enum DebugLog {
                 let text = String(decoding: data, as: UTF8.self)
                 return dedupeLogText(text)
             } catch {
-                print("DebugLog error: \(error)")
+                log.error("DebugLog error: \(error.localizedDescription, privacy: .public)")
                 return ""
             }
         }
@@ -101,7 +104,7 @@ enum DebugLog {
             do {
                 try FileManager.default.removeItem(at: url)
             } catch {
-                print("DebugLog error: \(error)")
+                log.error("DebugLog error: \(error.localizedDescription, privacy: .public)")
             }
         }
         #endif
@@ -157,7 +160,7 @@ enum DebugLog {
             try handle.close()
             try trimFileIfNeeded(url: url)
         } catch {
-            print("DebugLog error: \(error)")
+            log.error("DebugLog error: \(error.localizedDescription, privacy: .public)")
         }
     }
 

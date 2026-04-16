@@ -1,16 +1,20 @@
 import CMUXAuthCore
 import Foundation
+import OSLog
 import StackAuth
 import SwiftUI
 
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "auth")
+
 @MainActor
-class AuthManager: ObservableObject {
+@Observable
+final class AuthManager {
     static let shared = AuthManager()
 
-    @Published var isAuthenticated = false
-    @Published var currentUser: StackAuthUser?
-    @Published var isLoading = false
-    @Published var isRestoringSession = false
+    var isAuthenticated = false
+    var currentUser: StackAuthUser?
+    var isLoading = false
+    var isRestoringSession = false
 
     private let stack = StackAuthApp.shared
     private let authUserCache = AuthUserCache.shared
@@ -71,7 +75,7 @@ class AuthManager: ObservableObject {
         }
 
         if let authFixtureUser {
-            print("🔐 AuthManager: Using auth fixture user")
+            log.debug("Using auth fixture user")
             applyAuthState(
                 CMUXAuthState.primed(
                     clearAuthRequested: false,
@@ -87,7 +91,7 @@ class AuthManager: ObservableObject {
         }
 
         if autoLoginCredentials != nil {
-            print("🔐 AuthManager: Auto-login credentials detected")
+            log.debug("Auto-login credentials detected")
             applyAuthState(
                 CMUXAuthState.primed(
                     clearAuthRequested: false,
@@ -127,7 +131,7 @@ class AuthManager: ObservableObject {
         }
 
         if let fixtureUser = authFixtureUser {
-            print("🔐 AuthManager: Applying auth fixture user")
+            log.debug("Applying auth fixture user")
             authUserCache.save(fixtureUser)
             authSessionCache.setHasTokens(true)
             currentUser = fixtureUser
@@ -136,7 +140,7 @@ class AuthManager: ObservableObject {
         }
 
         if let credentials = autoLoginCredentials, !authSessionCache.hasTokens {
-            print("🔐 AuthManager: Starting auto-login for \(credentials.email)")
+            log.debug("Starting auto-login for \(credentials.email, privacy: .private)")
             await performAutoLogin(credentials)
             return
         }
@@ -158,7 +162,7 @@ class AuthManager: ObservableObject {
 
         #if DEBUG
         if let creds = debugPasswordCredentials {
-            print("🔐 AuthManager: Auto-login with persisted debug credentials")
+            log.debug("Auto-login with persisted debug credentials")
             await performAutoLogin(AuthAutoLoginCredentials(email: creds.email, password: creds.password))
             return
         }
@@ -171,7 +175,7 @@ class AuthManager: ObservableObject {
         do {
             try await signInWithPassword(email: credentials.email, password: credentials.password, setLoading: false)
         } catch {
-            print("🔐 Auto-login failed: \(error)")
+            log.error("Auto-login failed: \(error.localizedDescription, privacy: .public)")
             clearAuthState()
         }
     }
@@ -183,7 +187,7 @@ class AuthManager: ObservableObject {
                 return
             }
         } catch {
-            print("🔐 Session validation failed: \(error)")
+            log.error("Session validation failed: \(error.localizedDescription, privacy: .public)")
         }
 
         if hasStoredTokens {
@@ -328,7 +332,7 @@ class AuthManager: ObservableObject {
         do {
             try await stack.signOut()
         } catch {
-            print("🔐 Sign-out failed: \(error)")
+            log.error("Sign-out failed: \(error.localizedDescription, privacy: .public)")
         }
 
         clearAuthState()
@@ -444,7 +448,7 @@ final class AuthUserCache {
         do {
             try store.save(user)
         } catch {
-            print("🔐 Failed to cache user: \(error)")
+            log.error("Failed to cache user: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -452,7 +456,7 @@ final class AuthUserCache {
         do {
             return try store.load()
         } catch {
-            print("🔐 Failed to load cached user: \(error)")
+            log.error("Failed to load cached user: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }

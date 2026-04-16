@@ -1,8 +1,11 @@
 import Combine
 import Foundation
 import Network
+import OSLog
 import SwiftUI
 import UIKit
+
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "terminal.store")
 
 enum TerminalSessionUpdate {
     case phase(TerminalConnectionPhase, String?)
@@ -311,7 +314,7 @@ final class TerminalSidebarStore: ObservableObject {
                     try await remoteWorkspaceReadMarker?.markRead(item: item)
                 } catch {
                     #if DEBUG
-                    print("Failed to mark remote workspace read: \(error)")
+                    log.error("Failed to mark remote workspace read: \(error.localizedDescription, privacy: .public)")
                     #endif
                 }
             }
@@ -784,10 +787,27 @@ final class TerminalSidebarStore: ObservableObject {
     private func applyRemoteWorkspaces(_ data: [[String: Any]], hostID: UUID, host: TerminalHost) {
         let remoteIds = data.compactMap { $0["id"] as? String }
 
-        // Remove stale workspaces for this host
+        // Remove stale workspaces for this host. Two flavors to prune:
+        //   1. remoteWorkspaceID set but not in the snapshot -> bound to a
+        //      previous daemon instance whose workspace was removed or
+        //      replaced (e.g. mac app restarted, daemon respawned).
+        //   2. remoteWorkspaceID nil -> a locally-created placeholder whose
+        //      daemon bind never succeeded, or pre-dates remoteWorkspaceID
+        //      tracking. The daemon's snapshot is authoritative; if it
+        //      doesn't know about a host workspace, iOS shouldn't keep
+        //      showing it and letting users tap into a dead session.
+        //
+        // Grace window: keep placeholder rows created in the last 10s so an
+        // in-flight startWorkspace → workspace.create RPC has time to land
+        // before the next snapshot wipes the optimistic row.
         let remoteIdSet = Set(remoteIds)
+        let graceCutoff = Date().addingTimeInterval(-10)
         workspaces.removeAll { ws in
-            ws.hostID == hostID && ws.remoteWorkspaceID != nil && !remoteIdSet.contains(ws.remoteWorkspaceID!)
+            guard ws.hostID == hostID else { return false }
+            if let remoteID = ws.remoteWorkspaceID {
+                return !remoteIdSet.contains(remoteID)
+            }
+            return ws.lastActivity < graceCutoff
         }
 
         // Upsert workspaces preserving server order
@@ -1258,7 +1278,7 @@ final class TerminalSidebarStore: ObservableObject {
             )
         } catch {
             #if DEBUG
-            print("Failed to save terminal snapshot: \(error)")
+            log.error("Failed to save terminal snapshot: \(error.localizedDescription, privacy: .public)")
             #endif
         }
     }

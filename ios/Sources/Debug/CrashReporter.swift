@@ -1,5 +1,8 @@
 import Foundation
+import OSLog
 import Darwin
+
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "crash-reporter")
 
 enum CrashReporter {
     private static var signalFileDescriptor: Int32 = -1
@@ -31,7 +34,7 @@ enum CrashReporter {
             let fileURL = directoryURL.appendingPathComponent("debug.log")
             signalFileDescriptor = open(fileURL.path, O_CREAT | O_WRONLY | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
         } catch {
-            print("CrashReporter error: \(error)")
+            log.error("CrashReporter error: \(error.localizedDescription, privacy: .public)")
         }
     }
 

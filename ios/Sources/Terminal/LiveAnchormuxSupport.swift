@@ -1,12 +1,15 @@
 import Foundation
 import Network
+import OSLog
 import SwiftUI
 import Darwin
+
+private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "anchormux")
 
 func liveAnchormuxLog(_ message: @autoclosure () -> String) {
     #if DEBUG
     let line = "LIVE_ANCHORMUX \(message())"
-    print(line)
+    log.debug("\(line, privacy: .public)")
     LiveAnchormuxFileLogger.append(line)
     #endif
 }
