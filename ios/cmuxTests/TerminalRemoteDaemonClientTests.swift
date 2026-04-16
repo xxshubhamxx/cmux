@@ -78,22 +78,6 @@ final class TerminalRemoteDaemonClientTests: XCTestCase {
         XCTAssertEqual(result.offset, 0)
     }
 
-    func testResponseIDMismatchThrows() async throws {
-        let transport = InMemoryDaemonTransport(
-            responses: [
-                #"{"id":999,"ok":true,"result":{"session_id":"sess-9","attachments":[],"effective_cols":0,"effective_rows":0,"last_known_cols":0,"last_known_rows":0}}"#
-            ]
-        )
-        let client = TerminalRemoteDaemonClient(transport: transport)
-
-        do {
-            _ = try await client.ensureSession(sessionID: "sess-9")
-            XCTFail("Expected responseMismatch error")
-        } catch let error as TerminalRemoteDaemonClientError {
-            XCTAssertEqual(error, .responseMismatch)
-        }
-    }
-
     func testErrorWithoutPayloadReturnsUnknownRPC() async throws {
         let transport = InMemoryDaemonTransport(
             responses: [

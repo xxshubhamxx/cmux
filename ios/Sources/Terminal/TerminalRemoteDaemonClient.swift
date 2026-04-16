@@ -283,7 +283,6 @@ enum TerminalRemoteDaemonClientError: LocalizedError, Equatable {
     case invalidJSON(String)
     case missingResult
     case rpc(code: String, message: String)
-    case responseMismatch
     case rpcTimeout
     case transportClosed
 
@@ -295,8 +294,6 @@ enum TerminalRemoteDaemonClientError: LocalizedError, Equatable {
             return "Daemon response was missing a result payload."
         case .rpc(let code, let message):
             return "Daemon RPC failed (\(code)): \(message)"
-        case .responseMismatch:
-            return "Response ID did not match request ID."
         case .rpcTimeout:
             return "RPC call timed out waiting for a response."
         case .transportClosed:
@@ -626,7 +623,7 @@ actor TerminalRemoteDaemonClient {
             pendingRequests[requestID] = continuation
         }
 
-        return try Self.decodeResponse(from: responseLine, decoder: decoder, expectedID: requestID, as: responseType)
+        return try Self.decodeResponse(from: responseLine, decoder: decoder, as: responseType)
     }
 
     private func ensureDispatcher() {
@@ -803,7 +800,6 @@ actor TerminalRemoteDaemonClient {
     private static func decodeResponse<ResponsePayload: Decodable>(
         from line: String,
         decoder: JSONDecoder,
-        expectedID: Int? = nil,
         as responseType: ResponsePayload.Type
     ) throws -> ResponsePayload {
         guard let data = line.data(using: .utf8) else {
@@ -816,10 +812,6 @@ actor TerminalRemoteDaemonClient {
         } catch {
             log.error("RPC decode error: \(String(describing: error), privacy: .public) for type \(String(describing: responseType), privacy: .public) line: \(String(line.prefix(200)), privacy: .public)")
             throw TerminalRemoteDaemonClientError.invalidJSON(line)
-        }
-
-        if let expectedID, envelope.id != expectedID {
-            throw TerminalRemoteDaemonClientError.responseMismatch
         }
 
         if envelope.ok {
