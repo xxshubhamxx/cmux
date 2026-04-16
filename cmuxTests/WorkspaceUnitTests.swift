@@ -2544,6 +2544,40 @@ final class WorkspaceLayoutSimplificationTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[panel.id])
         XCTAssertEqual(workspace.splitController.allPaneIds.count, 2)
     }
+
+    func testLayoutControllerPaneReadsAreValueCopies() throws {
+        let initialPane = PaneState(tabs: [TabItem(title: "one")])
+        let controller = WorkspaceLayoutController(rootNode: .pane(initialPane))
+        let paneId = try XCTUnwrap(controller.allPaneIds.first, "Expected initial pane")
+        let stalePane = try XCTUnwrap(controller.rootNode.findPane(paneId), "Expected pane snapshot")
+
+        _ = controller.createTab(title: "two", inPane: paneId, select: false)
+
+        XCTAssertEqual(stalePane.tabs.count, 1)
+        XCTAssertEqual(controller.tabs(inPane: paneId).count, 2)
+    }
+
+    func testLayoutControllerSplitReadsAreValueCopies() throws {
+        let initialPane = PaneState(tabs: [TabItem(title: "one")])
+        let controller = WorkspaceLayoutController(rootNode: .pane(initialPane))
+        let paneId = try XCTUnwrap(controller.allPaneIds.first, "Expected initial pane")
+        let newPaneId = controller.splitPane(paneId, orientation: .horizontal)
+
+        XCTAssertNotNil(newPaneId, "Expected split to succeed")
+
+        guard case .split(let liveSplit) = controller.rootNode else {
+            XCTFail("Expected split root after splitting")
+            return
+        }
+
+        let splitId = liveSplit.id
+        let staleSplit = try XCTUnwrap(controller.rootNode.findSplit(splitId), "Expected split snapshot")
+
+        XCTAssertTrue(controller.setDividerPosition(0.33, forSplit: splitId))
+
+        XCTAssertEqual(staleSplit.dividerPosition, 0.5, accuracy: 0.001)
+        XCTAssertEqual(controller.rootNode.findSplit(splitId)?.dividerPosition, 0.33, accuracy: 0.001)
+    }
 }
 
 

@@ -820,8 +820,7 @@ import Foundation
 import SwiftUI
 
 /// State for a single pane (leaf node in the split tree)
-@Observable
-final class PaneState: Identifiable {
+struct PaneState: Identifiable {
     let id: PaneID
     var tabs: [TabItem]
     var selectedTabId: UUID?
@@ -845,7 +844,7 @@ final class PaneState: Identifiable {
     }
 
     /// Select a tab by ID
-    func selectTab(_ tabId: UUID) {
+    mutating func selectTab(_ tabId: UUID) {
         guard tabs.contains(where: { $0.id == tabId }) else { return }
         guard selectedTabId != tabId else { return }
         selectedTabId = tabId
@@ -853,7 +852,7 @@ final class PaneState: Identifiable {
     }
 
     /// Add a new tab
-    func addTab(_ tab: TabItem, select: Bool = true) {
+    mutating func addTab(_ tab: TabItem, select: Bool = true) {
         let pinnedCount = tabs.filter { $0.isPinned }.count
         let insertIndex = tab.isPinned ? pinnedCount : tabs.count
         tabs.insert(tab, at: insertIndex)
@@ -864,7 +863,7 @@ final class PaneState: Identifiable {
     }
 
     /// Insert a tab at a specific index
-    func insertTab(_ tab: TabItem, at index: Int, select: Bool = true) {
+    mutating func insertTab(_ tab: TabItem, at index: Int, select: Bool = true) {
         let pinnedCount = tabs.filter { $0.isPinned }.count
         let requested = min(max(0, index), tabs.count)
         let safeIndex: Int
@@ -882,7 +881,7 @@ final class PaneState: Identifiable {
 
     /// Remove a tab and return it
     @discardableResult
-    func removeTab(_ tabId: UUID) -> TabItem? {
+    mutating func removeTab(_ tabId: UUID) -> TabItem? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         let tab = tabs.remove(at: index)
 
@@ -904,7 +903,7 @@ final class PaneState: Identifiable {
     }
 
     /// Move a tab within this pane
-    func moveTab(from sourceIndex: Int, to destinationIndex: Int) {
+    mutating func moveTab(from sourceIndex: Int, to destinationIndex: Int) {
         guard tabs.indices.contains(sourceIndex),
               destinationIndex >= 0, destinationIndex <= tabs.count else { return }
 
@@ -969,6 +968,28 @@ indirect enum SplitNode: Identifiable, Equatable {
         }
     }
 
+    /// Mutate a pane in place.
+    @discardableResult
+    mutating func updatePane(_ paneId: PaneID, _ update: (inout PaneState) -> Void) -> Bool {
+        switch self {
+        case .pane(var state):
+            guard state.id == paneId else { return false }
+            update(&state)
+            self = .pane(state)
+            return true
+        case .split(var state):
+            if state.first.updatePane(paneId, update) {
+                self = .split(state)
+                return true
+            }
+            if state.second.updatePane(paneId, update) {
+                self = .split(state)
+                return true
+            }
+            return false
+        }
+    }
+
     /// Find the leaf node for a pane by ID.
     func findNode(containing paneId: PaneID) -> SplitNode? {
         switch self {
@@ -976,6 +997,43 @@ indirect enum SplitNode: Identifiable, Equatable {
             return state.id == paneId ? self : nil
         case .split(let state):
             return state.first.findNode(containing: paneId) ?? state.second.findNode(containing: paneId)
+        }
+    }
+
+    /// Find a split by its ID.
+    func findSplit(_ splitId: UUID) -> SplitState? {
+        switch self {
+        case .pane:
+            return nil
+        case .split(let state):
+            if state.id == splitId {
+                return state
+            }
+            return state.first.findSplit(splitId) ?? state.second.findSplit(splitId)
+        }
+    }
+
+    /// Mutate a split in place.
+    @discardableResult
+    mutating func updateSplit(_ splitId: UUID, _ update: (inout SplitState) -> Void) -> Bool {
+        switch self {
+        case .pane:
+            return false
+        case .split(var state):
+            if state.id == splitId {
+                update(&state)
+                self = .split(state)
+                return true
+            }
+            if state.first.updateSplit(splitId, update) {
+                self = .split(state)
+                return true
+            }
+            if state.second.updateSplit(splitId, update) {
+                self = .split(state)
+                return true
+            }
+            return false
         }
     }
 
@@ -996,6 +1054,17 @@ indirect enum SplitNode: Identifiable, Equatable {
             return [state]
         case .split(let state):
             return state.first.allPanes + state.second.allPanes
+        }
+    }
+
+    /// Find a tab by ID.
+    func findTab(_ tabId: TabID) -> (paneId: PaneID, tabIndex: Int)? {
+        switch self {
+        case .pane(let state):
+            guard let tabIndex = state.tabs.firstIndex(where: { $0.id == tabId.id }) else { return nil }
+            return (state.id, tabIndex)
+        case .split(let state):
+            return state.first.findTab(tabId) ?? state.second.findTab(tabId)
         }
     }
 
@@ -1058,8 +1127,7 @@ enum SplitAnimationOrigin: Equatable, Sendable {
 }
 
 /// State for a split node (branch in the split tree)
-@Observable
-final class SplitState: Identifiable {
+struct SplitState: Identifiable {
     let id: UUID
     var orientation: SplitOrientation
     var first: SplitNode
@@ -1841,24 +1909,20 @@ final class WorkspaceLayoutController {
         title: String? = nil,
         isPinned: Bool? = nil
     ) {
-        guard let (pane, tabIndex) = findTabInternal(tabId) else { return }
+        guard let (paneId, tabIndex) = findTabInternal(tabId) else { return }
         var didMutate = false
-
-        if let title = title {
-            if pane.tabs[tabIndex].title != title {
+        rootNode.updatePane(paneId) { pane in
+            if let title, pane.tabs[tabIndex].title != title {
                 pane.tabs[tabIndex].title = title
                 didMutate = true
             }
-        }
-        if let isPinned = isPinned {
-            if pane.tabs[tabIndex].isPinned != isPinned {
+            if let isPinned, pane.tabs[tabIndex].isPinned != isPinned {
                 pane.tabs[tabIndex].isPinned = isPinned
                 didMutate = true
             }
-        }
-
-        if didMutate {
-            pane.chromeRevision &+= 1
+            if didMutate {
+                pane.chromeRevision &+= 1
+            }
         }
     }
 
@@ -1867,8 +1931,9 @@ final class WorkspaceLayoutController {
     /// - Returns: true if the tab was closed, false if vetoed by delegate
     @discardableResult
     func closeTab(_ tabId: TabID) -> Bool {
-        guard let (pane, tabIndex) = findTabInternal(tabId) else { return false }
-        return closeTab(tabId, with: tabIndex, in: pane)
+        guard let (paneId, tabIndex) = findTabInternal(tabId),
+              let pane = rootNode.findPane(paneId) else { return false }
+        return closeTab(tabId, with: tabIndex, inPane: pane.id, tabItem: pane.tabs[tabIndex])
     }
     
     /// Close a tab by ID in a specific pane.
@@ -1879,25 +1944,23 @@ final class WorkspaceLayoutController {
               let tabIndex = pane.tabs.firstIndex(where: { $0.id == tabId.id }) else {
             return false
         }
-        
-        return closeTab(tabId, with: tabIndex, in: pane)
+
+        return closeTab(tabId, with: tabIndex, inPane: pane.id, tabItem: pane.tabs[tabIndex])
     }
     
     /// Internal helper to close a tab given its index in a pane
     /// - Parameter tabId: The tab to close
     /// - Parameter tabIndex: The position of the tab within the pane
-    /// - Parameter pane: The pane in which to close the tab
-    private func closeTab(_ tabId: TabID, with tabIndex: Int, in pane: PaneState) -> Bool {
-        let tabItem = pane.tabs[tabIndex]
+    /// - Parameter paneId: The pane in which to close the tab
+    private func closeTab(_ tabId: TabID, with tabIndex: Int, inPane paneId: PaneID, tabItem: TabItem) -> Bool {
         let tab = WorkspaceLayout.Tab(from: tabItem)
-        let paneId = pane.id
 
         // Check with delegate
         if delegate?.workspaceSplit(self, shouldCloseTab: tab, inPane: paneId) == false {
             return false
         }
 
-        performCloseTab(tabId.id, inPane: pane.id)
+        performCloseTab(tabId.id, inPane: paneId)
 
         // Notify delegate
         delegate?.workspaceSplit(self, didCloseTab: tabId, fromPane: paneId)
@@ -1909,14 +1972,18 @@ final class WorkspaceLayoutController {
     /// Select a tab by ID
     /// - Parameter tabId: The tab to select
     func selectTab(_ tabId: TabID) {
-        guard let (pane, tabIndex) = findTabInternal(tabId) else { return }
+        guard let (paneId, _) = findTabInternal(tabId) else { return }
 
-        pane.selectTab(tabId.id)
-        setFocusedPane(pane.id)
+        rootNode.updatePane(paneId) { pane in
+            pane.selectTab(tabId.id)
+        }
+        setFocusedPane(paneId)
 
         // Notify delegate
+        guard let pane = rootNode.findPane(paneId),
+              let tabIndex = pane.tabs.firstIndex(where: { $0.id == tabId.id }) else { return }
         let tab = WorkspaceLayout.Tab(from: pane.tabs[tabIndex])
-        delegate?.workspaceSplit(self, didSelectTab: tab, inPane: pane.id)
+        delegate?.workspaceSplit(self, didSelectTab: tab, inPane: paneId)
     }
 
     /// Move a tab to a specific pane (and optional index) inside this controller.
@@ -1927,12 +1994,12 @@ final class WorkspaceLayoutController {
     /// - Returns: true if moved.
     @discardableResult
     func moveTab(_ tabId: TabID, toPane targetPaneId: PaneID, atIndex index: Int? = nil) -> Bool {
-        guard let (sourcePane, sourceIndex) = findTabInternal(tabId) else { return false }
-        guard let targetPane = rootNode.findPane(PaneID(id: targetPaneId.id)) else { return false }
+        guard let (sourcePaneId, sourceIndex) = findTabInternal(tabId),
+              let sourcePane = rootNode.findPane(sourcePaneId),
+              let targetPane = rootNode.findPane(PaneID(id: targetPaneId.id)) else { return false }
 
         let tabItem = sourcePane.tabs[sourceIndex]
         let movedTab = WorkspaceLayout.Tab(from: tabItem)
-        let sourcePaneId = sourcePane.id
 
         if sourcePaneId == targetPane.id {
             // Reorder within same pane.
@@ -1940,10 +2007,12 @@ final class WorkspaceLayoutController {
                 if let index { return max(0, min(index, sourcePane.tabs.count)) }
                 return sourcePane.tabs.count
             }()
-            sourcePane.moveTab(from: sourceIndex, to: destinationIndex)
-            sourcePane.selectTab(tabItem.id)
-            setFocusedPane(sourcePane.id)
-            delegate?.workspaceSplit(self, didSelectTab: movedTab, inPane: sourcePane.id)
+            rootNode.updatePane(sourcePaneId) { pane in
+                pane.moveTab(from: sourceIndex, to: destinationIndex)
+                pane.selectTab(tabItem.id)
+            }
+            setFocusedPane(sourcePaneId)
+            delegate?.workspaceSplit(self, didSelectTab: movedTab, inPane: sourcePaneId)
             notifyGeometryChange()
             return true
         }
@@ -1961,14 +2030,18 @@ final class WorkspaceLayoutController {
     /// - Returns: true if reordered.
     @discardableResult
     func reorderTab(_ tabId: TabID, toIndex: Int) -> Bool {
-        guard let (pane, sourceIndex) = findTabInternal(tabId) else { return false }
+        guard let (paneId, sourceIndex) = findTabInternal(tabId),
+              let pane = rootNode.findPane(paneId) else { return false }
         let destinationIndex = max(0, min(toIndex, pane.tabs.count))
-        pane.moveTab(from: sourceIndex, to: destinationIndex)
-        pane.selectTab(tabId.id)
-        setFocusedPane(pane.id)
-        if let tabIndex = pane.tabs.firstIndex(where: { $0.id == tabId.id }) {
-            let tab = WorkspaceLayout.Tab(from: pane.tabs[tabIndex])
-            delegate?.workspaceSplit(self, didSelectTab: tab, inPane: pane.id)
+        rootNode.updatePane(paneId) { pane in
+            pane.moveTab(from: sourceIndex, to: destinationIndex)
+            pane.selectTab(tabId.id)
+        }
+        setFocusedPane(paneId)
+        if let updatedPane = rootNode.findPane(paneId),
+           let tabIndex = updatedPane.tabs.firstIndex(where: { $0.id == tabId.id }) {
+            let tab = WorkspaceLayout.Tab(from: updatedPane.tabs[tabIndex])
+            delegate?.workspaceSplit(self, didSelectTab: tab, inPane: paneId)
         }
         notifyGeometryChange()
         return true
@@ -2124,11 +2197,12 @@ final class WorkspaceLayoutController {
         let previousPaneIds = Set(rootNode.allPaneIds)
 
         // Find the existing tab and its source pane.
-        guard let (sourcePane, tabIndex) = findTabInternal(tabId) else { return nil }
+        guard let (sourcePaneId, tabIndex) = findTabInternal(tabId),
+              let sourcePane = rootNode.findPane(sourcePaneId) else { return nil }
         let tabItem = sourcePane.tabs[tabIndex]
 
         // Default target to the tab's current pane to match edge-drop behavior on the source pane.
-        let targetPaneId = paneId ?? sourcePane.id
+        let targetPaneId = paneId ?? sourcePaneId
 
         // Check with delegate
         if delegate?.workspaceSplit(self, shouldSplitPane: targetPaneId, orientation: orientation) == false {
@@ -2136,17 +2210,22 @@ final class WorkspaceLayoutController {
         }
 
         // Remove from source first.
-        sourcePane.removeTab(tabItem.id)
+        rootNode.updatePane(sourcePaneId) { pane in
+            pane.removeTab(tabItem.id)
+        }
 
-        if sourcePane.tabs.isEmpty {
-            if sourcePane.id == targetPaneId {
+        let updatedSourcePane = rootNode.findPane(sourcePaneId)
+        if updatedSourcePane?.tabs.isEmpty == true {
+            if sourcePaneId == targetPaneId {
                 // Keep a placeholder tab so the original pane isn't left "tabless".
                 // This makes the empty side closable via tab close, and avoids apps
                 // needing to special-case empty panes.
-                sourcePane.addTab(TabItem(title: "Empty"), select: true)
+                rootNode.updatePane(sourcePaneId) { pane in
+                    pane.addTab(TabItem(title: "Empty"), select: true)
+                }
             } else if rootNode.allPaneIds.count > 1 {
                 // If the source pane is now empty, close it (unless it's also the split target).
-                performClosePane(sourcePane.id)
+                performClosePane(sourcePaneId)
             }
         }
 
@@ -2259,7 +2338,8 @@ final class WorkspaceLayoutController {
 
     /// Get tab metadata by ID
     func tab(_ tabId: TabID) -> WorkspaceLayout.Tab? {
-        guard let (pane, tabIndex) = findTabInternal(tabId) else { return nil }
+        guard let (paneId, tabIndex) = findTabInternal(tabId),
+              let pane = rootNode.findPane(paneId) else { return nil }
         return WorkspaceLayout.Tab(from: pane.tabs[tabIndex])
     }
 
@@ -2379,7 +2459,7 @@ final class WorkspaceLayoutController {
     /// - Returns: true if the split was found and updated
     @discardableResult
     func setDividerPosition(_ position: CGFloat, forSplit splitId: UUID, fromExternal: Bool = false) -> Bool {
-        guard let split = splitState(splitId) else { return false }
+        guard splitState(splitId) != nil else { return false }
 
         if fromExternal {
             isExternalUpdateInProgress = true
@@ -2387,7 +2467,9 @@ final class WorkspaceLayoutController {
 
         // Clamp position to valid range
         let clampedPosition = min(max(position, 0.1), 0.9)
-        split.dividerPosition = clampedPosition
+        rootNode.updateSplit(splitId) { split in
+            split.dividerPosition = clampedPosition
+        }
 
         if fromExternal {
             // External restore/config loads should suppress only the immediate geometry echo
@@ -2403,7 +2485,9 @@ final class WorkspaceLayoutController {
     func consumeSplitEntryAnimation(_ splitId: UUID) {
         guard let split = splitState(splitId),
               split.animationOrigin != nil else { return }
-        split.animationOrigin = nil
+        rootNode.updateSplit(splitId) { split in
+            split.animationOrigin = nil
+        }
     }
 
     /// Update container frame (called when window moves/resizes)
@@ -2526,6 +2610,7 @@ final class WorkspaceLayoutController {
             return node
 
         case .split(let splitState):
+            var splitState = splitState
             splitState.first = splitNodeRecursively(
                 node: splitState.first,
                 targetPaneId: targetPaneId,
@@ -2602,6 +2687,7 @@ final class WorkspaceLayoutController {
             return node
 
         case .split(let splitState):
+            var splitState = splitState
             splitState.first = splitNodeWithTabRecursively(
                 node: splitState.first,
                 targetPaneId: targetPaneId,
@@ -2674,10 +2760,11 @@ final class WorkspaceLayoutController {
                 return (splitState.first, splitState.first.allPaneIds.first)
             }
 
-            if let newFirst { splitState.first = newFirst }
-            if let newSecond { splitState.second = newSecond }
+            var updatedSplit = splitState
+            if let newFirst { updatedSplit.first = newFirst }
+            if let newSecond { updatedSplit.second = newSecond }
 
-            return (.split(splitState), focusFromFirst ?? focusFromSecond)
+            return (.split(updatedSplit), focusFromFirst ?? focusFromSecond)
         }
     }
 
@@ -2688,40 +2775,48 @@ final class WorkspaceLayoutController {
         select: Bool = true
     ) {
         let targetPaneId = paneId ?? focusedPaneId
-        guard let targetPaneId, let pane = rootNode.findPane(targetPaneId) else { return }
+        guard let targetPaneId else { return }
 
-        if let index {
-            pane.insertTab(tab, at: index, select: select)
-        } else {
-            pane.addTab(tab, select: select)
+        rootNode.updatePane(targetPaneId) { pane in
+            if let index {
+                pane.insertTab(tab, at: index, select: select)
+            } else {
+                pane.addTab(tab, select: select)
+            }
         }
     }
 
     private func performMoveTab(_ tab: TabItem, from sourcePaneId: PaneID, to targetPaneId: PaneID, atIndex index: Int? = nil) {
-        guard let sourcePane = rootNode.findPane(sourcePaneId),
-              let targetPane = rootNode.findPane(targetPaneId) else { return }
+        guard rootNode.findPane(sourcePaneId) != nil,
+              rootNode.findPane(targetPaneId) != nil else { return }
 
-        sourcePane.removeTab(tab.id)
+        rootNode.updatePane(sourcePaneId) { pane in
+            pane.removeTab(tab.id)
+        }
 
-        if let index {
-            targetPane.insertTab(tab, at: index)
-        } else {
-            targetPane.addTab(tab)
+        rootNode.updatePane(targetPaneId) { pane in
+            if let index {
+                pane.insertTab(tab, at: index)
+            } else {
+                pane.addTab(tab)
+            }
         }
 
         setFocusedPane(targetPaneId)
 
-        if sourcePane.tabs.isEmpty && rootNode.allPaneIds.count > 1 {
+        if rootNode.findPane(sourcePaneId)?.tabs.isEmpty == true && rootNode.allPaneIds.count > 1 {
             performClosePane(sourcePaneId)
         }
     }
 
     private func performCloseTab(_ tabId: UUID, inPane paneId: PaneID) {
-        guard let pane = rootNode.findPane(paneId) else { return }
+        guard rootNode.findPane(paneId) != nil else { return }
 
-        pane.removeTab(tabId)
+        rootNode.updatePane(paneId) { pane in
+            pane.removeTab(tabId)
+        }
 
-        if pane.tabs.isEmpty && rootNode.allPaneIds.count > 1 {
+        if rootNode.findPane(paneId)?.tabs.isEmpty == true && rootNode.allPaneIds.count > 1 {
             performClosePane(paneId)
         }
     }
@@ -2811,7 +2906,9 @@ final class WorkspaceLayoutController {
               !pane.tabs.isEmpty else { return }
 
         let newIndex = currentIndex > 0 ? currentIndex - 1 : pane.tabs.count - 1
-        pane.selectTab(pane.tabs[newIndex].id)
+        rootNode.updatePane(pane.id) { pane in
+            pane.selectTab(pane.tabs[newIndex].id)
+        }
     }
 
     private func selectNextTabInternal() {
@@ -2821,35 +2918,17 @@ final class WorkspaceLayoutController {
               !pane.tabs.isEmpty else { return }
 
         let newIndex = currentIndex < pane.tabs.count - 1 ? currentIndex + 1 : 0
-        pane.selectTab(pane.tabs[newIndex].id)
+        rootNode.updatePane(pane.id) { pane in
+            pane.selectTab(pane.tabs[newIndex].id)
+        }
     }
 
     private func splitState(_ splitId: UUID) -> SplitState? {
-        findSplitRecursively(in: rootNode, id: splitId)
+        rootNode.findSplit(splitId)
     }
 
-    private func findSplitRecursively(in node: SplitNode, id: UUID) -> SplitState? {
-        switch node {
-        case .pane:
-            return nil
-        case .split(let splitState):
-            if splitState.id == id {
-                return splitState
-            }
-            if let found = findSplitRecursively(in: splitState.first, id: id) {
-                return found
-            }
-            return findSplitRecursively(in: splitState.second, id: id)
-        }
-    }
-
-    private func findTabInternal(_ tabId: TabID) -> (PaneState, Int)? {
-        for pane in rootNode.allPanes {
-            if let index = pane.tabs.firstIndex(where: { $0.id == tabId.id }) {
-                return (pane, index)
-            }
-        }
-        return nil
+    private func findTabInternal(_ tabId: TabID) -> (PaneID, Int)? {
+        rootNode.findTab(tabId)
     }
 
     private func notifyTabSelection() {

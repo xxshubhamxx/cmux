@@ -5,6 +5,8 @@
 Implemented on `2026-04-16`:
 
 - `WorkspaceLayoutController` now owns the split tree, focus state, drag state, geometry state, and split algorithms directly, so `SplitViewController` is gone and there is no nested mutable layout owner below `Workspace`
+- `PaneState` and `SplitState` are now value types, so the controller no longer mutates aliased pane or split references behind `rootNode.findPane` and `findSplit`
+- `PaneState` and `SplitState` no longer participate in Swift Observation, because the shell now renders from workspace-owned snapshots instead of nested live layout observation
 - split orientation, divider position, and split-entry animation origin now flow through the canonical render snapshot, so `WorkspaceLayoutRootHostView` and `WorkspaceLayoutNativeSplitView` no longer read live split state back out of the controller tree
 - divider drags now update split geometry through `WorkspaceLayoutController` APIs instead of mutating `SplitState` directly from the renderer
 - focused workspace suites passed on `ssh cmux-macmini` after the ownership cut: `WorkspaceLayoutSimplificationTests`, `WorkspaceSurfaceRegistryTests`, `WorkspaceContentViewVisibilityTests`, `WorkspaceUnitTests`, and `TabManagerUnitTests`
