@@ -22,6 +22,11 @@ typealias PaneID = WorkspacePaneID
 struct WorkspaceTabID: Hashable, Codable, Sendable, CustomStringConvertible {
     private let rawValue: UUID
 
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case rawValue
+    }
+
     init() {
         self.rawValue = UUID()
     }
@@ -36,6 +41,22 @@ struct WorkspaceTabID: Hashable, Codable, Sendable, CustomStringConvertible {
 
     var description: String {
         rawValue.uuidString
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let id = try container.decodeIfPresent(UUID.self, forKey: .id) {
+            self.rawValue = id
+            return
+        }
+        // Backward compatibility for older payloads encoded as {"rawValue": ...}.
+        self.rawValue = try container.decode(UUID.self, forKey: .rawValue)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        // Keep field name stable for workspace/session restore compatibility.
+        try container.encode(rawValue, forKey: .id)
     }
 }
 
@@ -362,13 +383,13 @@ enum WorkspaceLayout {
         ) {
             self.id = id
             self.title = title
-            self.hasCustomTitle = false
-            self.icon = nil
-            self.iconImageData = nil
-            self.kind = nil
-            self.isDirty = false
-            self.showsNotificationBadge = false
-            self.isLoading = false
+            self.hasCustomTitle = hasCustomTitle
+            self.icon = icon
+            self.iconImageData = iconImageData
+            self.kind = kind
+            self.isDirty = isDirty
+            self.showsNotificationBadge = showsNotificationBadge
+            self.isLoading = isLoading
             self.isPinned = isPinned
         }
 
@@ -792,6 +813,10 @@ extension UTType {
 
 /// Transfer data that includes source pane information for cross-pane moves
 struct TabTransferData: Codable, Transferable {
+    private struct LegacyTabInfo: Codable {
+        let id: UUID
+    }
+
     let tabId: TabID
     let sourcePaneId: UUID
     let sourceProcessId: Int32
@@ -817,6 +842,8 @@ struct TabTransferData: Codable, Transferable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if let tabId = try container.decodeIfPresent(TabID.self, forKey: .tabId) {
             self.tabId = tabId
+        } else if let legacyTab = try container.decodeIfPresent(LegacyTabInfo.self, forKey: .tab) {
+            self.tabId = TabID(id: legacyTab.id)
         } else {
             let legacyTab = try container.decode(WorkspaceLayout.Tab.self, forKey: .tab)
             self.tabId = legacyTab.id
@@ -829,6 +856,8 @@ struct TabTransferData: Codable, Transferable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(tabId, forKey: .tabId)
+        // Keep legacy tab.id payload for older in-process drop consumers.
+        try container.encode(LegacyTabInfo(id: tabId.id), forKey: .tab)
         try container.encode(sourcePaneId, forKey: .sourcePaneId)
         try container.encode(sourceProcessId, forKey: .sourceProcessId)
     }
@@ -1866,7 +1895,12 @@ final class WorkspaceLayoutController {
         select: Bool = true
     ) -> TabID? {
         let tabId = id ?? TabID()
-        let targetPane = pane ?? focusedPaneId ?? PaneID(id: rootNode.allPaneIds.first!.id)
+        guard let targetPane = pane ?? focusedPaneId ?? rootNode.allPaneIds.first.map({ PaneID(id: $0.id) }) else {
+            return nil
+        }
+        guard rootNode.findPane(PaneID(id: targetPane.id)) != nil else {
+            return nil
+        }
 
         // Check with delegate
         if delegate?.workspaceSplit(shouldCreateTab: tabId, inPane: targetPane) == false {

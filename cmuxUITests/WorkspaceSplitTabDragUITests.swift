@@ -461,8 +461,7 @@ final class WorkspaceSplitTabDragUITests: XCTestCase {
         }
         if app.state == .runningBackground {
             app.activate()
-            _ = app.wait(for: .runningForeground, timeout: 6.0)
-            return true
+            return app.wait(for: .runningForeground, timeout: 6.0)
         }
         return false
     }

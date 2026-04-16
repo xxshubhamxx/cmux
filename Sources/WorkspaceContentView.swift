@@ -36,11 +36,17 @@ struct TmuxOverlayExperimentSettings {
 
     static func target(enabled: Bool, rawValue: String?) -> TmuxOverlayExperimentTarget {
         guard enabled else { return .surface }
-        guard let rawValue,
-              let target = TmuxOverlayExperimentTarget(rawValue: rawValue) else {
+        guard let rawValue else {
             return defaultTarget
         }
-        return target
+        if let target = TmuxOverlayExperimentTarget(rawValue: rawValue) {
+            return target
+        }
+        // Backward compatibility for persisted pre-rename values.
+        if rawValue == "bonsplitPane" {
+            return .workspacePane
+        }
+        return defaultTarget
     }
 }
 
@@ -342,8 +348,12 @@ struct WorkspaceContentView: View {
                     splitView
                 }
             } else {
-                Color.clear
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Keep the split host mounted offscreen so runtime surfaces can
+                // background-prime before the workspace becomes visible.
+                splitView
+                    .opacity(0.001)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
         }
         .onAppear {

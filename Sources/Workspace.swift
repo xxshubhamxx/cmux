@@ -433,7 +433,7 @@ private final class WorkspaceTerminalRetainedSurfaceHost: WorkspaceRetainedSurfa
     }
 
     func unmount(from slotView: WorkspaceLayoutPaneContentSlotView) {
-        clearHostedView()
+        clearHostedView(detachingFrom: slotView)
         slotView.clearContentView()
     }
 
@@ -441,9 +441,12 @@ private final class WorkspaceTerminalRetainedSurfaceHost: WorkspaceRetainedSurfa
         clearHostedView()
     }
 
-    private func clearHostedView() {
+    private func clearHostedView(detachingFrom ownerView: NSView? = nil) {
         guard let panel = workspace.panels[surfaceId] as? TerminalPanel else { return }
         let hostedView = panel.hostedView
+        if let ownerView, hostedView.superview !== ownerView {
+            return
+        }
         applyStateTransition(
             on: hostedView,
             from: lastMountedState,
@@ -526,8 +529,10 @@ private final class WorkspaceBrowserRetainedSurfaceHost: WorkspaceRetainedSurfac
     }
 
     func unmount(from slotView: WorkspaceLayoutPaneContentSlotView) {
-        hostView.prepareForRemoval(reason: "workspaceHostRemoval")
-        hostView.removeFromSuperview()
+        if hostView.superview === slotView {
+            hostView.prepareForRemoval(reason: "workspaceHostRemoval")
+            hostView.removeFromSuperview()
+        }
         slotView.clearContentView()
     }
 
@@ -584,7 +589,9 @@ private final class WorkspaceMarkdownRetainedSurfaceHost: WorkspaceRetainedSurfa
     }
 
     func unmount(from slotView: WorkspaceLayoutPaneContentSlotView) {
-        hostingController.view.removeFromSuperview()
+        if hostingController.view.superview === slotView {
+            hostingController.view.removeFromSuperview()
+        }
         slotView.clearContentView()
     }
 
@@ -634,7 +641,9 @@ private final class WorkspacePlaceholderRetainedSurfaceHost: WorkspaceRetainedSu
     }
 
     func unmount(from slotView: WorkspaceLayoutPaneContentSlotView) {
-        hostingController.view.removeFromSuperview()
+        if hostingController.view.superview === slotView {
+            hostingController.view.removeFromSuperview()
+        }
         slotView.clearContentView()
     }
 
@@ -890,7 +899,45 @@ extension Workspace {
     }
 
     private func sessionPanelID(forExternalTabIDString tabIDString: String) -> UUID? {
-        UUID(uuidString: tabIDString)
+        guard let tabUUID = UUID(uuidString: tabIDString) else { return nil }
+
+        // New snapshots persist panel IDs directly.
+        if panels[tabUUID] != nil {
+            return tabUUID
+        }
+
+        // Backward compatibility: older snapshots stored external surface IDs.
+        for panelId in panels.keys {
+            guard let surfaceId = surfaceIdFromPanelId(panelId),
+                  let surfaceUUID = sessionSurfaceUUID(for: surfaceId) else {
+                continue
+            }
+            if surfaceUUID == tabUUID {
+                return panelId
+            }
+        }
+        return nil
+    }
+
+    private func sessionSurfaceUUID(for surfaceId: TabID) -> UUID? {
+        struct LegacyEncodedSurfaceID: Decodable {
+            let id: UUID
+        }
+        struct CurrentEncodedSurfaceID: Decodable {
+            let rawValue: UUID
+        }
+
+        guard let data = try? JSONEncoder().encode(surfaceId) else {
+            return nil
+        }
+
+        if let decoded = try? JSONDecoder().decode(LegacyEncodedSurfaceID.self, from: data) {
+            return decoded.id
+        }
+        if let decoded = try? JSONDecoder().decode(CurrentEncodedSurfaceID.self, from: data) {
+            return decoded.rawValue
+        }
+        return nil
     }
 
     private func sessionPanelSnapshot(panelId: UUID, includeScrollback: Bool) -> SessionPanelSnapshot? {

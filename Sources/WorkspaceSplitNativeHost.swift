@@ -923,7 +923,9 @@ final class WorkspaceLayoutPaneContentSlotView: NSView {
 
     func installContentView(_ view: NSView) {
         if installedContentView !== view {
-            installedContentView?.removeFromSuperview()
+            if let previous = installedContentView, previous.superview === self {
+                previous.removeFromSuperview()
+            }
             if view.superview !== self {
                 view.removeFromSuperview()
                 addSubview(view)
@@ -939,13 +941,20 @@ final class WorkspaceLayoutPaneContentSlotView: NSView {
     }
 
     func clearContentView() {
-        installedContentView?.removeFromSuperview()
+        if let installedContentView, installedContentView.superview === self {
+            installedContentView.removeFromSuperview()
+        }
         installedContentView = nil
     }
 
     override func layout() {
         super.layout()
-        installedContentView?.frame = bounds
+        guard let installedContentView else { return }
+        guard installedContentView.superview === self else {
+            self.installedContentView = nil
+            return
+        }
+        installedContentView.frame = bounds
     }
 }
 
@@ -1800,7 +1809,10 @@ final class WorkspaceLayoutNativeTabButtonView: NSView, NSDraggingSource {
 
         zoomButton.iconImage = NSImage(
             systemSymbolName: "arrow.up.left.and.arrow.down.right",
-            accessibilityDescription: "Exit Zoom"
+            accessibilityDescription: String(
+                localized: "workspace.menu.exitZoomPane",
+                defaultValue: "Exit Zoom"
+            )
         )
         zoomButton.iconSize = TabBarMetrics.closeIconSize
         zoomButton.rendersVisuals = false
@@ -1822,7 +1834,10 @@ final class WorkspaceLayoutNativeTabButtonView: NSView, NSDraggingSource {
 
         pinView.image = NSImage(
             systemSymbolName: "pin.fill",
-            accessibilityDescription: "Pinned Tab"
+            accessibilityDescription: String(
+                localized: "workspace.accessibility.pinnedTab",
+                defaultValue: "Pinned Tab"
+            )
         )
         pinView.imageScaling = .scaleProportionallyDown
         pinView.alphaValue = 0
@@ -2172,38 +2187,105 @@ final class WorkspaceLayoutNativeTabButtonView: NSView, NSDraggingSource {
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
 
-        workspaceSplitAddMenuItem("Rename Tab…", action: .rename, to: menu, handler: onContextAction)
+        workspaceSplitAddMenuItem(
+            String(localized: "command.renameTab.title", defaultValue: "Rename Tab…"),
+            action: .rename,
+            to: menu,
+            handler: onContextAction
+        )
 
         if contextMenuState.hasCustomTitle {
-            workspaceSplitAddMenuItem("Remove Custom Tab Name", action: .clearName, to: menu, handler: onContextAction)
+            workspaceSplitAddMenuItem(
+                String(localized: "workspace.menu.removeCustomTabName", defaultValue: "Remove Custom Tab Name"),
+                action: .clearName,
+                to: menu,
+                handler: onContextAction
+            )
         }
 
         menu.addItem(.separator())
-        workspaceSplitAddMenuItem("Close Tabs to Left", action: .closeToLeft, to: menu, enabled: contextMenuState.canCloseToLeft, handler: onContextAction)
-        workspaceSplitAddMenuItem("Close Tabs to Right", action: .closeToRight, to: menu, enabled: contextMenuState.canCloseToRight, handler: onContextAction)
-        workspaceSplitAddMenuItem("Close Other Tabs", action: .closeOthers, to: menu, enabled: contextMenuState.canCloseOthers, handler: onContextAction)
-        workspaceSplitAddMenuItem("Move Tab…", action: .move, to: menu, handler: onContextAction)
+        workspaceSplitAddMenuItem(
+            String(localized: "workspace.menu.closeTabsToLeft", defaultValue: "Close Tabs to Left"),
+            action: .closeToLeft,
+            to: menu,
+            enabled: contextMenuState.canCloseToLeft,
+            handler: onContextAction
+        )
+        workspaceSplitAddMenuItem(
+            String(localized: "workspace.menu.closeTabsToRight", defaultValue: "Close Tabs to Right"),
+            action: .closeToRight,
+            to: menu,
+            enabled: contextMenuState.canCloseToRight,
+            handler: onContextAction
+        )
+        workspaceSplitAddMenuItem(
+            String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane"),
+            action: .closeOthers,
+            to: menu,
+            enabled: contextMenuState.canCloseOthers,
+            handler: onContextAction
+        )
+        workspaceSplitAddMenuItem(
+            String(localized: "dialog.moveTab.title", defaultValue: "Move Tab"),
+            action: .move,
+            to: menu,
+            handler: onContextAction
+        )
 
         if contextMenuState.isTerminal {
-            workspaceSplitAddMenuItem("Move to Left Pane", action: .moveToLeftPane, to: menu, enabled: contextMenuState.canMoveToLeftPane, handler: onContextAction)
-            workspaceSplitAddMenuItem("Move to Right Pane", action: .moveToRightPane, to: menu, enabled: contextMenuState.canMoveToRightPane, handler: onContextAction)
+            workspaceSplitAddMenuItem(
+                String(localized: "workspace.menu.moveToLeftPane", defaultValue: "Move to Left Pane"),
+                action: .moveToLeftPane,
+                to: menu,
+                enabled: contextMenuState.canMoveToLeftPane,
+                handler: onContextAction
+            )
+            workspaceSplitAddMenuItem(
+                String(localized: "workspace.menu.moveToRightPane", defaultValue: "Move to Right Pane"),
+                action: .moveToRightPane,
+                to: menu,
+                enabled: contextMenuState.canMoveToRightPane,
+                handler: onContextAction
+            )
         }
 
         menu.addItem(.separator())
-        workspaceSplitAddMenuItem("New Terminal Tab to Right", action: .newTerminalToRight, to: menu, handler: onContextAction)
-        workspaceSplitAddMenuItem("New Browser Tab to Right", action: .newBrowserToRight, to: menu, handler: onContextAction)
+        workspaceSplitAddMenuItem(
+            String(localized: "workspace.menu.newTerminalTabToRight", defaultValue: "New Terminal Tab to Right"),
+            action: .newTerminalToRight,
+            to: menu,
+            handler: onContextAction
+        )
+        workspaceSplitAddMenuItem(
+            String(localized: "workspace.menu.newBrowserTabToRight", defaultValue: "New Browser Tab to Right"),
+            action: .newBrowserToRight,
+            to: menu,
+            handler: onContextAction
+        )
 
         if contextMenuState.isBrowser {
             menu.addItem(.separator())
-            workspaceSplitAddMenuItem("Reload Tab", action: .reload, to: menu, handler: onContextAction)
-            workspaceSplitAddMenuItem("Duplicate Tab", action: .duplicate, to: menu, handler: onContextAction)
+            workspaceSplitAddMenuItem(
+                String(localized: "workspace.menu.reloadTab", defaultValue: "Reload Tab"),
+                action: .reload,
+                to: menu,
+                handler: onContextAction
+            )
+            workspaceSplitAddMenuItem(
+                String(localized: "workspace.menu.duplicateTab", defaultValue: "Duplicate Tab"),
+                action: .duplicate,
+                to: menu,
+                handler: onContextAction
+            )
         }
 
         menu.addItem(.separator())
 
         if contextMenuState.hasSplits {
             workspaceSplitAddMenuItem(
-                contextMenuState.isZoomed ? "Exit Zoom" : "Zoom Pane",
+                contextMenuState.isZoomed
+                    ? String(localized: "workspace.menu.exitZoomPane", defaultValue: "Exit Zoom")
+                    : String(localized: "workspace.menu.zoomPane", defaultValue: "Zoom Pane"),
                 action: .toggleZoom,
                 to: menu,
                 handler: onContextAction
@@ -2211,16 +2293,30 @@ final class WorkspaceLayoutNativeTabButtonView: NSView, NSDraggingSource {
         }
 
         workspaceSplitAddMenuItem(
-            contextMenuState.isPinned ? "Unpin Tab" : "Pin Tab",
+            contextMenuState.isPinned
+                ? String(localized: "command.unpinTab.title", defaultValue: "Unpin Tab")
+                : String(localized: "command.pinTab.title", defaultValue: "Pin Tab"),
             action: .togglePin,
             to: menu,
             handler: onContextAction
         )
 
         if contextMenuState.isUnread {
-            workspaceSplitAddMenuItem("Mark Tab as Read", action: .markAsRead, to: menu, enabled: contextMenuState.canMarkAsRead, handler: onContextAction)
+            workspaceSplitAddMenuItem(
+                String(localized: "command.markTabRead.title", defaultValue: "Mark Tab as Read"),
+                action: .markAsRead,
+                to: menu,
+                enabled: contextMenuState.canMarkAsRead,
+                handler: onContextAction
+            )
         } else {
-            workspaceSplitAddMenuItem("Mark Tab as Unread", action: .markAsUnread, to: menu, enabled: contextMenuState.canMarkAsUnread, handler: onContextAction)
+            workspaceSplitAddMenuItem(
+                String(localized: "command.markTabUnread.title", defaultValue: "Mark Tab as Unread"),
+                action: .markAsUnread,
+                to: menu,
+                enabled: contextMenuState.canMarkAsUnread,
+                handler: onContextAction
+            )
         }
 
         return menu

@@ -21,6 +21,11 @@ outfile="$output_dir/window.png"
 mkdir -p "$output_dir"
 rm -f "$outfile"
 
+if [[ -z "$binary_path" || ! -x "$binary_path" ]]; then
+  echo "Failed to locate executable binary inside $app_path" >&2
+  exit 1
+fi
+
 pkill -f "$binary_path" >/dev/null 2>&1 || true
 app_pid=""
 trap 'if [[ -n "$app_pid" ]]; then kill "$app_pid" >/dev/null 2>&1 || true; fi' EXIT

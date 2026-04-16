@@ -270,11 +270,22 @@ enum BrowserDevToolsButtonDebugSettings {
     }
 
     static func colorOption(defaults: UserDefaults = .standard) -> BrowserDevToolsIconColorOption {
-        guard let raw = defaults.string(forKey: iconColorKey),
-              let option = BrowserDevToolsIconColorOption(rawValue: raw) else {
+        guard let raw = defaults.string(forKey: iconColorKey) else {
             return defaultColor
         }
-        return option
+        if let option = BrowserDevToolsIconColorOption(rawValue: raw) {
+            return option
+        }
+
+        // Backward compatibility for pre-WorkspaceSplit raw values.
+        switch raw {
+        case "bonsplitInactive":
+            return .workspaceSplitInactive
+        case "bonsplitActive":
+            return .workspaceSplitActive
+        default:
+            return defaultColor
+        }
     }
 
     static func copyPayload(defaults: UserDefaults = .standard) -> String {

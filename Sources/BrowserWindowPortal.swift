@@ -2034,7 +2034,7 @@ final class WindowBrowserSlotView: NSView {
             }
         }
         if dropZoneOverlayView.alphaValue < 1 {
-            dropZoneOverlayView.alphaValue = 1
+            dropZoneOverlayView.animator().alphaValue = 1
         }
     }
 

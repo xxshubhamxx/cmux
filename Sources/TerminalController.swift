@@ -1907,10 +1907,10 @@ class TerminalController {
         case "layout_debug":
             return layoutDebug()
 
-        case "WorkspaceSplit_underflow_count":
+        case "WorkspaceSplit_underflow_count", "bonsplit_underflow_count":
             return splitUnderflowCount()
 
-        case "reset_WorkspaceSplit_underflow_count":
+        case "reset_WorkspaceSplit_underflow_count", "reset_bonsplit_underflow_count":
             return resetSplitUnderflowCount()
 
         case "empty_panel_count":
@@ -2422,9 +2422,13 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugLayout())
         case "debug.portal.stats":
             return v2Result(id: id, self.v2DebugPortalStats())
-        case "debug.WorkspaceSplit_underflow.count":
+        case "debug.WorkspaceSplit_underflow.count",
+             "debug.bonsplit_underflow.count",
+             "debug.bonsplit.underflow.count":
             return v2Result(id: id, self.v2DebugSplitUnderflowCount())
-        case "debug.WorkspaceSplit_underflow.reset":
+        case "debug.WorkspaceSplit_underflow.reset",
+             "debug.bonsplit_underflow.reset",
+             "debug.bonsplit.underflow.reset":
             return v2Result(id: id, self.v2DebugResetSplitUnderflowCount())
         case "debug.empty_panel.count":
             return v2Result(id: id, self.v2DebugEmptyPanelCount())
@@ -2632,6 +2636,10 @@ class TerminalController {
             "debug.portal.stats",
             "debug.WorkspaceSplit_underflow.count",
             "debug.WorkspaceSplit_underflow.reset",
+            "debug.bonsplit_underflow.count",
+            "debug.bonsplit_underflow.reset",
+            "debug.bonsplit.underflow.count",
+            "debug.bonsplit.underflow.reset",
             "debug.empty_panel.count",
             "debug.empty_panel.reset",
             "debug.notification.focus",
@@ -5591,6 +5599,8 @@ class TerminalController {
                     "runtime_surface_created_at": v2OrNull(iso8601String(terminalSurface.debugRuntimeSurfaceCreatedAt())),
                     "runtime_surface_age_seconds": v2OrNull(ageSeconds(since: terminalSurface.debugRuntimeSurfaceCreatedAt())),
                     "WorkspaceSplit_tab_id": v2OrNull(mapped?.splitTabId?.uuid.uuidString),
+                    // Backward-compatible alias for existing CLI tooling.
+                    "bonsplit_tab_id": v2OrNull(mapped?.splitTabId?.uuid.uuidString),
                     "terminal_object_ptr": objectPointerString(terminalSurface),
                     "ghostty_surface_ptr": ghosttyPointerString(terminalSurface.surface),
                     "runtime_surface_ready": terminalSurface.surface != nil,
