@@ -352,10 +352,16 @@ private protocol WorkspaceRetainedSurfaceHost: AnyObject {
 
 @MainActor
 private final class WorkspaceTerminalRetainedSurfaceHost: WorkspaceRetainedSurfaceHost {
+    private struct MountedTerminalState: Equatable {
+        let dropZone: DropZone?
+        let presentation: WorkspaceTerminalPresentationState
+    }
+
     let mountIdentity: WorkspacePaneMountIdentity
 
     private unowned let workspace: Workspace
     private let surfaceId: UUID
+    private var lastMountedState: MountedTerminalState?
 
     init(workspace: Workspace, surfaceId: UUID) {
         self.workspace = workspace
@@ -376,6 +382,14 @@ private final class WorkspaceTerminalRetainedSurfaceHost: WorkspaceRetainedSurfa
         }
 
         let hostedView = panel.hostedView
+        let desiredState = MountedTerminalState(
+            dropZone: isSelected ? activeDropZone : nil,
+            presentation: WorkspaceTerminalPresentationState(
+                isVisibleInUI: isSelected ? descriptor.isVisibleInUI : false,
+                isActive: isSelected ? descriptor.isFocused : false
+            )
+        )
+
         slotView.installContentView(hostedView)
         slotView.isHidden = !isSelected
 
@@ -389,9 +403,13 @@ private final class WorkspaceTerminalRetainedSurfaceHost: WorkspaceRetainedSurfa
         hostedView.setNotificationRing(visible: descriptor.hasUnreadNotification)
         hostedView.setSearchOverlay(searchState: panel.searchState)
         hostedView.syncKeyStateIndicator(text: panel.surface.currentKeyStateIndicatorText)
-        hostedView.setDropZoneOverlay(zone: isSelected ? activeDropZone : nil)
-        hostedView.setVisibleInUI(isSelected ? descriptor.isVisibleInUI : false)
-        hostedView.setActive(isSelected ? descriptor.isFocused : false)
+        applyStateTransition(
+            on: hostedView,
+            from: lastMountedState,
+            to: desiredState,
+            reason: "workspace.terminalHost.mount"
+        )
+        lastMountedState = desiredState
 
         let hostIsWindowed = slotView.window != nil || slotView.superview?.window != nil
         guard hostIsWindowed else {
@@ -426,12 +444,49 @@ private final class WorkspaceTerminalRetainedSurfaceHost: WorkspaceRetainedSurfa
     private func clearHostedView() {
         guard let panel = workspace.panels[surfaceId] as? TerminalPanel else { return }
         let hostedView = panel.hostedView
-        hostedView.setDropZoneOverlay(zone: nil)
-        hostedView.setVisibleInUI(false)
-        hostedView.setActive(false)
+        applyStateTransition(
+            on: hostedView,
+            from: lastMountedState,
+            to: MountedTerminalState(
+                dropZone: nil,
+                presentation: WorkspaceTerminalPresentationState(
+                    isVisibleInUI: false,
+                    isActive: false
+                )
+            ),
+            reason: "workspace.terminalHost.clear"
+        )
+        lastMountedState = nil
         hostedView.setFocusHandler(nil)
         hostedView.setTriggerFlashHandler(nil)
         hostedView.removeFromSuperview()
+    }
+
+    private func applyStateTransition(
+        on hostedView: GhosttySurfaceScrollView,
+        from previous: MountedTerminalState?,
+        to next: MountedTerminalState,
+        reason: String
+    ) {
+        if previous?.dropZone != next.dropZone {
+            hostedView.setDropZoneOverlay(zone: next.dropZone)
+        }
+
+        let operations = WorkspaceTerminalPresentationTransitionResolver.operations(
+            previous: previous?.presentation,
+            next: next.presentation
+        )
+
+        for operation in operations {
+            switch operation {
+            case .setVisibleInUI(let visible):
+                hostedView.setVisibleInUI(visible)
+            case .setActive(let active):
+                hostedView.setActive(active)
+            case .requestFirstResponderReconcile:
+                hostedView.requestAutomaticFirstResponderApply(reason: reason)
+            }
+        }
     }
 }
 
@@ -8146,11 +8201,12 @@ final class Workspace: Identifiable, ObservableObject {
             return makeEmptyPaneContentDescriptor(in: paneId)
         }
 
-        let isFocused = context.isWorkspaceInputActive && focusedPanelId == panel.id
         let isSelectedInPane = splitController.selectedTabId(inPane: paneId) == tab.id
-        let isVisibleInUI = context.panelVisibleInUI(
+        let presentationFacts = context.panelPresentationFacts(
+            paneId: paneId,
+            panelId: panel.id,
             isSelectedInPane: isSelectedInPane,
-            isFocused: isFocused
+            isFocused: context.isWorkspaceInputActive && focusedPanelId == panel.id
         )
         let showsNotificationRing = Self.shouldShowUnreadIndicator(
             hasUnreadNotification: context.notificationStore?.hasVisibleNotificationIndicator(
@@ -8164,8 +8220,8 @@ final class Workspace: Identifiable, ObservableObject {
             return .terminal(
                 WorkspaceTerminalPaneContent(
                     surfaceId: terminalPanel.id,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI,
+                    isFocused: presentationFacts.isFocused,
+                    isVisibleInUI: presentationFacts.isVisibleInUI,
                     isSplit: splitController.allPaneIds.count > 1 || panels.count > 1,
                     appearance: context.appearance,
                     hasUnreadNotification: showsNotificationRing && !context.usesWorkspacePaneOverlay,
@@ -8188,8 +8244,8 @@ final class Workspace: Identifiable, ObservableObject {
                 WorkspaceBrowserPaneContent(
                     surfaceId: browserPanel.id,
                     paneId: paneId,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI,
+                    isFocused: presentationFacts.isFocused,
+                    isVisibleInUI: presentationFacts.isVisibleInUI,
                     portalPriority: context.workspacePortalPriority,
                     onRequestPanelFocus: { [weak self, weak browserPanel] in
                         guard let self, let browserPanel else { return }
@@ -8205,7 +8261,7 @@ final class Workspace: Identifiable, ObservableObject {
             return .markdown(
                 WorkspaceMarkdownPaneContent(
                     surfaceId: markdownPanel.id,
-                    isVisibleInUI: isVisibleInUI,
+                    isVisibleInUI: presentationFacts.isVisibleInUI,
                     onRequestPanelFocus: { [weak self, weak markdownPanel] in
                         guard let self, let markdownPanel else { return }
                         guard context.isWorkspaceInputActive else { return }
@@ -8250,32 +8306,26 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> WorkspaceLayoutPaneChromeSnapshot {
         let selectedTabId = pane.selectedTabId ?? pane.tabIds.first
         let paneId = pane.id
-        let canMoveToLeftPane = splitController.adjacentPane(to: paneId, direction: .left) != nil
-        let canMoveToRightPane = splitController.adjacentPane(to: paneId, direction: .right) != nil
-        let isZoomed = splitController.zoomedPaneId == paneId
-        let hasSplits = splitController.allPaneIds.count > 1
-        let contextMenuShortcuts = splitController.contextMenuShortcuts
         let renderedTabs = pane.tabIds.map { surfaceId in
             let baseTab = layoutTabSnapshot(for: TabID(id: surfaceId))
                 ?? WorkspaceLayout.Tab(id: TabID(id: surfaceId), title: "Tab")
             return renderTabChrome(for: baseTab, using: projectionState)
         }
+        let actionFacts = WorkspacePaneActionEligibilityFacts(
+            paneId: paneId,
+            tabs: renderedTabs,
+            canMoveToLeftPane: splitController.adjacentPane(to: paneId, direction: .left) != nil,
+            canMoveToRightPane: splitController.adjacentPane(to: paneId, direction: .right) != nil,
+            isZoomed: splitController.zoomedPaneId == paneId,
+            hasSplits: splitController.allPaneIds.count > 1,
+            shortcuts: splitController.contextMenuShortcuts
+        )
         let tabs = renderedTabs.enumerated().map { index, tab in
             WorkspaceLayoutTabChromeSnapshot(
                 tab: tab,
-                contextMenuState: workspaceSplitContextMenuState(
-                    for: tab,
-                    paneId: paneId,
-                    tabs: renderedTabs,
-                    at: index,
-                    canMoveToLeftPane: canMoveToLeftPane,
-                    canMoveToRightPane: canMoveToRightPane,
-                    isZoomed: isZoomed,
-                    hasSplits: hasSplits,
-                    shortcuts: contextMenuShortcuts
-                ),
+                contextMenuState: actionFacts.contextMenuState(for: tab, at: index),
                 isSelected: selectedTabId == tab.id.id,
-                showsZoomIndicator: isZoomed && selectedTabId == tab.id.id
+                showsZoomIndicator: actionFacts.isZoomed && selectedTabId == tab.id.id
             )
         }
         return WorkspaceLayoutPaneChromeSnapshot(
@@ -12290,7 +12340,6 @@ extension Workspace: WorkspaceLayoutDelegate {
             // emitting didSelectTab. Re-apply the focused selection so sidebar state stays in sync.
             applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
         }
-
         if splitController.allPaneIds.contains(pane) {
             normalizePinnedTabs(in: pane)
         }

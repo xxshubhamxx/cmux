@@ -2507,7 +2507,7 @@ final class WorkspaceLayoutSimplificationTests: XCTestCase {
         }
 
         workspace.tabBarLeadingInset = 19
-        workspace.beginTabDrag(tabId: TabID(id: panelId), sourcePaneId: paneId)
+        workspace.layoutInteractionHandlers.beginTabDrag(tabId: TabID(id: panelId), sourcePaneId: paneId)
 
         let snapshot = workspace.makeLayoutRenderSnapshot(
             context: WorkspaceLayoutRenderContext(
@@ -2532,7 +2532,7 @@ final class WorkspaceLayoutSimplificationTests: XCTestCase {
         XCTAssertEqual(snapshot.presentation.localTabDrag?.tabId, TabID(id: panelId))
         XCTAssertEqual(snapshot.presentation.localTabDrag?.sourcePaneId, paneId)
 
-        workspace.clearDragState()
+        workspace.layoutInteractionHandlers.clearDragState()
         let clearedSnapshot = workspace.makeLayoutRenderSnapshot(
             context: WorkspaceLayoutRenderContext(
                 notificationStore: nil,
@@ -2633,8 +2633,8 @@ final class WorkspaceLayoutSimplificationTests: XCTestCase {
             "Expected split snapshot"
         )
 
-        workspace.setContainerFrame(CGRect(x: 0, y: 0, width: 1200, height: 800))
-        workspace.notifyGeometryChange(isDragging: false)
+        workspace.layoutInteractionHandlers.setContainerFrame(CGRect(x: 0, y: 0, width: 1200, height: 800))
+        workspace.layoutInteractionHandlers.notifyGeometryChange(isDragging: false)
 
         let baselineSnapshot = try XCTUnwrap(
             workspace.tmuxLayoutSnapshot,
@@ -3226,7 +3226,7 @@ final class WorkspaceSurfaceRegistryTests: XCTestCase {
 
         let renderContext = makeRenderContext()
         let rootHost = WorkspaceLayoutRootHostView(
-            hostBridge: workspace,
+            hostBridge: workspace.layoutInteractionHandlers,
             renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
             surfaceRegistry: workspace.surfaceRegistry
         )
@@ -3260,7 +3260,7 @@ final class WorkspaceSurfaceRegistryTests: XCTestCase {
         }
 
         rootHost.update(
-            hostBridge: workspace,
+            hostBridge: workspace.layoutInteractionHandlers,
             renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
             surfaceRegistry: workspace.surfaceRegistry
         )
@@ -3283,7 +3283,7 @@ final class WorkspaceSurfaceRegistryTests: XCTestCase {
         )
 
         rootHost.update(
-            hostBridge: workspace,
+            hostBridge: workspace.layoutInteractionHandlers,
             renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
             surfaceRegistry: workspace.surfaceRegistry
         )
@@ -3316,7 +3316,7 @@ final class WorkspaceSurfaceRegistryTests: XCTestCase {
 
         let renderContext = makeRenderContext()
         let rootHost = WorkspaceLayoutRootHostView(
-            hostBridge: workspace,
+            hostBridge: workspace.layoutInteractionHandlers,
             renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
             surfaceRegistry: workspace.surfaceRegistry
         )
@@ -3330,7 +3330,7 @@ final class WorkspaceSurfaceRegistryTests: XCTestCase {
 
         func refreshHost() {
             rootHost.update(
-                hostBridge: workspace,
+                hostBridge: workspace.layoutInteractionHandlers,
                 renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
                 surfaceRegistry: workspace.surfaceRegistry
             )
@@ -3411,7 +3411,7 @@ final class WorkspaceSurfaceRegistryTests: XCTestCase {
 
         let renderContext = makeRenderContext()
         let rootHost = WorkspaceLayoutRootHostView(
-            hostBridge: workspace,
+            hostBridge: workspace.layoutInteractionHandlers,
             renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
             surfaceRegistry: workspace.surfaceRegistry
         )
@@ -3425,7 +3425,7 @@ final class WorkspaceSurfaceRegistryTests: XCTestCase {
 
         func refreshHost() {
             rootHost.update(
-                hostBridge: workspace,
+                hostBridge: workspace.layoutInteractionHandlers,
                 renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
                 surfaceRegistry: workspace.surfaceRegistry
             )
@@ -3510,7 +3510,7 @@ final class WorkspaceSurfaceRegistryTests: XCTestCase {
 
         let renderContext = makeRenderContext()
         let rootHost = WorkspaceLayoutRootHostView(
-            hostBridge: workspace,
+            hostBridge: workspace.layoutInteractionHandlers,
             renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
             surfaceRegistry: workspace.surfaceRegistry
         )
@@ -3524,7 +3524,7 @@ final class WorkspaceSurfaceRegistryTests: XCTestCase {
 
         func refreshHost() {
             rootHost.update(
-                hostBridge: workspace,
+                hostBridge: workspace.layoutInteractionHandlers,
                 renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
                 surfaceRegistry: workspace.surfaceRegistry
             )
@@ -3595,7 +3595,7 @@ final class WorkspaceSurfaceRegistryTests: XCTestCase {
 
         let renderContext = makeRenderContext()
         let rootHost = WorkspaceLayoutRootHostView(
-            hostBridge: workspace,
+            hostBridge: workspace.layoutInteractionHandlers,
             renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
             surfaceRegistry: workspace.surfaceRegistry
         )
@@ -3609,7 +3609,7 @@ final class WorkspaceSurfaceRegistryTests: XCTestCase {
 
         func refreshHost() {
             rootHost.update(
-                hostBridge: workspace,
+                hostBridge: workspace.layoutInteractionHandlers,
                 renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
                 surfaceRegistry: workspace.surfaceRegistry
             )

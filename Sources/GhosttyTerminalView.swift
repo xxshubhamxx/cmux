@@ -8783,6 +8783,48 @@ func shouldAllowEnsureFocusWindowActivation(
     return true
 }
 
+@MainActor
+private final class GhosttyWindowFocusCoordinator {
+    private struct Entry {
+        weak var owner: GhosttySurfaceScrollView?
+        var generation: UInt64
+    }
+
+    static let shared = GhosttyWindowFocusCoordinator()
+    private var entries: [ObjectIdentifier: Entry] = [:]
+
+    private init() {}
+
+    func claim(window: NSWindow, owner: GhosttySurfaceScrollView) -> UInt64 {
+        pruneReleasedOwners()
+        let key = ObjectIdentifier(window)
+        let nextGeneration = (entries[key]?.generation ?? 0) &+ 1
+        entries[key] = Entry(owner: owner, generation: nextGeneration)
+        return nextGeneration
+    }
+
+    func owns(window: NSWindow, owner: GhosttySurfaceScrollView, generation: UInt64) -> Bool {
+        pruneReleasedOwners()
+        guard let entry = entries[ObjectIdentifier(window)],
+              entry.generation == generation,
+              entry.owner === owner else {
+            return false
+        }
+        return true
+    }
+
+    func release(window: NSWindow?, owner: GhosttySurfaceScrollView) {
+        guard let window else { return }
+        let key = ObjectIdentifier(window)
+        guard let entry = entries[key], entry.owner === owner else { return }
+        entries.removeValue(forKey: key)
+    }
+
+    private func pruneReleasedOwners() {
+        entries = entries.filter { $0.value.owner != nil }
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -8860,8 +8902,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingDropZone: DropZone?
     private var lastPanelBackgroundFallbackVisible: Bool?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
-    private var pendingAutomaticFirstResponderApply = false
-    // Intentionally no focus retry loops: rely on AppKit first-responder and WorkspaceSplit selection.
+    private var automaticFirstResponderTask: Task<Void, Never>?
+    private var pendingAutomaticFirstResponderGeneration: UInt64 = 0
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
     /// when the window becomes key while the find bar is open.
@@ -9728,6 +9770,7 @@ final class GhosttySurfaceScrollView: NSView {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
+        cancelFocusRequest()
         refreshPanelBackgroundFill(reason: "hostedView.viewDidMoveToWindow")
         guard let window else { return }
         windowObservers.append(NotificationCenter.default.addObserver(
@@ -10451,8 +10494,7 @@ final class GhosttySurfaceScrollView: NSView {
                fr === surfaceView || fr.isDescendant(of: surfaceView) {
                 window.makeFirstResponder(nil)
             }
-        } else {
-            scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
+            cancelFocusRequest()
         }
     }
 
@@ -10483,8 +10525,9 @@ final class GhosttySurfaceScrollView: NSView {
         }
 #endif
         if active {
-            scheduleAutomaticFirstResponderApply(reason: "setActive")
+            return
         } else {
+            cancelFocusRequest()
             resignOwnedFirstResponderIfNeeded(reason: "setActive(false)")
         }
     }
@@ -10879,18 +10922,43 @@ final class GhosttySurfaceScrollView: NSView {
         return fr === surfaceView || fr.isDescendant(of: surfaceView)
     }
 
+    func requestAutomaticFirstResponderApply(reason: String) {
+        scheduleAutomaticFirstResponderApply(reason: reason)
+    }
+
     private func scheduleAutomaticFirstResponderApply(reason: String) {
-        guard !pendingAutomaticFirstResponderApply else { return }
-        pendingAutomaticFirstResponderApply = true
-        DispatchQueue.main.async { [weak self] in
+        automaticFirstResponderTask?.cancel()
+
+        let generation: UInt64
+        if let window {
+            generation = GhosttyWindowFocusCoordinator.shared.claim(window: window, owner: self)
+        } else {
+            pendingAutomaticFirstResponderGeneration &+= 1
+            generation = pendingAutomaticFirstResponderGeneration
+        }
+        pendingAutomaticFirstResponderGeneration = generation
+
+        automaticFirstResponderTask = Task { @MainActor [weak self] in
+            await Task.yield()
             guard let self else { return }
-            self.pendingAutomaticFirstResponderApply = false
+            guard !Task.isCancelled else { return }
+            guard self.shouldApplyFirstResponder(generation: generation) else { return }
 #if DEBUG
             let surfaceShort = String(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
             dlog("find.applyFirstResponder.defer surface=\(surfaceShort) reason=\(reason)")
 #endif
             self.applyFirstResponderIfNeeded()
         }
+    }
+
+    private func shouldApplyFirstResponder(generation: UInt64) -> Bool {
+        guard generation == pendingAutomaticFirstResponderGeneration else { return false }
+        guard let window else { return false }
+        return GhosttyWindowFocusCoordinator.shared.owns(
+            window: window,
+            owner: self,
+            generation: generation
+        )
     }
 
     private func reassertTerminalSurfaceFocus(reason: String) {
@@ -11513,7 +11581,10 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
 
     func cancelFocusRequest() {
-        // Intentionally no-op (no retry loops).
+        pendingAutomaticFirstResponderGeneration &+= 1
+        automaticFirstResponderTask?.cancel()
+        automaticFirstResponderTask = nil
+        GhosttyWindowFocusCoordinator.shared.release(window: window, owner: self)
     }
 
     private func synchronizeSurfaceView() {

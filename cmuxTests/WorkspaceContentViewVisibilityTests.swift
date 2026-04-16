@@ -48,6 +48,62 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    func testPanelPresentationFactsDeriveVisibilityAndResponderIntent() {
+        let paneId = PaneID(id: UUID())
+        let panelId = UUID()
+
+        let visibleFocused = WorkspacePanelPresentationFacts(
+            paneId: paneId,
+            panelId: panelId,
+            isWorkspaceVisible: true,
+            isWorkspaceInputActive: true,
+            isSelectedInPane: false,
+            isFocused: true
+        )
+        XCTAssertTrue(visibleFocused.isVisibleInUI)
+        XCTAssertTrue(visibleFocused.wantsFirstResponder)
+
+        let hidden = WorkspacePanelPresentationFacts(
+            paneId: paneId,
+            panelId: panelId,
+            isWorkspaceVisible: false,
+            isWorkspaceInputActive: true,
+            isSelectedInPane: true,
+            isFocused: true
+        )
+        XCTAssertFalse(hidden.isVisibleInUI)
+        XCTAssertFalse(hidden.wantsFirstResponder)
+    }
+
+    func testTerminalPresentationTransitionResolverEmitsOnlyEdgeOperations() {
+        let hidden = WorkspaceTerminalPresentationState(isVisibleInUI: false, isActive: false)
+        let visibleFocused = WorkspaceTerminalPresentationState(isVisibleInUI: true, isActive: true)
+
+        XCTAssertEqual(
+            WorkspaceTerminalPresentationTransitionResolver.operations(
+                previous: hidden,
+                next: visibleFocused
+            ),
+            [.setVisibleInUI(true), .setActive(true), .requestFirstResponderReconcile]
+        )
+
+        XCTAssertEqual(
+            WorkspaceTerminalPresentationTransitionResolver.operations(
+                previous: visibleFocused,
+                next: visibleFocused
+            ),
+            []
+        )
+
+        XCTAssertEqual(
+            WorkspaceTerminalPresentationTransitionResolver.operations(
+                previous: visibleFocused,
+                next: hidden
+            ),
+            [.setVisibleInUI(false), .setActive(false)]
+        )
+    }
+
     func testTmuxWorkspacePaneOverlayRectReturnsMatchingPaneFrame() {
         let paneID = PaneID(id: UUID())
         let snapshot = LayoutSnapshot(

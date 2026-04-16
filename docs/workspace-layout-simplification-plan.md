@@ -1,5 +1,17 @@
 # Workspace Layout Simplification Plan
 
+## Current Cycle (7-step focus/visibility refactor)
+
+Status on `2026-04-16`:
+
+1. done, render/mount path is now idempotent for terminal visibility/active updates, and no longer performs focus side effects from `setVisibleInUI`/`setActive`.
+2. done, pane-level visibility/focus intent now comes from one immutable layout-derived facts object: `WorkspacePanelPresentationFacts`.
+3. done, terminal host mount/unmount now diffs old/new desired presentation state through `WorkspaceTerminalPresentationTransitionResolver` and applies only edge operations.
+4. done, first-responder scheduling now goes through one `@MainActor` per-window owner coordinator (`GhosttyWindowFocusCoordinator`) with a generation token.
+5. done, focus scheduling moved from `DispatchQueue.main.async` coalescing to structured `Task { @MainActor }` with cancellation and generation checks.
+6. done, new pure transition/presentation structs are value types with explicit `Sendable` conformance where appropriate.
+7. done, deterministic tests now cover the new transition resolver plus split/close and child-exit behavior. `cmux-unit` targeted run passed with `13` tests and `0` failures (`WorkspaceContentViewVisibilityTests`, selected `WorkspaceUnitTests` split-close cases, and `TabManagerChildExitCloseTests`).
+
 ## Status
 
 Implemented on `2026-04-16`:
