@@ -2129,6 +2129,42 @@ struct TabContextMenuState {
 }
 
 @MainActor
+func workspaceSplitContextMenuState(
+    for tab: WorkspaceLayout.Tab,
+    paneId: PaneID,
+    tabs: [WorkspaceLayout.Tab],
+    at index: Int,
+    controller: WorkspaceLayoutController
+) -> TabContextMenuState {
+    let leftTabs = tabs.prefix(index)
+    let canCloseToLeft = leftTabs.contains(where: { !$0.isPinned })
+    let canCloseToRight: Bool
+    if (index + 1) < tabs.count {
+        canCloseToRight = tabs.suffix(from: index + 1).contains(where: { !$0.isPinned })
+    } else {
+        canCloseToRight = false
+    }
+    let canCloseOthers = tabs.enumerated().contains { itemIndex, item in
+        itemIndex != index && !item.isPinned
+    }
+    return TabContextMenuState(
+        isPinned: tab.isPinned,
+        isUnread: tab.showsNotificationBadge,
+        isBrowser: tab.kind == .browser,
+        isTerminal: tab.kind == .terminal,
+        hasCustomTitle: tab.hasCustomTitle,
+        canCloseToLeft: canCloseToLeft,
+        canCloseToRight: canCloseToRight,
+        canCloseOthers: canCloseOthers,
+        canMoveToLeftPane: controller.adjacentPane(to: paneId, direction: .left) != nil,
+        canMoveToRightPane: controller.adjacentPane(to: paneId, direction: .right) != nil,
+        isZoomed: controller.zoomedPaneId == paneId,
+        hasSplits: controller.allPaneIds.count > 1,
+        shortcuts: controller.contextMenuShortcuts
+    )
+}
+
+@MainActor
 @Observable
 final class WorkspaceLayoutController {
 
@@ -2976,4 +3012,71 @@ struct WorkspaceMarkdownPaneContent {
 struct WorkspacePlaceholderPaneContent {
     unowned let workspace: Workspace
     let paneId: PaneID
+}
+
+struct WorkspaceLayoutTabChromeSnapshot {
+    let tab: WorkspaceLayout.Tab
+    let contextMenuState: TabContextMenuState
+    let isSelected: Bool
+    let showsZoomIndicator: Bool
+}
+
+struct WorkspaceLayoutPaneChromeSnapshot {
+    let paneId: PaneID
+    let tabs: [WorkspaceLayoutTabChromeSnapshot]
+    let selectedTabId: UUID?
+    let isFocused: Bool
+    let showSplitButtons: Bool
+    let chromeRevision: UInt64
+}
+
+struct WorkspaceLayoutPaneRenderSnapshot {
+    let paneId: PaneID
+    let tabs: [WorkspaceLayout.Tab]
+    let selectedTabId: UUID?
+    let chrome: WorkspaceLayoutPaneChromeSnapshot
+    let emptyPaneContent: WorkspacePaneContent?
+    let paneContentByTabId: [UUID: WorkspacePaneContent]
+
+    func paneContent(tabId: UUID) -> WorkspacePaneContent {
+        guard let paneContent = paneContentByTabId[tabId] else {
+            preconditionFailure("Missing pane content for tab \(tabId) in pane \(paneId.id)")
+        }
+        return paneContent
+    }
+}
+
+struct WorkspaceLayoutSplitRenderSnapshot {
+    let splitId: UUID
+    let first: WorkspaceLayoutRenderNodeSnapshot
+    let second: WorkspaceLayoutRenderNodeSnapshot
+}
+
+indirect enum WorkspaceLayoutRenderNodeSnapshot {
+    case pane(WorkspaceLayoutPaneRenderSnapshot)
+    case split(WorkspaceLayoutSplitRenderSnapshot)
+
+    var paneIds: Set<UUID> {
+        switch self {
+        case .pane(let pane):
+            return [pane.paneId.id]
+        case .split(let split):
+            return split.first.paneIds.union(split.second.paneIds)
+        }
+    }
+
+    var splitIds: Set<UUID> {
+        switch self {
+        case .pane:
+            return []
+        case .split(let split):
+            return Set([split.splitId])
+                .union(split.first.splitIds)
+                .union(split.second.splitIds)
+        }
+    }
+}
+
+struct WorkspaceLayoutRenderSnapshot {
+    let root: WorkspaceLayoutRenderNodeSnapshot
 }

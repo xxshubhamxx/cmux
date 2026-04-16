@@ -52,6 +52,8 @@ Implemented on `issue-2289-appkit-split-host`:
 - `Workspace` now owns render-snapshot construction directly, and the old generic `workspaceLayoutMakeRenderSnapshot` builder seam is gone from production code
 - `WorkspaceLayoutDelegate` is now `@MainActor`, matching the controller and workspace shell ownership boundary instead of relying on a nonisolated delegate protocol
 - empty panes now also come through the workspace-owned pane-content snapshot, so `WorkspaceLayoutView` and the native host no longer accept a separate empty-pane view builder
+- `workspaceSplitContextMenuState` now lives in `Sources/WorkspaceSplit.swift`, so workspace-owned chrome projection no longer depends on a helper defined in `Sources/WorkspaceSplitNativeHost.swift`
+- the canonical `WorkspaceLayoutRenderSnapshot` family now lives in `Sources/WorkspaceSplit.swift` instead of `Sources/WorkspaceSplitNativeHost.swift`, so `Workspace` owns runtime snapshot assembly without depending on renderer-local type definitions
 
 No required architecture work from this simplification plan remains on this branch.
 
