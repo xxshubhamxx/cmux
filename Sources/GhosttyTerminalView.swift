@@ -4306,9 +4306,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             surfaceConfig.io_write_userdata = bridgePtr
 
             if let sid = initialSessionID {
-                dlog("surface.daemonBridge session=\(sid) socket=\(daemonSocket) origin=saved")
+                dlog("surface.daemonBridge session=\(sid) socket=\(daemonSocket) origin=saved workspace=\(tabId.uuidString.prefix(8))")
             } else {
-                dlog("surface.daemonBridge session=pending socket=\(daemonSocket) origin=openPane")
+                dlog("surface.daemonBridge session=pending socket=\(daemonSocket) origin=openPane workspace=\(tabId.uuidString.prefix(8)) surface=\(id.uuidString.prefix(8))")
                 // Ask the daemon to mint a session bound to a pane in this
                 // workspace. Buffered writes/resizes/start flush on assign.
                 // The deferred resize after initial layout (below) will
@@ -4316,6 +4316,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 // the actual surface dimensions.
                 let surfaceID = self.id
                 let workspaceID = self.tabId
+                dlog("surface.openPane.request workspace=\(workspaceID.uuidString.prefix(8)) surface=\(surfaceID.uuidString.prefix(8))")
                 DaemonConnection.shared.openPane(
                     workspaceID: workspaceID,
                     command: shellCommand,
@@ -4323,8 +4324,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     rows: 24
                 ) { [weak self, weak bridge] sid, _ in
                     guard let sid else {
-                        NSLog("📱 surface.openPane failed tab=%@ surface=%@", workspaceID.uuidString, surfaceID.uuidString)
+                        NSLog("📱 surface.openPane FAILED tab=%@ surface=%@", workspaceID.uuidString, surfaceID.uuidString)
                         DispatchQueue.main.async {
+                            dlog("surface.openPane.failed workspace=\(workspaceID.uuidString.prefix(8)) surface=\(surfaceID.uuidString.prefix(8))")
                             bridge?.markBootstrapFailed()
                             // Wake workspace.sync — this pane is permanently
                             // unpending, so the bridge's stuck state should
@@ -4340,7 +4342,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     DispatchQueue.main.async {
                         self?.savedDaemonSessionID = sid
                         bridge?.assignSessionID(sid)
-                        dlog("surface.daemonBridge.assign session=\(sid)")
+                        dlog("surface.openPane.success workspace=\(workspaceID.uuidString.prefix(8)) surface=\(surfaceID.uuidString.prefix(8)) session=\(sid)")
                         // Nudge workspace.sync: without this the next sync
                         // might still be the one scheduled before openPane
                         // landed, filtered of this pane, which the daemon's

@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Combine
 import Foundation
 
@@ -295,6 +296,18 @@ final class WorkspaceDaemonBridge {
             return
         }
         guard let params = buildSyncParams() else { return }
+        #if DEBUG
+        if let workspaces = params["workspaces"] as? [[String: Any]] {
+            let summary = workspaces.map { ws -> String in
+                let id = (ws["id"] as? String)?.prefix(8) ?? "?"
+                let title = (ws["title"] as? String) ?? ""
+                let panes = ws["panes"] as? [[String: Any]] ?? []
+                let sids = panes.compactMap { $0["session_id"] as? String }
+                return "\(id)[\(title)]=\(sids)"
+            }.joined(separator: " ")
+            dlog("sync.send count=\(workspaces.count) \(summary)")
+        }
+        #endif
         connection.sendWorkspaceSync(params)
         lastSyncTime = Date()
         syncCount += 1
@@ -302,15 +315,31 @@ final class WorkspaceDaemonBridge {
 
     private func hasPendingDaemonSessionAssignments() -> Bool {
         guard let tabManager else { return false }
+        let daemonRunning = MobileDaemonBridgeInline.shared.isRunning
+        guard daemonRunning else { return false }
         for workspace in tabManager.tabs {
             for panel in workspace.panels.values {
-                guard let terminal = panel as? TerminalPanel,
-                      let bridge = terminal.surface.daemonBridge else { continue }
-                if terminal.surface.savedDaemonSessionID == nil,
-                   bridge.sessionID == nil,
-                   !bridge.bootstrapFailed {
-                    return true
+                guard let terminal = panel as? TerminalPanel else { continue }
+                if terminal.surface.savedDaemonSessionID != nil { continue }
+                if let bridge = terminal.surface.daemonBridge, bridge.bootstrapFailed {
+                    continue
                 }
+                // Pending: either the bridge is alive with nil sessionID
+                // (openPane in flight), or the surface hasn't been created
+                // yet and will fire openPane on its first render. Either
+                // way reporting this pane to workspace.sync now would emit
+                // a session_id-less pane that the daemon's syncAll would
+                // rebuild the tree around.
+                #if DEBUG
+                dlog(
+                    "sync.defer workspace=\(workspace.id.uuidString.prefix(8)) " +
+                    "panel=\(panel.id.uuidString.prefix(8)) " +
+                    "surface=\(terminal.surface.id.uuidString.prefix(8)) " +
+                    "bridge=\(terminal.surface.daemonBridge == nil ? "nil" : "alive") " +
+                    "reason=no_authoritative_session_id"
+                )
+                #endif
+                return true
             }
         }
         return false
