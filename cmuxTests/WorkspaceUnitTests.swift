@@ -2195,6 +2195,13 @@ final class WorkspaceLayoutSimplificationTests: XCTestCase {
         }
     }
 
+    private func firstSplitSnapshot(
+        from snapshot: WorkspaceLayoutRenderSnapshot
+    ) -> WorkspaceLayoutSplitRenderSnapshot? {
+        guard case .split(let split) = snapshot.root else { return nil }
+        return split
+    }
+
     func testSurfaceAndPanelIdentityRoundTripUsesCanonicalID() {
         let workspace = Workspace()
         guard let panelId = workspace.focusedPanelId else {
@@ -2416,6 +2423,58 @@ final class WorkspaceLayoutSimplificationTests: XCTestCase {
         } else {
             XCTFail("Expected selected markdown content to be emitted")
         }
+    }
+
+    func testRenderSnapshotCarriesSplitGeometryFromControllerState() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        let context = WorkspaceLayoutRenderContext(
+            notificationStore: nil,
+            isWorkspaceVisible: true,
+            isWorkspaceInputActive: true,
+            appearance: PanelAppearance(
+                dividerColor: .clear,
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0
+            ),
+            workspacePortalPriority: 0,
+            usesWorkspacePaneOverlay: false,
+            showSplitButtons: true
+        )
+
+        let result = workspace.performLayoutCommand(
+            .splitTerminal(fromPanelId: panelId, orientation: .horizontal)
+        )
+        XCTAssertNotNil(result.terminalPanel, "Expected split terminal panel")
+
+        let initialSnapshot = workspace.makeLayoutRenderSnapshot(context: context)
+        guard let split = firstSplitSnapshot(from: initialSnapshot) else {
+            XCTFail("Expected split root snapshot after splitting")
+            return
+        }
+
+        XCTAssertEqual(split.orientation, .horizontal)
+        XCTAssertEqual(split.dividerPosition, 0.5, accuracy: 0.001)
+        XCTAssertEqual(split.animationOrigin, .fromSecond)
+
+        workspace.splitController.consumeSplitEntryAnimation(split.splitId)
+        let consumedSnapshot = workspace.makeLayoutRenderSnapshot(context: context)
+        XCTAssertNil(
+            firstSplitSnapshot(from: consumedSnapshot)?.animationOrigin,
+            "Expected the render snapshot to stop carrying consumed split-entry animation state"
+        )
+
+        XCTAssertTrue(workspace.splitController.setDividerPosition(0.33, forSplit: split.splitId))
+        let resizedSnapshot = workspace.makeLayoutRenderSnapshot(context: context)
+        XCTAssertEqual(
+            firstSplitSnapshot(from: resizedSnapshot)?.dividerPosition,
+            0.33,
+            accuracy: 0.001
+        )
     }
 
     func testPerformLayoutCommandSplitTerminalCreatesSecondPane() {

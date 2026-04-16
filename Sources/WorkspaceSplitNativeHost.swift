@@ -484,16 +484,10 @@ final class WorkspaceLayoutRootHostView: NSView {
     }
 
     private func splitHost(for snapshot: WorkspaceLayoutSplitRenderSnapshot) -> WorkspaceLayoutNativeSplitView {
-        guard let split = workspaceSplitFindSplitState(
-            in: controller.internalController.rootNode,
-            id: snapshot.splitId
-        ) else {
-            preconditionFailure("Missing live split state for snapshot \(snapshot.splitId)")
-        }
-
-        if let existing = splitHosts[split.id] {
+        if let existing = splitHosts[snapshot.splitId] {
             existing.update(
-                splitState: split,
+                snapshot: snapshot,
+                controller: controller,
                 rootHost: self,
                 firstChild: hostView(for: snapshot.first),
                 secondChild: hostView(for: snapshot.second),
@@ -503,34 +497,26 @@ final class WorkspaceLayoutRootHostView: NSView {
         }
 
         let host = WorkspaceLayoutNativeSplitView(
-            splitState: split,
+            snapshot: snapshot,
+            controller: controller,
             rootHost: self,
             firstChild: hostView(for: snapshot.first),
             secondChild: hostView(for: snapshot.second),
             appearance: controller.configuration.appearance
         )
-        splitHosts[split.id] = host
+        splitHosts[snapshot.splitId] = host
         return host
-    }
-}
-
-private func workspaceSplitFindSplitState(in node: SplitNode, id: UUID) -> SplitState? {
-    switch node {
-    case .pane:
-        return nil
-    case .split(let split):
-        if split.id == id {
-            return split
-        }
-        return workspaceSplitFindSplitState(in: split.first, id: id)
-            ?? workspaceSplitFindSplitState(in: split.second, id: id)
     }
 }
 
 @MainActor
 private final class WorkspaceLayoutNativeSplitView: NSSplitView, NSSplitViewDelegate {
+    private weak var controller: WorkspaceLayoutController?
     private weak var rootHost: WorkspaceLayoutRootHostView?
-    private var splitState: SplitState
+    private var splitId: UUID
+    private var splitOrientation: SplitOrientation
+    private var splitDividerPosition: CGFloat
+    private var splitAnimationOrigin: SplitAnimationOrigin?
     private var splitAppearance: WorkspaceLayoutConfiguration.Appearance
 
     private let firstContainer = NSView(frame: .zero)
@@ -545,22 +531,27 @@ private final class WorkspaceLayoutNativeSplitView: NSSplitView, NSSplitViewDele
     private var isAnimatingEntry = false
 
     init(
-        splitState: SplitState,
+        snapshot: WorkspaceLayoutSplitRenderSnapshot,
+        controller: WorkspaceLayoutController,
         rootHost: WorkspaceLayoutRootHostView,
         firstChild: NSView,
         secondChild: NSView,
         appearance: WorkspaceLayoutConfiguration.Appearance
     ) {
-        self.splitState = splitState
+        self.controller = controller
         self.rootHost = rootHost
+        self.splitId = snapshot.splitId
+        self.splitOrientation = snapshot.orientation
+        self.splitDividerPosition = snapshot.dividerPosition
+        self.splitAnimationOrigin = snapshot.animationOrigin
         self.splitAppearance = appearance
-        self.lastAppliedPosition = splitState.dividerPosition
+        self.lastAppliedPosition = snapshot.dividerPosition
         super.init(frame: .zero)
         delegate = self
         dividerStyle = .thin
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
-        isVertical = splitState.orientation == .horizontal
+        isVertical = snapshot.orientation == .horizontal
         addArrangedSubview(firstContainer)
         addArrangedSubview(secondContainer)
         configure(container: firstContainer)
@@ -577,23 +568,28 @@ private final class WorkspaceLayoutNativeSplitView: NSSplitView, NSSplitViewDele
     }
 
     func update(
-        splitState: SplitState,
+        snapshot: WorkspaceLayoutSplitRenderSnapshot,
+        controller: WorkspaceLayoutController,
         rootHost: WorkspaceLayoutRootHostView,
         firstChild: NSView,
         secondChild: NSView,
         appearance: WorkspaceLayoutConfiguration.Appearance
     ) {
-        if self.splitState.id != splitState.id {
+        if self.splitId != snapshot.splitId {
             didApplyInitialDividerPosition = false
             initialDividerApplyAttempts = 0
             isAnimatingEntry = false
         }
 
-        self.splitState = splitState
+        self.controller = controller
         self.rootHost = rootHost
+        self.splitId = snapshot.splitId
+        self.splitOrientation = snapshot.orientation
+        self.splitDividerPosition = snapshot.dividerPosition
+        self.splitAnimationOrigin = snapshot.animationOrigin
         self.splitAppearance = appearance
         isHidden = rootHost.isHidden
-        isVertical = splitState.orientation == .horizontal
+        isVertical = snapshot.orientation == .horizontal
         updateDividerColor()
         install(child: firstChild, in: firstContainer, current: &self.firstChild)
         install(child: secondChild, in: secondContainer, current: &self.secondChild)
@@ -659,7 +655,7 @@ private final class WorkspaceLayoutNativeSplitView: NSSplitView, NSSplitViewDele
             initialDividerApplyAttempts += 1
             guard initialDividerApplyAttempts < 8 else {
                 didApplyInitialDividerPosition = true
-                splitState.animationOrigin = nil
+                consumePendingAnimationOriginIfNeeded()
                 return
             }
             Task { @MainActor [weak self] in
@@ -669,17 +665,17 @@ private final class WorkspaceLayoutNativeSplitView: NSSplitView, NSSplitViewDele
         }
 
         didApplyInitialDividerPosition = true
-        let targetPosition = round(available * splitState.dividerPosition)
+        let targetPosition = round(available * splitDividerPosition)
 
         guard splitAppearance.enableAnimations,
-              let animationOrigin = splitState.animationOrigin else {
+              let animationOrigin = splitAnimationOrigin else {
+            consumePendingAnimationOriginIfNeeded()
             setDividerPosition(targetPosition, layout: false)
-            splitState.animationOrigin = nil
             return
         }
 
         let startPosition: CGFloat = animationOrigin == .fromFirst ? 0 : available
-        splitState.animationOrigin = nil
+        consumePendingAnimationOriginIfNeeded()
         isAnimatingEntry = true
         setDividerPosition(startPosition, layout: true)
 
@@ -693,8 +689,7 @@ private final class WorkspaceLayoutNativeSplitView: NSSplitView, NSSplitViewDele
             ) { [weak self] in
                 guard let self else { return }
                 self.isAnimatingEntry = false
-                self.splitState.dividerPosition = min(max(self.splitState.dividerPosition, 0.1), 0.9)
-                self.lastAppliedPosition = self.splitState.dividerPosition
+                self.lastAppliedPosition = self.splitDividerPosition
                 self.rootHost?.notifyGeometryChanged(isDragging: false)
             }
         }
@@ -713,23 +708,23 @@ private final class WorkspaceLayoutNativeSplitView: NSSplitView, NSSplitViewDele
             layoutSubtreeIfNeeded()
         }
         isSyncingProgrammatically = false
-        lastAppliedPosition = availableSplitSize > 0 ? position / availableSplitSize : splitState.dividerPosition
+        lastAppliedPosition = availableSplitSize > 0 ? position / availableSplitSize : splitDividerPosition
     }
 
     private func syncDividerPosition() {
         guard !isAnimatingEntry else { return }
         let available = availableSplitSize
         guard available > 0 else { return }
-        let desired = min(max(splitState.dividerPosition, 0.1), 0.9)
+        let desired = min(max(splitDividerPosition, 0.1), 0.9)
         guard abs(desired - lastAppliedPosition) > 0.0005 else { return }
         setDividerPosition(round(available * desired), layout: false)
     }
 
     private func normalizedDividerPosition() -> CGFloat {
-        guard arrangedSubviews.count >= 2 else { return splitState.dividerPosition }
+        guard arrangedSubviews.count >= 2 else { return splitDividerPosition }
         let firstFrame = arrangedSubviews[0].frame
         let available = availableSplitSize
-        guard available > 0 else { return splitState.dividerPosition }
+        guard available > 0 else { return splitDividerPosition }
         let occupied = isVertical ? firstFrame.width : firstFrame.height
         return min(max(occupied / available, 0.1), 0.9)
     }
@@ -737,7 +732,8 @@ private final class WorkspaceLayoutNativeSplitView: NSSplitView, NSSplitViewDele
     func splitViewDidResizeSubviews(_ notification: Notification) {
         guard !isSyncingProgrammatically else { return }
         let next = normalizedDividerPosition()
-        splitState.dividerPosition = next
+        splitDividerPosition = next
+        controller?.setDividerPosition(next, forSplit: splitId)
         lastAppliedPosition = next
         let eventType = NSApp.currentEvent?.type
         let isDragging = eventType == .leftMouseDragged
@@ -753,6 +749,12 @@ private final class WorkspaceLayoutNativeSplitView: NSSplitView, NSSplitViewDele
         let minimum = isVertical ? splitAppearance.minimumPaneWidth : splitAppearance.minimumPaneHeight
         let total = isVertical ? splitView.bounds.width : splitView.bounds.height
         return max(minimum, total - minimum - splitView.dividerThickness)
+    }
+
+    private func consumePendingAnimationOriginIfNeeded() {
+        guard splitAnimationOrigin != nil else { return }
+        splitAnimationOrigin = nil
+        controller?.consumeSplitEntryAnimation(splitId)
     }
 }
 
@@ -1159,7 +1161,7 @@ private final class WorkspaceLayoutNativeTabBarView: NSView {
                 showsZoomIndicator: tabSnapshot.showsZoomIndicator,
                 appearance: controller.configuration.appearance,
                 contextMenuState: tabSnapshot.contextMenuState,
-                splitViewController: controller.internalController,
+                splitViewController: controller,
                 onSelect: { [weak self] in
                     guard let self else { return }
                     controller.focusPane(snapshot.paneId)
@@ -1409,8 +1411,8 @@ private final class WorkspaceLayoutTabDocumentView: NSView {
 
     private func validateSplitTabDrop(_ sender: NSDraggingInfo) -> Bool {
         guard let controller else { return false }
-        guard controller.internalController.isInteractive else { return false }
-        if controller.internalController.activeDragTabId != nil || controller.internalController.draggingTabId != nil {
+        guard controller.isInteractive else { return false }
+        if controller.isHandlingLocalTabDrag {
             return true
         }
         guard let transfer = workspaceSplitDecodeTransfer(from: sender.draggingPasteboard),
@@ -1444,12 +1446,12 @@ private final class WorkspaceLayoutTabDocumentView: NSView {
         guard let snapshot, let controller else { return false }
         let destinationIndex = targetIndex(for: convert(sender.draggingLocation, from: nil))
 
-        if let draggedTabId = controller.internalController.activeDragTabId ?? controller.internalController.draggingTabId,
-           let sourcePaneId = controller.internalController.activeDragSourcePaneId ?? controller.internalController.dragSourcePaneId {
+        if let draggedTabId = controller.currentDragTabId,
+           let sourcePaneId = controller.currentDragSourcePaneId {
             if sourcePaneId == snapshot.paneId,
                let sourceIndex = snapshot.tabs.firstIndex(where: { $0.tab.id == draggedTabId }),
                (destinationIndex == sourceIndex || destinationIndex == sourceIndex + 1) {
-                workspaceSplitClearDragState(controller.internalController)
+                controller.clearDragState()
                 updateDropIndicator(targetIndex: nil)
                 return true
             }
@@ -1468,7 +1470,7 @@ private final class WorkspaceLayoutTabDocumentView: NSView {
                     atIndex: destinationIndex
                 )
             }
-            workspaceSplitClearDragState(controller.internalController)
+            controller.clearDragState()
             updateDropIndicator(targetIndex: nil)
             onDropPerformed?()
             return true
@@ -1688,7 +1690,7 @@ final class WorkspaceLayoutNativeTabButtonView: NSView, NSDraggingSource {
         hasSplits: false,
         shortcuts: [:]
     )
-    private weak var splitViewController: SplitViewController?
+    private weak var splitViewController: WorkspaceLayoutController?
     private var onSelect: (() -> Void)?
     private var onClose: (() -> Void)?
     private var onZoomToggle: (() -> Void)?
@@ -1879,7 +1881,7 @@ final class WorkspaceLayoutNativeTabButtonView: NSView, NSDraggingSource {
         showsZoomIndicator: Bool,
         appearance: WorkspaceLayoutConfiguration.Appearance,
         contextMenuState: TabContextMenuState,
-        splitViewController: SplitViewController,
+        splitViewController: WorkspaceLayoutController,
         onSelect: @escaping () -> Void,
         onClose: @escaping () -> Void,
         onZoomToggle: @escaping () -> Void,
@@ -2135,11 +2137,7 @@ final class WorkspaceLayoutNativeTabButtonView: NSView, NSDraggingSource {
         dragStarted = true
 
         let transferTabId = tab.id
-        splitViewController.dragGeneration += 1
-        splitViewController.draggingTabId = transferTabId
-        splitViewController.dragSourcePaneId = paneId
-        splitViewController.activeDragTabId = transferTabId
-        splitViewController.activeDragSourcePaneId = paneId
+        splitViewController.beginTabDrag(tabId: transferTabId, sourcePaneId: paneId)
 
         let pasteboardItem = NSPasteboardItem()
         if let data = try? JSONEncoder().encode(
@@ -2235,7 +2233,7 @@ final class WorkspaceLayoutNativeTabButtonView: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         if operation == [] {
-            splitViewController.map(workspaceSplitClearDragState)
+            splitViewController?.clearDragState()
         }
     }
 
@@ -2621,17 +2619,15 @@ private final class WorkspaceLayoutPaneDropOverlayView: NSView {
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard let paneId, let controller else { return [] }
-        guard controller.internalController.isInteractive else { return [] }
+        guard controller.isInteractive else { return [] }
 
         if sender.draggingPasteboard.availableType(from: [NSPasteboard.PasteboardType(UTType.tabTransfer.identifier)]) != nil {
-            guard controller.internalController.activeDragTabId != nil
-                || controller.internalController.draggingTabId != nil
+            guard controller.isHandlingLocalTabDrag
                 || workspaceSplitDecodeTransfer(from: sender.draggingPasteboard)?.isFromCurrentProcess == true else {
                 return []
             }
             let location = convert(sender.draggingLocation, from: nil)
-            let sourcePaneId = controller.internalController.activeDragSourcePaneId
-                ?? controller.internalController.dragSourcePaneId
+            let sourcePaneId = controller.currentDragSourcePaneId
             let decision = WorkspacePaneDropRouting.decision(
                 for: location,
                 in: bounds.size,
@@ -2672,9 +2668,9 @@ private final class WorkspaceLayoutPaneDropOverlayView: NSView {
                 in: bounds.size
             )
 
-            if let draggedTabId = controller.internalController.activeDragTabId ?? controller.internalController.draggingTabId,
-               let sourcePaneId = controller.internalController.activeDragSourcePaneId ?? controller.internalController.dragSourcePaneId {
-                workspaceSplitClearDragState(controller.internalController)
+            if let draggedTabId = controller.currentDragTabId,
+               let sourcePaneId = controller.currentDragSourcePaneId {
+                controller.clearDragState()
                 activeDropZone = nil
                 onZoneChanged?(nil)
 
@@ -3484,7 +3480,7 @@ func workspaceLayoutRenderAppKitTabChromeImage(
         tabs: [TabItem(id: scenario.tab.id.id, title: scenario.tab.title, isPinned: scenario.tab.isPinned)],
         selectedTabId: scenario.isSelected ? scenario.tab.id.id : nil
     )
-    let splitController = SplitViewController(rootNode: .pane(pane))
+    let splitController = WorkspaceLayoutController(rootNode: .pane(pane))
     let view = WorkspaceLayoutNativeTabButtonView(frame: .zero)
     let renderTab = scenario.tab
     view.update(
@@ -3713,7 +3709,7 @@ final class WorkspaceLayoutAccessoryDebugPreviewView: NSView {
 }
 
 final class WorkspaceLayoutNativeTabButtonDebugPreviewHost: NSView {
-    private let splitViewController = SplitViewController()
+    private let splitViewController = WorkspaceLayoutController()
     private let button = WorkspaceLayoutNativeTabButtonView(frame: .zero)
 
     override init(frame frameRect: NSRect) {
@@ -4143,14 +4139,6 @@ private func workspaceSplitAdjustColor(_ color: NSColor, by delta: CGFloat) -> N
         blue: clamp(rgb.blueComponent + delta),
         alpha: rgb.alphaComponent
     )
-}
-
-@MainActor
-private func workspaceSplitClearDragState(_ controller: SplitViewController) {
-    controller.draggingTabId = nil
-    controller.dragSourcePaneId = nil
-    controller.activeDragTabId = nil
-    controller.activeDragSourcePaneId = nil
 }
 
 struct WorkspacePaneDropZoneDecision: Equatable {

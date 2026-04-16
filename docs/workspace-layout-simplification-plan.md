@@ -4,6 +4,10 @@
 
 Implemented on `2026-04-16`:
 
+- `WorkspaceLayoutController` now owns the split tree, focus state, drag state, geometry state, and split algorithms directly, so `SplitViewController` is gone and there is no nested mutable layout owner below `Workspace`
+- split orientation, divider position, and split-entry animation origin now flow through the canonical render snapshot, so `WorkspaceLayoutRootHostView` and `WorkspaceLayoutNativeSplitView` no longer read live split state back out of the controller tree
+- divider drags now update split geometry through `WorkspaceLayoutController` APIs instead of mutating `SplitState` directly from the renderer
+- focused workspace suites passed on `ssh cmux-macmini` after the ownership cut: `WorkspaceLayoutSimplificationTests`, `WorkspaceSurfaceRegistryTests`, `WorkspaceContentViewVisibilityTests`, `WorkspaceUnitTests`, and `TabManagerUnitTests`
 - pane-content snapshots now carry value-only `surfaceId` descriptors instead of live `TerminalPanel`, `BrowserPanel`, or `MarkdownPanel` references
 - `Workspace` now owns a retained `WorkspaceSurfaceRegistry`, so terminal, browser, and markdown mounting no longer lives inside `WorkspaceLayoutPaneHostView`
 - placeholder empty-pane hosting now also lives in `WorkspaceSurfaceRegistry`, so the pane host no longer carries a parallel SwiftUI placeholder-controller lifecycle
@@ -89,7 +93,7 @@ Optional follow-up work, outside the scope of this refactor:
 
 The current workspace layout path has too many runtime models and too many translation boundaries.
 
-A single user action such as split, close, move, rename, or focus currently crosses AppDelegate, TabManager, Workspace, WorkspaceLayoutController, SplitViewController, and the AppKit host. Runtime state is duplicated between panel dictionaries in `Sources/Workspace.swift`, tab metadata in `Sources/WorkspaceSplit.swift`, and renderer-local snapshots in `Sources/WorkspaceSplitNativeHost.swift`. That duplication is the main source of stale tab chrome, focus churn, and brittle feature work.
+Before this migration, a single user action such as split, close, move, rename, or focus crossed AppDelegate, TabManager, Workspace, `WorkspaceLayoutController`, `SplitViewController`, and the AppKit host. Runtime state was duplicated between panel dictionaries in `Sources/Workspace.swift`, tab metadata in `Sources/WorkspaceSplit.swift`, and renderer-local snapshots in `Sources/WorkspaceSplitNativeHost.swift`. That duplication was the main source of stale tab chrome, focus churn, and brittle feature work.
 
 ## Constraints
 

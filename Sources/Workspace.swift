@@ -8070,6 +8070,9 @@ final class Workspace: Identifiable, ObservableObject {
             return .split(
                 WorkspaceLayoutSplitRenderSnapshot(
                     splitId: split.id,
+                    orientation: split.orientation,
+                    dividerPosition: split.dividerPosition,
+                    animationOrigin: split.animationOrigin,
                     first: makeRenderNodeSnapshot(
                         node: split.first,
                         projectionState: projectionState,
@@ -8088,10 +8091,9 @@ final class Workspace: Identifiable, ObservableObject {
     @MainActor
     func makeLayoutRenderSnapshot(context: WorkspaceLayoutRenderContext) -> WorkspaceLayoutRenderSnapshot {
         let projectionState = makeTabChromeProjectionState(notificationStore: context.notificationStore)
-        let root = splitController.internalController.zoomedNode ?? splitController.internalController.rootNode
         return WorkspaceLayoutRenderSnapshot(
             root: makeRenderNodeSnapshot(
-                node: root,
+                node: splitController.renderRootNode,
                 projectionState: projectionState,
                 context: context
             )

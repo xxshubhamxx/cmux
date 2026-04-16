@@ -1052,7 +1052,7 @@ import Foundation
 import SwiftUI
 
 /// Direction from which a new split animates in
-enum SplitAnimationOrigin {
+enum SplitAnimationOrigin: Equatable, Sendable {
     case fromFirst   // New pane slides in from start (left/top)
     case fromSecond  // New pane slides in from end (right/bottom)
 }
@@ -1089,552 +1089,6 @@ final class SplitState: Identifiable {
 extension SplitState: Equatable {
     static func == (lhs: SplitState, rhs: SplitState) -> Bool {
         lhs.id == rhs.id
-    }
-}
-
-import Foundation
-import SwiftUI
-
-/// Central controller managing the entire split view state (internal implementation)
-@Observable
-@MainActor
-final class SplitViewController {
-    /// The root node of the split tree
-    var rootNode: SplitNode
-
-    /// Currently zoomed pane. When set, rendering should only show this pane.
-    var zoomedPaneId: PaneID?
-
-    /// Currently focused pane ID
-    var focusedPaneId: PaneID?
-
-    /// Tab currently being dragged (for visual feedback and hit-testing).
-    /// This is @Observable so SwiftUI views react (e.g. allowsHitTesting).
-    var draggingTabId: TabID?
-
-    /// Monotonic counter incremented on each drag start. Used to invalidate stale
-    /// timeout timers that would otherwise cancel a new drag of the same tab.
-    var dragGeneration: Int = 0
-
-    /// Source pane of the dragging tab
-    var dragSourcePaneId: PaneID?
-
-    /// Non-observable drag session state. Drop delegates read these instead of the
-    /// @Observable properties above, because SwiftUI batches observable updates and
-    /// createItemProvider's writes may not be visible to validateDrop/performDrop yet.
-    @ObservationIgnored var activeDragTabId: TabID?
-    @ObservationIgnored var activeDragSourcePaneId: PaneID?
-
-    /// When false, drop delegates reject all drags and NSViews are hidden.
-    /// Mirrors WorkspaceLayoutController.isInteractive. Must be observable so
-    /// updateNSView is called to toggle isHidden on the AppKit containers.
-    var isInteractive: Bool = true
-
-    /// Handler for file/URL drops from external apps (e.g. Finder).
-    /// Receives the dropped URLs and the pane ID where the drop occurred.
-    @ObservationIgnored var onFileDrop: ((_ urls: [URL], _ paneId: PaneID) -> Bool)?
-
-    /// During drop, SwiftUI may keep the source tab view alive briefly (default removal animation)
-    /// even after we've updated the model. Hide it explicitly so it disappears immediately.
-    var dragHiddenSourceTabId: UUID?
-    var dragHiddenSourcePaneId: PaneID?
-
-    /// Current frame of the entire split view container
-    var containerFrame: CGRect = .zero
-
-    /// Flag to prevent notification loops during external updates
-    var isExternalUpdateInProgress: Bool = false
-
-    /// Timestamp of last geometry notification for debouncing
-    var lastGeometryNotificationTime: TimeInterval = 0
-
-    /// Callback for geometry changes
-    var onGeometryChange: (() -> Void)?
-
-    init(rootNode: SplitNode? = nil) {
-        if let rootNode {
-            self.rootNode = rootNode
-        } else {
-            // Initialize with a single pane containing a welcome tab
-            let welcomeTab = TabItem(title: "Welcome")
-            let initialPane = PaneState(tabs: [welcomeTab])
-            self.rootNode = .pane(initialPane)
-            self.focusedPaneId = initialPane.id
-        }
-    }
-
-    // MARK: - Focus Management
-
-    /// Set focus to a specific pane
-    func focusPane(_ paneId: PaneID) {
-        guard rootNode.findPane(paneId) != nil else { return }
-#if DEBUG
-        dlog("focus.WorkspaceLayout pane=\(paneId.id.uuidString.prefix(5))")
-#endif
-        focusedPaneId = paneId
-    }
-
-    /// Get the currently focused pane state
-    var focusedPane: PaneState? {
-        guard let focusedPaneId else { return nil }
-        return rootNode.findPane(focusedPaneId)
-    }
-
-    var zoomedNode: SplitNode? {
-        guard let zoomedPaneId else { return nil }
-        return rootNode.findNode(containing: zoomedPaneId)
-    }
-
-    @discardableResult
-    func clearPaneZoom() -> Bool {
-        guard zoomedPaneId != nil else { return false }
-        zoomedPaneId = nil
-        return true
-    }
-
-    @discardableResult
-    func togglePaneZoom(_ paneId: PaneID) -> Bool {
-        guard rootNode.findPane(paneId) != nil else { return false }
-
-        if zoomedPaneId == paneId {
-            zoomedPaneId = nil
-            return true
-        }
-
-        // Match Ghostty behavior: a single-pane layout can't be zoomed.
-        guard rootNode.allPaneIds.count > 1 else { return false }
-        zoomedPaneId = paneId
-        focusedPaneId = paneId
-        return true
-    }
-
-    // MARK: - Split Operations
-
-    /// Split the specified pane in the given orientation
-    func splitPane(
-        _ paneId: PaneID,
-        orientation: SplitOrientation,
-        with newTab: TabItem? = nil,
-        focusNewPane: Bool = true
-    ) {
-        clearPaneZoom()
-        rootNode = splitNodeRecursively(
-            node: rootNode,
-            targetPaneId: paneId,
-            orientation: orientation,
-            newTab: newTab,
-            focusNewPane: focusNewPane
-        )
-    }
-
-    private func splitNodeRecursively(
-        node: SplitNode,
-        targetPaneId: PaneID,
-        orientation: SplitOrientation,
-        newTab: TabItem?,
-        focusNewPane: Bool
-    ) -> SplitNode {
-        switch node {
-        case .pane(let paneState):
-            if paneState.id == targetPaneId {
-                // Create new pane - empty if no tab provided (gives developer full control)
-                let newPane: PaneState
-                if let tab = newTab {
-                    newPane = PaneState(tabs: [tab])
-                } else {
-                    newPane = PaneState(tabs: [])
-                }
-
-                // Start with divider at the edge so there's no flash before animation
-                let splitState = SplitState(
-                    orientation: orientation,
-                    first: .pane(paneState),
-                    second: .pane(newPane),
-                    // Keep the model at its steady-state ratio. The view layer can still animate
-                    // from an edge via animationOrigin, but the model should never represent a
-                    // fully-collapsed pane (which can get stuck under view reparenting timing).
-                    dividerPosition: 0.5,
-                    animationOrigin: .fromSecond  // New pane slides in from right/bottom
-                )
-
-                if focusNewPane {
-                    focusedPaneId = newPane.id
-                }
-
-                return .split(splitState)
-            }
-            return node
-
-        case .split(let splitState):
-            splitState.first = splitNodeRecursively(
-                node: splitState.first,
-                targetPaneId: targetPaneId,
-                orientation: orientation,
-                newTab: newTab,
-                focusNewPane: focusNewPane
-            )
-            splitState.second = splitNodeRecursively(
-                node: splitState.second,
-                targetPaneId: targetPaneId,
-                orientation: orientation,
-                newTab: newTab,
-                focusNewPane: focusNewPane
-            )
-            return .split(splitState)
-        }
-    }
-
-    /// Split a pane with a specific tab, optionally inserting the new pane first
-    func splitPaneWithTab(
-        _ paneId: PaneID,
-        orientation: SplitOrientation,
-        tab: TabItem,
-        insertFirst: Bool,
-        focusNewPane: Bool = true
-    ) {
-        clearPaneZoom()
-        rootNode = splitNodeWithTabRecursively(
-            node: rootNode,
-            targetPaneId: paneId,
-            orientation: orientation,
-            tab: tab,
-            insertFirst: insertFirst,
-            focusNewPane: focusNewPane
-        )
-    }
-
-    private func splitNodeWithTabRecursively(
-        node: SplitNode,
-        targetPaneId: PaneID,
-        orientation: SplitOrientation,
-        tab: TabItem,
-        insertFirst: Bool,
-        focusNewPane: Bool
-    ) -> SplitNode {
-        switch node {
-        case .pane(let paneState):
-            if paneState.id == targetPaneId {
-                // Create new pane with the tab
-                let newPane = PaneState(tabs: [tab])
-
-                // Start with divider at the edge so there's no flash before animation
-                let splitState: SplitState
-                if insertFirst {
-                    // New pane goes first (left or top).
-                    splitState = SplitState(
-                        orientation: orientation,
-                        first: .pane(newPane),
-                        second: .pane(paneState),
-                        dividerPosition: 0.5,
-                        animationOrigin: .fromFirst
-                    )
-                } else {
-                    // New pane goes second (right or bottom).
-                    splitState = SplitState(
-                        orientation: orientation,
-                        first: .pane(paneState),
-                        second: .pane(newPane),
-                        dividerPosition: 0.5,
-                        animationOrigin: .fromSecond
-                    )
-                }
-
-                if focusNewPane {
-                    focusedPaneId = newPane.id
-                }
-
-                return .split(splitState)
-            }
-            return node
-
-        case .split(let splitState):
-            splitState.first = splitNodeWithTabRecursively(
-                node: splitState.first,
-                targetPaneId: targetPaneId,
-                orientation: orientation,
-                tab: tab,
-                insertFirst: insertFirst,
-                focusNewPane: focusNewPane
-            )
-            splitState.second = splitNodeWithTabRecursively(
-                node: splitState.second,
-                targetPaneId: targetPaneId,
-                orientation: orientation,
-                tab: tab,
-                insertFirst: insertFirst,
-                focusNewPane: focusNewPane
-            )
-            return .split(splitState)
-        }
-    }
-
-    /// Close a pane and collapse the split
-    func closePane(_ paneId: PaneID) {
-        // Don't close the last pane
-        guard rootNode.allPaneIds.count > 1 else { return }
-
-        let (newRoot, siblingPaneId) = closePaneRecursively(node: rootNode, targetPaneId: paneId)
-
-        if let newRoot {
-            rootNode = newRoot
-        }
-
-        // Focus the sibling or first available pane
-        if let siblingPaneId {
-            focusedPaneId = siblingPaneId
-        } else if let firstPane = rootNode.allPaneIds.first {
-            focusedPaneId = firstPane
-        }
-
-        if let zoomedPaneId, rootNode.findPane(zoomedPaneId) == nil {
-            self.zoomedPaneId = nil
-        }
-    }
-
-    private func closePaneRecursively(
-        node: SplitNode,
-        targetPaneId: PaneID
-    ) -> (SplitNode?, PaneID?) {
-        switch node {
-        case .pane(let paneState):
-            if paneState.id == targetPaneId {
-                return (nil, nil)
-            }
-            return (node, nil)
-
-        case .split(let splitState):
-            // Check if either direct child is the target
-            if case .pane(let firstPane) = splitState.first, firstPane.id == targetPaneId {
-                let focusTarget = splitState.second.allPaneIds.first
-                return (splitState.second, focusTarget)
-            }
-
-            if case .pane(let secondPane) = splitState.second, secondPane.id == targetPaneId {
-                let focusTarget = splitState.first.allPaneIds.first
-                return (splitState.first, focusTarget)
-            }
-
-            // Recursively check children
-            let (newFirst, focusFromFirst) = closePaneRecursively(node: splitState.first, targetPaneId: targetPaneId)
-            if newFirst == nil {
-                return (splitState.second, splitState.second.allPaneIds.first)
-            }
-
-            let (newSecond, focusFromSecond) = closePaneRecursively(node: splitState.second, targetPaneId: targetPaneId)
-            if newSecond == nil {
-                return (splitState.first, splitState.first.allPaneIds.first)
-            }
-
-            if let newFirst { splitState.first = newFirst }
-            if let newSecond { splitState.second = newSecond }
-
-            return (.split(splitState), focusFromFirst ?? focusFromSecond)
-        }
-    }
-
-    // MARK: - Tab Operations
-
-    /// Add a tab to the focused pane (or specified pane)
-    func addTab(
-        _ tab: TabItem,
-        toPane paneId: PaneID? = nil,
-        atIndex index: Int? = nil,
-        select: Bool = true
-    ) {
-        let targetPaneId = paneId ?? focusedPaneId
-        guard let targetPaneId,
-              let pane = rootNode.findPane(targetPaneId) else { return }
-
-        if let index {
-            pane.insertTab(tab, at: index, select: select)
-        } else {
-            pane.addTab(tab, select: select)
-        }
-    }
-
-    /// Move a tab from one pane to another
-    func moveTab(_ tab: TabItem, from sourcePaneId: PaneID, to targetPaneId: PaneID, atIndex index: Int? = nil) {
-        guard let sourcePane = rootNode.findPane(sourcePaneId),
-              let targetPane = rootNode.findPane(targetPaneId) else { return }
-
-        // Remove from source
-        sourcePane.removeTab(tab.id)
-
-        // Add to target
-        if let index {
-            targetPane.insertTab(tab, at: index)
-        } else {
-            targetPane.addTab(tab)
-        }
-
-        // Focus target pane
-        focusPane(targetPaneId)
-
-        // If source pane is now empty and not the only pane, close it
-        if sourcePane.tabs.isEmpty && rootNode.allPaneIds.count > 1 {
-            closePane(sourcePaneId)
-        }
-    }
-
-    /// Close a tab in a specific pane
-    func closeTab(_ tabId: UUID, inPane paneId: PaneID) {
-        guard let pane = rootNode.findPane(paneId) else { return }
-
-        pane.removeTab(tabId)
-
-        // If pane is now empty and not the only pane, close it
-        if pane.tabs.isEmpty && rootNode.allPaneIds.count > 1 {
-            closePane(paneId)
-        }
-    }
-
-    // MARK: - Keyboard Navigation
-
-    /// Navigate focus to an adjacent pane based on spatial position
-    func navigateFocus(direction: NavigationDirection) {
-        guard let currentPaneId = focusedPaneId else { return }
-
-        let allPaneBounds = rootNode.computePaneBounds()
-        guard let currentBounds = allPaneBounds.first(where: { $0.paneId == currentPaneId })?.bounds else { return }
-
-        if let targetPaneId = findBestNeighbor(from: currentBounds, currentPaneId: currentPaneId,
-                                               direction: direction, allPaneBounds: allPaneBounds) {
-            focusPane(targetPaneId)
-        }
-        // No neighbor found = at edge, do nothing
-    }
-
-    /// Find the closest pane in the requested direction from the given pane.
-    func adjacentPane(to paneId: PaneID, direction: NavigationDirection) -> PaneID? {
-        let allPaneBounds = rootNode.computePaneBounds()
-        guard let currentBounds = allPaneBounds.first(where: { $0.paneId == paneId })?.bounds else {
-            return nil
-        }
-        return findBestNeighbor(
-            from: currentBounds,
-            currentPaneId: paneId,
-            direction: direction,
-            allPaneBounds: allPaneBounds
-        )
-    }
-
-    private func findBestNeighbor(from currentBounds: CGRect, currentPaneId: PaneID,
-                                  direction: NavigationDirection, allPaneBounds: [PaneBounds]) -> PaneID? {
-        let epsilon: CGFloat = 0.001
-
-        // Filter to panes in the target direction
-        let candidates = allPaneBounds.filter { paneBounds in
-            guard paneBounds.paneId != currentPaneId else { return false }
-            let b = paneBounds.bounds
-            switch direction {
-            case .left:  return b.maxX <= currentBounds.minX + epsilon
-            case .right: return b.minX >= currentBounds.maxX - epsilon
-            case .up:    return b.maxY <= currentBounds.minY + epsilon
-            case .down:  return b.minY >= currentBounds.maxY - epsilon
-            }
-        }
-
-        guard !candidates.isEmpty else { return nil }
-
-        // Score by overlap (perpendicular axis) and distance
-        let scored: [(PaneID, CGFloat, CGFloat)] = candidates.map { c in
-            let overlap: CGFloat
-            let distance: CGFloat
-
-            switch direction {
-            case .left, .right:
-                // Vertical overlap for horizontal movement
-                overlap = max(0, min(currentBounds.maxY, c.bounds.maxY) - max(currentBounds.minY, c.bounds.minY))
-                distance = direction == .left ? (currentBounds.minX - c.bounds.maxX) : (c.bounds.minX - currentBounds.maxX)
-            case .up, .down:
-                // Horizontal overlap for vertical movement
-                overlap = max(0, min(currentBounds.maxX, c.bounds.maxX) - max(currentBounds.minX, c.bounds.minX))
-                distance = direction == .up ? (currentBounds.minY - c.bounds.maxY) : (c.bounds.minY - currentBounds.maxY)
-            }
-
-            return (c.paneId, overlap, distance)
-        }
-
-        // Sort: prefer more overlap, then closer distance
-        let sorted = scored.sorted { a, b in
-            if abs(a.1 - b.1) > epsilon { return a.1 > b.1 }
-            return a.2 < b.2
-        }
-
-        return sorted.first?.0
-    }
-
-    /// Create a new tab in the focused pane
-    func createNewTab() {
-        guard let pane = focusedPane else { return }
-        let count = pane.tabs.count + 1
-        let newTab = TabItem(title: "Untitled \(count)")
-        pane.addTab(newTab)
-    }
-
-    /// Close the currently selected tab in the focused pane
-    func closeSelectedTab() {
-        guard let pane = focusedPane,
-              let selectedTabId = pane.selectedTabId else { return }
-        closeTab(selectedTabId, inPane: pane.id)
-    }
-
-    /// Select the previous tab in the focused pane
-    func selectPreviousTab() {
-        guard let pane = focusedPane,
-              let selectedTabId = pane.selectedTabId,
-              let currentIndex = pane.tabs.firstIndex(where: { $0.id == selectedTabId }),
-              !pane.tabs.isEmpty else { return }
-
-        let newIndex = currentIndex > 0 ? currentIndex - 1 : pane.tabs.count - 1
-        pane.selectTab(pane.tabs[newIndex].id)
-    }
-
-    /// Select the next tab in the focused pane
-    func selectNextTab() {
-        guard let pane = focusedPane,
-              let selectedTabId = pane.selectedTabId,
-              let currentIndex = pane.tabs.firstIndex(where: { $0.id == selectedTabId }),
-              !pane.tabs.isEmpty else { return }
-
-        let newIndex = currentIndex < pane.tabs.count - 1 ? currentIndex + 1 : 0
-        pane.selectTab(pane.tabs[newIndex].id)
-    }
-
-    // MARK: - Split State Access
-
-    /// Find a split state by its UUID
-    func findSplit(_ splitId: UUID) -> SplitState? {
-        return findSplitRecursively(in: rootNode, id: splitId)
-    }
-
-    private func findSplitRecursively(in node: SplitNode, id: UUID) -> SplitState? {
-        switch node {
-        case .pane:
-            return nil
-        case .split(let splitState):
-            if splitState.id == id {
-                return splitState
-            }
-            if let found = findSplitRecursively(in: splitState.first, id: id) {
-                return found
-            }
-            return findSplitRecursively(in: splitState.second, id: id)
-        }
-    }
-
-    /// Get all split states in the tree
-    var allSplits: [SplitState] {
-        return collectSplits(from: rootNode)
-    }
-
-    private func collectSplits(from node: SplitNode) -> [SplitState] {
-        switch node {
-        case .pane:
-            return []
-        case .split(let splitState):
-            return [splitState] + collectSplits(from: splitState.first) + collectSplits(from: splitState.second)
-        }
     }
 }
 
@@ -2201,19 +1655,39 @@ final class WorkspaceLayoutController {
     /// Configuration for behavior and appearance
     var configuration: WorkspaceLayoutConfiguration
 
+    // MARK: - Layout State
+
+    /// The root node of the split tree.
+    var rootNode: SplitNode
+
+    /// Currently zoomed pane. When set, rendering should only show this pane.
+    var zoomedPaneId: PaneID?
+
+    /// Currently focused pane ID.
+    var focusedPaneId: PaneID?
+
     /// When false, drop delegates reject all drags. Set to false for inactive workspaces
     /// so their views (kept alive in a ZStack for state preservation) don't intercept drags
     /// meant for the active workspace.
-    @ObservationIgnored var isInteractive: Bool = true {
-        didSet { internalController.isInteractive = isInteractive }
-    }
+    var isInteractive: Bool = true
+
+    /// Tab currently being dragged (for visual feedback and hit-testing).
+    var draggingTabId: TabID?
+
+    /// Monotonic counter incremented on each drag start.
+    @ObservationIgnored var dragGeneration: Int = 0
+
+    /// Source pane of the dragging tab.
+    var dragSourcePaneId: PaneID?
+
+    /// Non-observable drag session state used by drop delegates.
+    @ObservationIgnored var activeDragTabId: TabID?
+    @ObservationIgnored var activeDragSourcePaneId: PaneID?
 
     /// Handler for file/URL drops from external apps (e.g., Finder).
     /// Called when files are dropped onto a pane's content area.
     /// Return `true` if the drop was handled.
-    @ObservationIgnored var onFileDrop: ((_ urls: [URL], _ paneId: PaneID) -> Bool)? {
-        didSet { internalController.onFileDrop = onFileDrop }
-    }
+    @ObservationIgnored var onFileDrop: ((_ urls: [URL], _ paneId: PaneID) -> Bool)?
 
     /// Handler for tab drops originating from another WorkspaceLayout controller (e.g. another workspace/window).
     /// Return `true` when the drop has been handled by the host application.
@@ -2223,16 +1697,64 @@ final class WorkspaceLayoutController {
     /// Internal host-driven closes should not use this hook.
     @ObservationIgnored var onTabCloseRequest: ((_ tabId: TabID, _ paneId: PaneID) -> Void)?
 
-    // MARK: - Internal State
+    /// Current frame of the entire split view container.
+    var containerFrame: CGRect = .zero
 
-    internal var internalController: SplitViewController
+    /// Flag to prevent notification loops during external updates.
+    @ObservationIgnored var isExternalUpdateInProgress: Bool = false
+
+    /// Timestamp of last geometry notification for debouncing.
+    @ObservationIgnored var lastGeometryNotificationTime: TimeInterval = 0
 
     // MARK: - Initialization
 
     /// Create a new controller with the specified configuration
-    init(configuration: WorkspaceLayoutConfiguration = .default) {
+    init(
+        configuration: WorkspaceLayoutConfiguration = .default,
+        rootNode: SplitNode? = nil
+    ) {
         self.configuration = configuration
-        self.internalController = SplitViewController()
+        if let rootNode {
+            self.rootNode = rootNode
+        } else {
+            let welcomeTab = TabItem(title: "Welcome")
+            let initialPane = PaneState(tabs: [welcomeTab])
+            self.rootNode = .pane(initialPane)
+            self.focusedPaneId = initialPane.id
+        }
+    }
+
+    // MARK: - Renderer-facing state
+
+    var renderRootNode: SplitNode {
+        zoomedNode ?? rootNode
+    }
+
+    var isHandlingLocalTabDrag: Bool {
+        currentDragTabId != nil
+    }
+
+    var currentDragTabId: TabID? {
+        activeDragTabId ?? draggingTabId
+    }
+
+    var currentDragSourcePaneId: PaneID? {
+        activeDragSourcePaneId ?? dragSourcePaneId
+    }
+
+    func beginTabDrag(tabId: TabID, sourcePaneId: PaneID) {
+        dragGeneration += 1
+        draggingTabId = tabId
+        dragSourcePaneId = sourcePaneId
+        activeDragTabId = tabId
+        activeDragSourcePaneId = sourcePaneId
+    }
+
+    func clearDragState() {
+        draggingTabId = nil
+        dragSourcePaneId = nil
+        activeDragTabId = nil
+        activeDragSourcePaneId = nil
     }
 
     // MARK: - WorkspaceLayout.Tab Operations
@@ -2254,7 +1776,7 @@ final class WorkspaceLayoutController {
     ) -> TabID? {
         let tabId = id ?? TabID()
         let tab = WorkspaceLayout.Tab(id: tabId, title: title, isPinned: isPinned)
-        let targetPane = pane ?? focusedPaneId ?? PaneID(id: internalController.rootNode.allPaneIds.first!.id)
+        let targetPane = pane ?? focusedPaneId ?? PaneID(id: rootNode.allPaneIds.first!.id)
 
         // Check with delegate
         if delegate?.workspaceSplit(self, shouldCreateTab: tab, inPane: targetPane) == false {
@@ -2266,7 +1788,7 @@ final class WorkspaceLayoutController {
         switch configuration.newTabPosition {
         case .current:
             // Insert after the currently selected tab
-            if let paneState = internalController.rootNode.findPane(PaneID(id: targetPane.id)),
+            if let paneState = rootNode.findPane(PaneID(id: targetPane.id)),
                let selectedTabId = paneState.selectedTabId,
                let currentIndex = paneState.tabs.firstIndex(where: { $0.id == selectedTabId }) {
                 insertIndex = currentIndex + 1
@@ -2284,7 +1806,7 @@ final class WorkspaceLayoutController {
             title: title,
             isPinned: isPinned
         )
-        internalController.addTab(
+        addTabInternal(
             tabItem,
             toPane: PaneID(id: targetPane.id),
             atIndex: insertIndex,
@@ -2353,7 +1875,7 @@ final class WorkspaceLayoutController {
     /// - Parameter tabId: The tab to close
     /// - Parameter paneId: The pane in which to close the tab
     func closeTab(_ tabId: TabID, inPane paneId: PaneID) -> Bool {
-        guard let pane = internalController.rootNode.findPane(paneId),
+        guard let pane = rootNode.findPane(paneId),
               let tabIndex = pane.tabs.firstIndex(where: { $0.id == tabId.id }) else {
             return false
         }
@@ -2375,7 +1897,7 @@ final class WorkspaceLayoutController {
             return false
         }
 
-        internalController.closeTab(tabId.id, inPane: pane.id)
+        performCloseTab(tabId.id, inPane: pane.id)
 
         // Notify delegate
         delegate?.workspaceSplit(self, didCloseTab: tabId, fromPane: paneId)
@@ -2390,7 +1912,7 @@ final class WorkspaceLayoutController {
         guard let (pane, tabIndex) = findTabInternal(tabId) else { return }
 
         pane.selectTab(tabId.id)
-        internalController.focusPane(pane.id)
+        setFocusedPane(pane.id)
 
         // Notify delegate
         let tab = WorkspaceLayout.Tab(from: pane.tabs[tabIndex])
@@ -2406,7 +1928,7 @@ final class WorkspaceLayoutController {
     @discardableResult
     func moveTab(_ tabId: TabID, toPane targetPaneId: PaneID, atIndex index: Int? = nil) -> Bool {
         guard let (sourcePane, sourceIndex) = findTabInternal(tabId) else { return false }
-        guard let targetPane = internalController.rootNode.findPane(PaneID(id: targetPaneId.id)) else { return false }
+        guard let targetPane = rootNode.findPane(PaneID(id: targetPaneId.id)) else { return false }
 
         let tabItem = sourcePane.tabs[sourceIndex]
         let movedTab = WorkspaceLayout.Tab(from: tabItem)
@@ -2420,13 +1942,13 @@ final class WorkspaceLayoutController {
             }()
             sourcePane.moveTab(from: sourceIndex, to: destinationIndex)
             sourcePane.selectTab(tabItem.id)
-            internalController.focusPane(sourcePane.id)
+            setFocusedPane(sourcePane.id)
             delegate?.workspaceSplit(self, didSelectTab: movedTab, inPane: sourcePane.id)
             notifyGeometryChange()
             return true
         }
 
-        internalController.moveTab(tabItem, from: sourcePaneId, to: targetPane.id, atIndex: index)
+        performMoveTab(tabItem, from: sourcePaneId, to: targetPane.id, atIndex: index)
         delegate?.workspaceSplit(self, didMoveTab: movedTab, fromPane: sourcePaneId, toPane: targetPane.id)
         notifyGeometryChange()
         return true
@@ -2443,7 +1965,7 @@ final class WorkspaceLayoutController {
         let destinationIndex = max(0, min(toIndex, pane.tabs.count))
         pane.moveTab(from: sourceIndex, to: destinationIndex)
         pane.selectTab(tabId.id)
-        internalController.focusPane(pane.id)
+        setFocusedPane(pane.id)
         if let tabIndex = pane.tabs.firstIndex(where: { $0.id == tabId.id }) {
             let tab = WorkspaceLayout.Tab(from: pane.tabs[tabIndex])
             delegate?.workspaceSplit(self, didSelectTab: tab, inPane: pane.id)
@@ -2454,13 +1976,13 @@ final class WorkspaceLayoutController {
 
     /// Move to previous tab in focused pane
     func selectPreviousTab() {
-        internalController.selectPreviousTab()
+        selectPreviousTabInternal()
         notifyTabSelection()
     }
 
     /// Move to next tab in focused pane
     func selectNextTab() {
-        internalController.selectNextTab()
+        selectNextTabInternal()
         notifyTabSelection()
     }
 
@@ -2483,7 +2005,7 @@ final class WorkspaceLayoutController {
 
         let targetPaneId = paneId ?? focusedPaneId
         guard let targetPaneId else { return nil }
-        let previousPaneIds = Set(internalController.rootNode.allPaneIds)
+        let previousPaneIds = Set(rootNode.allPaneIds)
 
         // Check with delegate
         if delegate?.workspaceSplit(self, shouldSplitPane: targetPaneId, orientation: orientation) == false {
@@ -2502,14 +2024,14 @@ final class WorkspaceLayoutController {
         }
 
         // Perform split
-        internalController.splitPane(
+        performSplitPane(
             PaneID(id: targetPaneId.id),
             orientation: orientation,
             with: internalTab,
             focusNewPane: focusNewPane
         )
 
-        let newPaneId = Set(internalController.rootNode.allPaneIds)
+        let newPaneId = Set(rootNode.allPaneIds)
             .subtracting(previousPaneIds)
             .first ?? focusedPaneId!
 
@@ -2544,7 +2066,7 @@ final class WorkspaceLayoutController {
 
         let targetPaneId = paneId ?? focusedPaneId
         guard let targetPaneId else { return nil }
-        let previousPaneIds = Set(internalController.rootNode.allPaneIds)
+        let previousPaneIds = Set(rootNode.allPaneIds)
 
         // Check with delegate
         if delegate?.workspaceSplit(self, shouldSplitPane: targetPaneId, orientation: orientation) == false {
@@ -2558,7 +2080,7 @@ final class WorkspaceLayoutController {
         )
 
         // Perform split with insertion side.
-        internalController.splitPaneWithTab(
+        performSplitPaneWithTab(
             PaneID(id: targetPaneId.id),
             orientation: orientation,
             tab: internalTab,
@@ -2566,7 +2088,7 @@ final class WorkspaceLayoutController {
             focusNewPane: focusNewPane
         )
 
-        let newPaneId = Set(internalController.rootNode.allPaneIds)
+        let newPaneId = Set(rootNode.allPaneIds)
             .subtracting(previousPaneIds)
             .first ?? focusedPaneId!
 
@@ -2599,7 +2121,7 @@ final class WorkspaceLayoutController {
         focusNewPane: Bool = true
     ) -> PaneID? {
         guard configuration.allowSplits else { return nil }
-        let previousPaneIds = Set(internalController.rootNode.allPaneIds)
+        let previousPaneIds = Set(rootNode.allPaneIds)
 
         // Find the existing tab and its source pane.
         guard let (sourcePane, tabIndex) = findTabInternal(tabId) else { return nil }
@@ -2622,14 +2144,14 @@ final class WorkspaceLayoutController {
                 // This makes the empty side closable via tab close, and avoids apps
                 // needing to special-case empty panes.
                 sourcePane.addTab(TabItem(title: "Empty"), select: true)
-            } else if internalController.rootNode.allPaneIds.count > 1 {
+            } else if rootNode.allPaneIds.count > 1 {
                 // If the source pane is now empty, close it (unless it's also the split target).
-                internalController.closePane(sourcePane.id)
+                performClosePane(sourcePane.id)
             }
         }
 
         // Perform split with the moved tab.
-        internalController.splitPaneWithTab(
+        performSplitPaneWithTab(
             PaneID(id: targetPaneId.id),
             orientation: orientation,
             tab: tabItem,
@@ -2637,7 +2159,7 @@ final class WorkspaceLayoutController {
             focusNewPane: focusNewPane
         )
 
-        let newPaneId = Set(internalController.rootNode.allPaneIds)
+        let newPaneId = Set(rootNode.allPaneIds)
             .subtracting(previousPaneIds)
             .first ?? focusedPaneId!
 
@@ -2655,7 +2177,7 @@ final class WorkspaceLayoutController {
     @discardableResult
     func closePane(_ paneId: PaneID) -> Bool {
         // Don't close if it's the last pane and not allowed
-        if !configuration.allowCloseLastPane && internalController.rootNode.allPaneIds.count <= 1 {
+        if !configuration.allowCloseLastPane && rootNode.allPaneIds.count <= 1 {
             return false
         }
 
@@ -2664,7 +2186,7 @@ final class WorkspaceLayoutController {
             return false
         }
 
-        internalController.closePane(PaneID(id: paneId.id))
+        performClosePane(PaneID(id: paneId.id))
 
         // Notify delegate
         delegate?.workspaceSplit(self, didClosePane: paneId)
@@ -2676,21 +2198,15 @@ final class WorkspaceLayoutController {
 
     // MARK: - Focus Management
 
-    /// Currently focused pane ID
-    var focusedPaneId: PaneID? {
-        guard let internalId = internalController.focusedPaneId else { return nil }
-        return internalId
-    }
-
     /// Focus a specific pane
     func focusPane(_ paneId: PaneID) {
-        internalController.focusPane(PaneID(id: paneId.id))
+        setFocusedPane(PaneID(id: paneId.id))
         delegate?.workspaceSplit(self, didFocusPane: paneId)
     }
 
     /// Navigate focus in a direction
     func navigateFocus(direction: NavigationDirection) {
-        internalController.navigateFocus(direction: direction)
+        performNavigateFocus(direction: direction)
         if let focusedPaneId {
             delegate?.workspaceSplit(self, didFocusPane: focusedPaneId)
         }
@@ -2698,23 +2214,18 @@ final class WorkspaceLayoutController {
 
     /// Find the closest pane in the requested direction from the given pane.
     func adjacentPane(to paneId: PaneID, direction: NavigationDirection) -> PaneID? {
-        internalController.adjacentPane(to: paneId, direction: direction)
+        adjacentPaneInternal(to: paneId, direction: direction)
     }
 
     // MARK: - Split Zoom
 
-    /// Currently zoomed pane ID, if any.
-    var zoomedPaneId: PaneID? {
-        internalController.zoomedPaneId
-    }
-
     var isSplitZoomed: Bool {
-        internalController.zoomedPaneId != nil
+        zoomedPaneId != nil
     }
 
     @discardableResult
     func clearPaneZoom() -> Bool {
-        internalController.clearPaneZoom()
+        clearPaneZoomInternal()
     }
 
     /// Toggle zoom for a pane. When zoomed, only that pane is rendered in the split area.
@@ -2723,7 +2234,7 @@ final class WorkspaceLayoutController {
     func togglePaneZoom(inPane paneId: PaneID? = nil) -> Bool {
         let targetPaneId = paneId ?? focusedPaneId
         guard let targetPaneId else { return false }
-        return internalController.togglePaneZoom(targetPaneId)
+        return togglePaneZoomInternal(targetPaneId)
     }
 
     // MARK: - Context Menu Shortcut Hints
@@ -2736,14 +2247,14 @@ final class WorkspaceLayoutController {
 
     /// Get all tab IDs
     var allTabIds: [TabID] {
-        internalController.rootNode.allPanes.flatMap { pane in
+        rootNode.allPanes.flatMap { pane in
             pane.tabs.map { TabID(id: $0.id) }
         }
     }
 
     /// Get all pane IDs
     var allPaneIds: [PaneID] {
-        internalController.rootNode.allPaneIds
+        rootNode.allPaneIds
     }
 
     /// Get tab metadata by ID
@@ -2754,7 +2265,7 @@ final class WorkspaceLayoutController {
 
     /// Get tabs in a specific pane
     func tabs(inPane paneId: PaneID) -> [WorkspaceLayout.Tab] {
-        guard let pane = internalController.rootNode.findPane(PaneID(id: paneId.id)) else {
+        guard let pane = rootNode.findPane(PaneID(id: paneId.id)) else {
             return []
         }
         return pane.tabs.map { WorkspaceLayout.Tab(from: $0) }
@@ -2762,7 +2273,7 @@ final class WorkspaceLayoutController {
 
     /// Get selected tab in a pane
     func selectedTab(inPane paneId: PaneID) -> WorkspaceLayout.Tab? {
-        guard let pane = internalController.rootNode.findPane(PaneID(id: paneId.id)),
+        guard let pane = rootNode.findPane(PaneID(id: paneId.id)),
               let selected = pane.selectedTab else {
             return nil
         }
@@ -2773,11 +2284,11 @@ final class WorkspaceLayoutController {
 
     /// Get current layout snapshot with pixel coordinates
     func layoutSnapshot() -> LayoutSnapshot {
-        let containerFrame = internalController.containerFrame
-        let paneBounds = internalController.rootNode.computePaneBounds()
+        let containerFrame = containerFrame
+        let paneBounds = rootNode.computePaneBounds()
 
         let paneGeometries = paneBounds.map { bounds -> PaneGeometry in
-            let pane = internalController.rootNode.findPane(bounds.paneId)
+            let pane = rootNode.findPane(bounds.paneId)
             let pixelFrame = PixelRect(
                 x: Double(bounds.bounds.minX * containerFrame.width + containerFrame.origin.x),
                 y: Double(bounds.bounds.minY * containerFrame.height + containerFrame.origin.y),
@@ -2802,8 +2313,8 @@ final class WorkspaceLayoutController {
 
     /// Get full tree structure for external consumption
     func treeSnapshot() -> ExternalTreeNode {
-        let containerFrame = internalController.containerFrame
-        return buildExternalTree(from: internalController.rootNode, containerFrame: containerFrame)
+        let containerFrame = containerFrame
+        return buildExternalTree(from: rootNode, containerFrame: containerFrame)
     }
 
     private func buildExternalTree(from node: SplitNode, containerFrame: CGRect, bounds: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)) -> ExternalTreeNode {
@@ -2855,7 +2366,7 @@ final class WorkspaceLayoutController {
 
     /// Check if a split exists by ID
     func findSplit(_ splitId: UUID) -> Bool {
-        return internalController.findSplit(splitId) != nil
+        return splitState(splitId) != nil
     }
 
     // MARK: - Geometry Update API
@@ -2868,10 +2379,10 @@ final class WorkspaceLayoutController {
     /// - Returns: true if the split was found and updated
     @discardableResult
     func setDividerPosition(_ position: CGFloat, forSplit splitId: UUID, fromExternal: Bool = false) -> Bool {
-        guard let split = internalController.findSplit(splitId) else { return false }
+        guard let split = splitState(splitId) else { return false }
 
         if fromExternal {
-            internalController.isExternalUpdateInProgress = true
+            isExternalUpdateInProgress = true
         }
 
         // Clamp position to valid range
@@ -2882,22 +2393,28 @@ final class WorkspaceLayoutController {
             // External restore/config loads should suppress only the immediate geometry echo
             // from the same update turn, not an arbitrary timed window.
             DispatchQueue.main.async { [weak self] in
-                self?.internalController.isExternalUpdateInProgress = false
+                self?.isExternalUpdateInProgress = false
             }
         }
 
         return true
     }
 
+    func consumeSplitEntryAnimation(_ splitId: UUID) {
+        guard let split = splitState(splitId),
+              split.animationOrigin != nil else { return }
+        split.animationOrigin = nil
+    }
+
     /// Update container frame (called when window moves/resizes)
     func setContainerFrame(_ frame: CGRect) {
-        internalController.containerFrame = frame
+        containerFrame = frame
     }
 
     /// Notify geometry change to delegate (internal use)
     /// - Parameter isDragging: Whether the change is due to active divider dragging
     internal func notifyGeometryChange(isDragging: Bool = false) {
-        guard !internalController.isExternalUpdateInProgress else { return }
+        guard !isExternalUpdateInProgress else { return }
 
         // If dragging, check if delegate wants notifications during drag
         if isDragging {
@@ -2909,8 +2426,8 @@ final class WorkspaceLayoutController {
             // Debounce drag updates to avoid flooding delegates during divider moves.
             let now = Date().timeIntervalSince1970
             let debounceInterval: TimeInterval = 0.05
-            guard now - internalController.lastGeometryNotificationTime >= debounceInterval else { return }
-            internalController.lastGeometryNotificationTime = now
+            guard now - lastGeometryNotificationTime >= debounceInterval else { return }
+            lastGeometryNotificationTime = now
         }
 
         let snapshot = layoutSnapshot()
@@ -2919,8 +2436,415 @@ final class WorkspaceLayoutController {
 
     // MARK: - Private Helpers
 
+    private var focusedPane: PaneState? {
+        guard let focusedPaneId else { return nil }
+        return rootNode.findPane(focusedPaneId)
+    }
+
+    private var zoomedNode: SplitNode? {
+        guard let zoomedPaneId else { return nil }
+        return rootNode.findNode(containing: zoomedPaneId)
+    }
+
+    private func setFocusedPane(_ paneId: PaneID) {
+        guard rootNode.findPane(paneId) != nil else { return }
+#if DEBUG
+        dlog("focus.WorkspaceLayout pane=\(paneId.id.uuidString.prefix(5))")
+#endif
+        focusedPaneId = paneId
+    }
+
+    @discardableResult
+    private func clearPaneZoomInternal() -> Bool {
+        guard zoomedPaneId != nil else { return false }
+        zoomedPaneId = nil
+        return true
+    }
+
+    @discardableResult
+    private func togglePaneZoomInternal(_ paneId: PaneID) -> Bool {
+        guard rootNode.findPane(paneId) != nil else { return false }
+
+        if zoomedPaneId == paneId {
+            zoomedPaneId = nil
+            return true
+        }
+
+        guard rootNode.allPaneIds.count > 1 else { return false }
+        zoomedPaneId = paneId
+        focusedPaneId = paneId
+        return true
+    }
+
+    private func performSplitPane(
+        _ paneId: PaneID,
+        orientation: SplitOrientation,
+        with newTab: TabItem? = nil,
+        focusNewPane: Bool = true
+    ) {
+        clearPaneZoomInternal()
+        rootNode = splitNodeRecursively(
+            node: rootNode,
+            targetPaneId: paneId,
+            orientation: orientation,
+            newTab: newTab,
+            focusNewPane: focusNewPane
+        )
+    }
+
+    private func splitNodeRecursively(
+        node: SplitNode,
+        targetPaneId: PaneID,
+        orientation: SplitOrientation,
+        newTab: TabItem?,
+        focusNewPane: Bool
+    ) -> SplitNode {
+        switch node {
+        case .pane(let paneState):
+            if paneState.id == targetPaneId {
+                let newPane: PaneState
+                if let tab = newTab {
+                    newPane = PaneState(tabs: [tab])
+                } else {
+                    newPane = PaneState(tabs: [])
+                }
+
+                let splitState = SplitState(
+                    orientation: orientation,
+                    first: .pane(paneState),
+                    second: .pane(newPane),
+                    dividerPosition: 0.5,
+                    animationOrigin: .fromSecond
+                )
+
+                if focusNewPane {
+                    focusedPaneId = newPane.id
+                }
+
+                return .split(splitState)
+            }
+            return node
+
+        case .split(let splitState):
+            splitState.first = splitNodeRecursively(
+                node: splitState.first,
+                targetPaneId: targetPaneId,
+                orientation: orientation,
+                newTab: newTab,
+                focusNewPane: focusNewPane
+            )
+            splitState.second = splitNodeRecursively(
+                node: splitState.second,
+                targetPaneId: targetPaneId,
+                orientation: orientation,
+                newTab: newTab,
+                focusNewPane: focusNewPane
+            )
+            return .split(splitState)
+        }
+    }
+
+    private func performSplitPaneWithTab(
+        _ paneId: PaneID,
+        orientation: SplitOrientation,
+        tab: TabItem,
+        insertFirst: Bool,
+        focusNewPane: Bool = true
+    ) {
+        clearPaneZoomInternal()
+        rootNode = splitNodeWithTabRecursively(
+            node: rootNode,
+            targetPaneId: paneId,
+            orientation: orientation,
+            tab: tab,
+            insertFirst: insertFirst,
+            focusNewPane: focusNewPane
+        )
+    }
+
+    private func splitNodeWithTabRecursively(
+        node: SplitNode,
+        targetPaneId: PaneID,
+        orientation: SplitOrientation,
+        tab: TabItem,
+        insertFirst: Bool,
+        focusNewPane: Bool
+    ) -> SplitNode {
+        switch node {
+        case .pane(let paneState):
+            if paneState.id == targetPaneId {
+                let newPane = PaneState(tabs: [tab])
+                let splitState: SplitState
+                if insertFirst {
+                    splitState = SplitState(
+                        orientation: orientation,
+                        first: .pane(newPane),
+                        second: .pane(paneState),
+                        dividerPosition: 0.5,
+                        animationOrigin: .fromFirst
+                    )
+                } else {
+                    splitState = SplitState(
+                        orientation: orientation,
+                        first: .pane(paneState),
+                        second: .pane(newPane),
+                        dividerPosition: 0.5,
+                        animationOrigin: .fromSecond
+                    )
+                }
+
+                if focusNewPane {
+                    focusedPaneId = newPane.id
+                }
+
+                return .split(splitState)
+            }
+            return node
+
+        case .split(let splitState):
+            splitState.first = splitNodeWithTabRecursively(
+                node: splitState.first,
+                targetPaneId: targetPaneId,
+                orientation: orientation,
+                tab: tab,
+                insertFirst: insertFirst,
+                focusNewPane: focusNewPane
+            )
+            splitState.second = splitNodeWithTabRecursively(
+                node: splitState.second,
+                targetPaneId: targetPaneId,
+                orientation: orientation,
+                tab: tab,
+                insertFirst: insertFirst,
+                focusNewPane: focusNewPane
+            )
+            return .split(splitState)
+        }
+    }
+
+    private func performClosePane(_ paneId: PaneID) {
+        guard rootNode.allPaneIds.count > 1 else { return }
+
+        let (newRoot, siblingPaneId) = closePaneRecursively(node: rootNode, targetPaneId: paneId)
+
+        if let newRoot {
+            rootNode = newRoot
+        }
+
+        if let siblingPaneId {
+            focusedPaneId = siblingPaneId
+        } else if let firstPane = rootNode.allPaneIds.first {
+            focusedPaneId = firstPane
+        }
+
+        if let zoomedPaneId, rootNode.findPane(zoomedPaneId) == nil {
+            self.zoomedPaneId = nil
+        }
+    }
+
+    private func closePaneRecursively(
+        node: SplitNode,
+        targetPaneId: PaneID
+    ) -> (SplitNode?, PaneID?) {
+        switch node {
+        case .pane(let paneState):
+            if paneState.id == targetPaneId {
+                return (nil, nil)
+            }
+            return (node, nil)
+
+        case .split(let splitState):
+            if case .pane(let firstPane) = splitState.first, firstPane.id == targetPaneId {
+                let focusTarget = splitState.second.allPaneIds.first
+                return (splitState.second, focusTarget)
+            }
+
+            if case .pane(let secondPane) = splitState.second, secondPane.id == targetPaneId {
+                let focusTarget = splitState.first.allPaneIds.first
+                return (splitState.first, focusTarget)
+            }
+
+            let (newFirst, focusFromFirst) = closePaneRecursively(node: splitState.first, targetPaneId: targetPaneId)
+            if newFirst == nil {
+                return (splitState.second, splitState.second.allPaneIds.first)
+            }
+
+            let (newSecond, focusFromSecond) = closePaneRecursively(node: splitState.second, targetPaneId: targetPaneId)
+            if newSecond == nil {
+                return (splitState.first, splitState.first.allPaneIds.first)
+            }
+
+            if let newFirst { splitState.first = newFirst }
+            if let newSecond { splitState.second = newSecond }
+
+            return (.split(splitState), focusFromFirst ?? focusFromSecond)
+        }
+    }
+
+    private func addTabInternal(
+        _ tab: TabItem,
+        toPane paneId: PaneID? = nil,
+        atIndex index: Int? = nil,
+        select: Bool = true
+    ) {
+        let targetPaneId = paneId ?? focusedPaneId
+        guard let targetPaneId, let pane = rootNode.findPane(targetPaneId) else { return }
+
+        if let index {
+            pane.insertTab(tab, at: index, select: select)
+        } else {
+            pane.addTab(tab, select: select)
+        }
+    }
+
+    private func performMoveTab(_ tab: TabItem, from sourcePaneId: PaneID, to targetPaneId: PaneID, atIndex index: Int? = nil) {
+        guard let sourcePane = rootNode.findPane(sourcePaneId),
+              let targetPane = rootNode.findPane(targetPaneId) else { return }
+
+        sourcePane.removeTab(tab.id)
+
+        if let index {
+            targetPane.insertTab(tab, at: index)
+        } else {
+            targetPane.addTab(tab)
+        }
+
+        setFocusedPane(targetPaneId)
+
+        if sourcePane.tabs.isEmpty && rootNode.allPaneIds.count > 1 {
+            performClosePane(sourcePaneId)
+        }
+    }
+
+    private func performCloseTab(_ tabId: UUID, inPane paneId: PaneID) {
+        guard let pane = rootNode.findPane(paneId) else { return }
+
+        pane.removeTab(tabId)
+
+        if pane.tabs.isEmpty && rootNode.allPaneIds.count > 1 {
+            performClosePane(paneId)
+        }
+    }
+
+    private func performNavigateFocus(direction: NavigationDirection) {
+        guard let currentPaneId = focusedPaneId else { return }
+
+        let allPaneBounds = rootNode.computePaneBounds()
+        guard let currentBounds = allPaneBounds.first(where: { $0.paneId == currentPaneId })?.bounds else { return }
+
+        if let targetPaneId = findBestNeighbor(
+            from: currentBounds,
+            currentPaneId: currentPaneId,
+            direction: direction,
+            allPaneBounds: allPaneBounds
+        ) {
+            setFocusedPane(targetPaneId)
+        }
+    }
+
+    private func adjacentPaneInternal(to paneId: PaneID, direction: NavigationDirection) -> PaneID? {
+        let allPaneBounds = rootNode.computePaneBounds()
+        guard let currentBounds = allPaneBounds.first(where: { $0.paneId == paneId })?.bounds else {
+            return nil
+        }
+        return findBestNeighbor(
+            from: currentBounds,
+            currentPaneId: paneId,
+            direction: direction,
+            allPaneBounds: allPaneBounds
+        )
+    }
+
+    private func findBestNeighbor(
+        from currentBounds: CGRect,
+        currentPaneId: PaneID,
+        direction: NavigationDirection,
+        allPaneBounds: [PaneBounds]
+    ) -> PaneID? {
+        let epsilon: CGFloat = 0.001
+
+        let candidates = allPaneBounds.filter { paneBounds in
+            guard paneBounds.paneId != currentPaneId else { return false }
+            let bounds = paneBounds.bounds
+            switch direction {
+            case .left: return bounds.maxX <= currentBounds.minX + epsilon
+            case .right: return bounds.minX >= currentBounds.maxX - epsilon
+            case .up: return bounds.maxY <= currentBounds.minY + epsilon
+            case .down: return bounds.minY >= currentBounds.maxY - epsilon
+            }
+        }
+
+        guard !candidates.isEmpty else { return nil }
+
+        let scored: [(PaneID, CGFloat, CGFloat)] = candidates.map { candidate in
+            let overlap: CGFloat
+            let distance: CGFloat
+
+            switch direction {
+            case .left, .right:
+                overlap = max(0, min(currentBounds.maxY, candidate.bounds.maxY) - max(currentBounds.minY, candidate.bounds.minY))
+                distance = direction == .left
+                    ? (currentBounds.minX - candidate.bounds.maxX)
+                    : (candidate.bounds.minX - currentBounds.maxX)
+            case .up, .down:
+                overlap = max(0, min(currentBounds.maxX, candidate.bounds.maxX) - max(currentBounds.minX, candidate.bounds.minX))
+                distance = direction == .up
+                    ? (currentBounds.minY - candidate.bounds.maxY)
+                    : (candidate.bounds.minY - currentBounds.maxY)
+            }
+
+            return (candidate.paneId, overlap, distance)
+        }
+
+        return scored.sorted { lhs, rhs in
+            if abs(lhs.1 - rhs.1) > epsilon {
+                return lhs.1 > rhs.1
+            }
+            return lhs.2 < rhs.2
+        }.first?.0
+    }
+
+    private func selectPreviousTabInternal() {
+        guard let pane = focusedPane,
+              let selectedTabId = pane.selectedTabId,
+              let currentIndex = pane.tabs.firstIndex(where: { $0.id == selectedTabId }),
+              !pane.tabs.isEmpty else { return }
+
+        let newIndex = currentIndex > 0 ? currentIndex - 1 : pane.tabs.count - 1
+        pane.selectTab(pane.tabs[newIndex].id)
+    }
+
+    private func selectNextTabInternal() {
+        guard let pane = focusedPane,
+              let selectedTabId = pane.selectedTabId,
+              let currentIndex = pane.tabs.firstIndex(where: { $0.id == selectedTabId }),
+              !pane.tabs.isEmpty else { return }
+
+        let newIndex = currentIndex < pane.tabs.count - 1 ? currentIndex + 1 : 0
+        pane.selectTab(pane.tabs[newIndex].id)
+    }
+
+    private func splitState(_ splitId: UUID) -> SplitState? {
+        findSplitRecursively(in: rootNode, id: splitId)
+    }
+
+    private func findSplitRecursively(in node: SplitNode, id: UUID) -> SplitState? {
+        switch node {
+        case .pane:
+            return nil
+        case .split(let splitState):
+            if splitState.id == id {
+                return splitState
+            }
+            if let found = findSplitRecursively(in: splitState.first, id: id) {
+                return found
+            }
+            return findSplitRecursively(in: splitState.second, id: id)
+        }
+    }
+
     private func findTabInternal(_ tabId: TabID) -> (PaneState, Int)? {
-        for pane in internalController.rootNode.allPanes {
+        for pane in rootNode.allPanes {
             if let index = pane.tabs.firstIndex(where: { $0.id == tabId.id }) {
                 return (pane, index)
             }
@@ -2929,7 +2853,7 @@ final class WorkspaceLayoutController {
     }
 
     private func notifyTabSelection() {
-        guard let pane = internalController.focusedPane,
+        guard let pane = focusedPane,
               let tabItem = pane.selectedTab else { return }
         let tab = WorkspaceLayout.Tab(from: tabItem)
         delegate?.workspaceSplit(self, didSelectTab: tab, inPane: pane.id)
@@ -3091,6 +3015,9 @@ struct WorkspaceLayoutPaneRenderSnapshot {
 
 struct WorkspaceLayoutSplitRenderSnapshot {
     let splitId: UUID
+    let orientation: SplitOrientation
+    let dividerPosition: CGFloat
+    let animationOrigin: SplitAnimationOrigin?
     let first: WorkspaceLayoutRenderNodeSnapshot
     let second: WorkspaceLayoutRenderNodeSnapshot
 }
