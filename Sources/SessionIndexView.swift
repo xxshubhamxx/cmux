@@ -5,6 +5,10 @@ import UniformTypeIdentifiers
 
 struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
+    /// Lives alongside the store but is owned by this view so drag-state
+    /// transitions don't invalidate data-subscribed views elsewhere in the
+    /// sidebar.
+    @StateObject private var dragCoordinator = SessionDragCoordinator()
     /// Sections the user has explicitly collapsed (default is expanded).
     @State private var collapsedSections: Set<SectionKey> = []
     /// Section whose "Show more" popover is currently open.
@@ -115,19 +119,25 @@ struct SessionIndexView: View {
 
     private var sessionsList: some View {
         let sections = store.sectionsForCurrentGrouping()
+        // Read draggedKey once per body eval so every child gets a snapshot
+        // of the same value. Children are Equatable value views, so a
+        // draggedKey transition only re-renders the two sections whose
+        // isDragged flipped — not every section.
+        let draggedKey = dragCoordinator.draggedKey
         return ScrollView {
-            // VStack (not LazyVStack): the view tree is bounded — the collapsed
-            // row limit caps each section at a handful of rows, and sections
-            // come from a small fixed set of agents or a user's project
-            // directories. LazyVStack's internal layout-cache reconciliation
-            // burned 100% of the main thread on idle updates.
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(sections.enumerated()), id: \.element.key) { index, section in
                     // Drop above this row → insert dragged section BEFORE this section's key.
-                    SectionReorderGap(beforeKey: section.key, store: store)
+                    SectionReorderGap(
+                        beforeKey: section.key,
+                        isValidDrop: draggedKey == nil || draggedKey != section.key,
+                        store: store,
+                        dragCoordinator: dragCoordinator
+                    ).equatable()
                     IndexSectionView(
                         section: section,
                         rowLimit: Self.collapsedRowLimit,
+                        isDragged: draggedKey == section.key,
                         isCollapsed: Binding(
                             get: { collapsedSections.contains(section.key) },
                             set: { newValue in
@@ -145,15 +155,24 @@ struct SessionIndexView: View {
                             }
                         ),
                         store: store,
+                        dragCoordinator: dragCoordinator,
                         onResume: onResume
-                    )
+                    ).equatable()
                     let _ = index
                 }
                 // Trailing gap → append.
-                SectionReorderGap(beforeKey: nil, store: store)
+                SectionReorderGap(
+                    beforeKey: nil,
+                    isValidDrop: true,
+                    store: store,
+                    dragCoordinator: dragCoordinator
+                ).equatable()
             }
             .padding(.bottom, 8)
         }
+        .background(
+            DragCancelMonitor(dragCoordinator: dragCoordinator)
+        )
     }
 }
 
@@ -187,13 +206,35 @@ private struct GroupingButton: View {
     }
 }
 
-private struct IndexSectionView: View {
+private struct IndexSectionView: View, Equatable {
     let section: IndexSection
     let rowLimit: Int
+    /// True iff this section is the one currently being dragged. Precomputed
+    /// in the parent from a single `draggedKey` snapshot so the section's
+    /// opacity fade doesn't require observing the drag coordinator here.
+    let isDragged: Bool
     @Binding var isCollapsed: Bool
     @Binding var isPopoverOpen: Bool
-    @ObservedObject var store: SessionIndexStore
+    /// Plain (non-observing) reference used only for passing through to the
+    /// popover host and for the section drag's `onDrag` callback writing the
+    /// dragged key into `dragCoordinator`. Reads that would trigger view
+    /// invalidation are intentionally absent.
+    let store: SessionIndexStore
+    let dragCoordinator: SessionDragCoordinator
     let onResume: ((SessionEntry) -> Void)?
+
+    /// Skip body re-eval when this view's inputs are unchanged. `store` and
+    /// `dragCoordinator` identities are stable per-panel so they aren't part
+    /// of `==`; `onResume` is not comparable but is stable from the parent
+    /// chain. This is the core optimization that keeps LazyVStack's layout
+    /// cache from thrashing when unrelated store fields change.
+    static func == (lhs: IndexSectionView, rhs: IndexSectionView) -> Bool {
+        lhs.section == rhs.section
+            && lhs.rowLimit == rhs.rowLimit
+            && lhs.isDragged == rhs.isDragged
+            && lhs.isCollapsed == rhs.isCollapsed
+            && lhs.isPopoverOpen == rhs.isPopoverOpen
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -217,7 +258,7 @@ private struct IndexSectionView: View {
                 Spacer(minLength: 2)
             }
         }
-        .opacity(store.draggedKey == section.key ? 0.45 : 1.0)
+        .opacity(isDragged ? 0.45 : 1.0)
     }
 
     private var showMoreButton: some View {
@@ -265,7 +306,9 @@ private struct IndexSectionView: View {
         }
         .buttonStyle(.plain)
         .onDrag {
-            DispatchQueue.main.async { store.draggedKey = section.key }
+            DispatchQueue.main.async { [dragCoordinator, section] in
+                dragCoordinator.draggedKey = section.key
+            }
             return NSItemProvider(object: section.key.raw as NSString)
         } preview: {
             HStack(spacing: 8) {
@@ -297,20 +340,29 @@ private struct IndexSectionView: View {
     }
 }
 
-private struct SectionReorderGap: View {
+private struct SectionReorderGap: View, Equatable {
     /// Section the dragged item should land BEFORE if dropped here. `nil` for
     /// the trailing gap (drop appends to the end of persisted order).
     let beforeKey: SectionKey?
-    @ObservedObject var store: SessionIndexStore
+    /// Precomputed in the parent from the single draggedKey snapshot. Keeps
+    /// the gap from reading drag state itself.
+    let isValidDrop: Bool
+    /// Plain references. `store` for `moveSection`; `dragCoordinator` so the
+    /// drop delegate can clear the dragged key when the drop completes.
+    let store: SessionIndexStore
+    let dragCoordinator: SessionDragCoordinator
     @State private var isDropTarget: Bool = false
 
+    static func == (lhs: SectionReorderGap, rhs: SectionReorderGap) -> Bool {
+        lhs.beforeKey == rhs.beforeKey && lhs.isValidDrop == rhs.isValidDrop
+    }
+
     var body: some View {
-        let isValid = isValidDrop
         Rectangle()
             .fill(Color.clear)
             .frame(height: 4)
             .overlay(alignment: .center) {
-                if isDropTarget && isValid {
+                if isDropTarget && isValidDrop {
                     Capsule()
                         .fill(Color.accentColor)
                         .frame(height: 3)
@@ -322,28 +374,22 @@ private struct SectionReorderGap: View {
                 delegate: SectionGapDropDelegate(
                     beforeKey: beforeKey,
                     store: store,
+                    dragCoordinator: dragCoordinator,
                     isDropTarget: $isDropTarget
                 )
             )
-    }
-
-    private var isValidDrop: Bool {
-        guard let dragged = store.draggedKey else { return true }
-        // Skip no-op drops: dropping on the gap immediately above yourself, or
-        // the trailing gap when you're already last.
-        if dragged == beforeKey { return false }
-        return true
     }
 }
 
 private struct SectionGapDropDelegate: DropDelegate {
     let beforeKey: SectionKey?
     let store: SessionIndexStore
+    let dragCoordinator: SessionDragCoordinator
     @Binding var isDropTarget: Bool
 
     func validateDrop(info: DropInfo) -> Bool {
         guard info.hasItemsConforming(to: [.text]) else { return false }
-        guard let dragged = store.draggedKey else { return true }
+        guard let dragged = dragCoordinator.draggedKey else { return true }
         return dragged != beforeKey
     }
 
@@ -353,13 +399,15 @@ private struct SectionGapDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         isDropTarget = false
         guard let provider = info.itemProviders(for: [.text]).first else {
-            store.draggedKey = nil
+            dragCoordinator.draggedKey = nil
             return false
         }
         let beforeKey = self.beforeKey
+        let store = self.store
+        let dragCoordinator = self.dragCoordinator
         provider.loadObject(ofClass: NSString.self) { object, _ in
             DispatchQueue.main.async {
-                defer { store.draggedKey = nil }
+                defer { dragCoordinator.draggedKey = nil }
                 guard let raw = object as? String else { return }
                 let key = SectionKey(raw: raw)
                 store.moveSection(key, before: beforeKey)
@@ -1070,6 +1118,57 @@ private struct EscapeKeyCatcher: NSViewRepresentable {
                 if event.keyCode == 53 { // kVK_Escape
                     self.onEscape?()
                     return nil
+                }
+                return event
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+    }
+}
+
+// MARK: - Drag cancel monitor
+
+/// Clears `dragCoordinator.draggedKey` after any mouseUp, so a cancelled drag
+/// (user releases outside any valid drop target, or presses Esc mid-drag)
+/// doesn't leave the section stuck at 0.45 opacity. Successful drops clear
+/// the key themselves via `SectionGapDropDelegate.performDrop` and that clear
+/// happens under `DispatchQueue.main.async`, so the drop path always wins the
+/// race against this fallback.
+private struct DragCancelMonitor: NSViewRepresentable {
+    let dragCoordinator: SessionDragCoordinator
+
+    func makeNSView(context: Context) -> NSView {
+        let view = DragCancelMonitorView()
+        view.dragCoordinator = dragCoordinator
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? DragCancelMonitorView)?.dragCoordinator = dragCoordinator
+    }
+
+    private final class DragCancelMonitorView: NSView {
+        weak var dragCoordinator: SessionDragCoordinator?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .otherMouseUp]) { [weak self] event in
+                guard let coordinator = self?.dragCoordinator,
+                      coordinator.draggedKey != nil else { return event }
+                // Defer the clear so any `performDrop` already queued on the
+                // main actor wins first; this path only matters when no drop
+                // fires, i.e. the drag was cancelled.
+                DispatchQueue.main.async {
+                    coordinator.draggedKey = nil
                 }
                 return event
             }

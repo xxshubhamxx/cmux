@@ -236,7 +236,7 @@ struct SectionKey: Hashable {
     static func directory(_ path: String?) -> SectionKey { SectionKey(raw: "dir:" + (path ?? "")) }
 }
 
-struct IndexSection: Identifiable {
+struct IndexSection: Identifiable, Equatable {
     let key: SectionKey
     let title: String
     let icon: SectionIcon
@@ -245,9 +245,18 @@ struct IndexSection: Identifiable {
     var id: SectionKey { key }
 }
 
-enum SectionIcon {
+enum SectionIcon: Equatable {
     case agent(SessionAgent)
     case folder
+}
+
+/// Owns the "which section is currently being dragged" bit, separate from
+/// `SessionIndexStore`. Isolating this means drag start/end does not emit
+/// `objectWillChange` on the data store, so rows and gaps don't re-render
+/// every time a drag begins or clears.
+@MainActor
+final class SessionDragCoordinator: ObservableObject {
+    @Published var draggedKey: SectionKey? = nil
 }
 
 @MainActor
@@ -275,9 +284,6 @@ final class SessionIndexStore: ObservableObject {
     @Published var directoryOrder: [String] {
         didSet { Self.persistDirectoryOrder(directoryOrder) }
     }
-
-    /// The section currently being dragged, if any. Drives "hide adjacent drop slots".
-    @Published var draggedKey: SectionKey? = nil
 
     private static let groupingKey = "sessionIndex.grouping"
     private static let agentOrderDefaultsKey = "sessionIndex.agentOrder"
