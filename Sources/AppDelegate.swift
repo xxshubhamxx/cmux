@@ -2226,6 +2226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated(unsafe) static var sessionSnapshotDirtyRequestLatestReason = "unspecified"
 #if DEBUG
     nonisolated(unsafe) static var sessionSnapshotDirtyRequestObserverForTesting: ((String) -> Void)?
+    nonisolated(unsafe) static var sessionSnapshotSaveObserverForTesting: ((_ includeScrollback: Bool, _ removeWhenEmpty: Bool) -> Void)?
 #endif
 
     nonisolated static func requestSessionSnapshotDirty(reason: String) {
@@ -4008,7 +4009,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeStartupSessionRestore() {
         startupSessionSnapshot = nil
         isApplyingStartupSessionRestore = false
-        markSessionSnapshotDirty(reason: "session.restore.completed")
+        if !saveSessionSnapshot(includeScrollback: false) {
+            markSessionSnapshotDirty(reason: "session.restore.completed")
+        }
     }
 
     private func applySessionWindowSnapshot(
@@ -4552,6 +4555,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     private func saveSessionSnapshot(includeScrollback: Bool, removeWhenEmpty: Bool = false) -> Bool {
+#if DEBUG
+        Self.sessionSnapshotSaveObserverForTesting?(includeScrollback, removeWhenEmpty)
+#endif
         if Self.shouldSkipSessionSaveDuringStartupRestore(
             isApplyingStartupSessionRestore: isApplyingStartupSessionRestore,
             includeScrollback: includeScrollback
@@ -4853,6 +4859,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    @MainActor
+    func setStartupRestoreInProgressForTesting(_ isInProgress: Bool) {
+        isApplyingStartupSessionRestore = isInProgress
+    }
+
+    @MainActor
+    func completeStartupSessionRestoreForTesting() {
+        completeStartupSessionRestore()
+    }
+
     private func debugLogSessionSaveSnapshot(
         _ snapshot: AppSessionSnapshot,
         includeScrollback: Bool

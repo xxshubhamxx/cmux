@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import Bonsplit
 
@@ -11,6 +12,18 @@ final class SessionPersistenceTests: XCTestCase {
     private struct LegacyPersistedWindowGeometry: Codable {
         let frame: SessionRectSnapshot
         let display: SessionDisplaySnapshot?
+    }
+
+    @MainActor
+    private func makeMainWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
     }
 
     @MainActor
@@ -121,6 +134,74 @@ final class SessionPersistenceTests: XCTestCase {
 
         wait(for: [dirtyExpectation], timeout: 1.0)
         XCTAssertEqual(pane.tabs.map(\.id), [originalOrder[1], originalOrder[0]])
+    }
+
+    @MainActor
+    func testDirectBonsplitPaneFocusMarksSessionDirty() throws {
+        let workspace = Workspace()
+        let originalFocusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let splitPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: originalFocusedPanelId,
+                orientation: .horizontal,
+                insertFirst: false,
+                focus: false
+            )
+        )
+        let targetPaneId = try XCTUnwrap(workspace.paneId(forPanelId: splitPanel.id))
+
+        let dirtyExpectation = expectation(description: "session dirty after bonsplit pane focus")
+        AppDelegate.sessionSnapshotDirtyRequestObserverForTesting = { reason in
+            guard reason == "workspace.focusedPanel" else { return }
+            dirtyExpectation.fulfill()
+        }
+        defer { AppDelegate.sessionSnapshotDirtyRequestObserverForTesting = nil }
+
+        workspace.bonsplitController.focusPane(targetPaneId)
+
+        wait(for: [dirtyExpectation], timeout: 1.0)
+        XCTAssertEqual(workspace.focusedPanelId, splitPanel.id)
+    }
+
+    @MainActor
+    func testCompleteStartupSessionRestorePersistsSnapshotImmediately() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let tabManager = TabManager()
+        let sidebarState = SidebarState()
+        let sidebarSelectionState = SidebarSelectionState()
+
+        defer {
+            AppDelegate.sessionSnapshotSaveObserverForTesting = nil
+            AppDelegate.sessionSnapshotDirtyRequestObserverForTesting = nil
+            window.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: tabManager,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState
+        )
+
+        var observedImmediateSave = false
+        var observedDirtyReasons: [String] = []
+        AppDelegate.sessionSnapshotSaveObserverForTesting = { includeScrollback, removeWhenEmpty in
+            guard !includeScrollback, !removeWhenEmpty else { return }
+            observedImmediateSave = true
+        }
+        AppDelegate.sessionSnapshotDirtyRequestObserverForTesting = { reason in
+            observedDirtyReasons.append(reason)
+        }
+
+        app.setStartupRestoreInProgressForTesting(true)
+        app.completeStartupSessionRestoreForTesting()
+
+        XCTAssertTrue(observedImmediateSave)
+        XCTAssertFalse(observedDirtyReasons.contains("session.restore.completed"))
     }
 
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {

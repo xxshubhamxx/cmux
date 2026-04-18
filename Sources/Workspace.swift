@@ -6554,9 +6554,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
     private(set) var preferredBrowserProfileID: UUID?
     private var observedSessionPaneTabOrderSnapshot: [SessionPaneTabOrderSnapshot] = []
+    private var observedSessionSnapshotFocusedPanelId: UUID?
 
     private func markSessionSnapshotDirty(reason: String) {
         AppDelegate.requestSessionSnapshotDirty(reason: "workspace.\(reason)")
+    }
+
+    private func noteSessionSnapshotFocusedPanelChanged(to panelId: UUID?) {
+        guard observedSessionSnapshotFocusedPanelId != panelId else { return }
+        observedSessionSnapshotFocusedPanelId = panelId
+        markSessionSnapshotDirty(reason: "focusedPanel")
     }
 
     private func currentSessionPaneTabOrderSnapshot() -> [SessionPaneTabOrderSnapshot] {
@@ -7140,6 +7147,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
         installSessionPaneTabOrderObserver()
+        observedSessionSnapshotFocusedPanelId = focusedPanelId
     }
 
     deinit {
@@ -11509,9 +11517,7 @@ extension Workspace: BonsplitDelegate {
         guard let panel = panels[effectiveFocusedPanelId] else {
             return
         }
-        if previousFocusedPanelId != effectiveFocusedPanelId {
-            markSessionSnapshotDirty(reason: "focusedPanel")
-        }
+        noteSessionSnapshotFocusedPanelChanged(to: effectiveFocusedPanelId)
 
         if debugStressPreloadSelectionDepth > 0 {
             if let terminalPanel = panel as? TerminalPanel {
