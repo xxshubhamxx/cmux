@@ -784,7 +784,6 @@ private struct SectionPopoverView: View {
                 // fast-path rows are replaced in the same tick.
                 loaded = section.entries
                 hasMore = !section.entries.isEmpty
-                isLoading = false
 
                 // Build-or-return the full directory snapshot. For
                 // directory scope scrolling this replaces per-page store
@@ -792,6 +791,14 @@ private struct SectionPopoverView: View {
                 // Agent-scope popovers keep the old paged flow (no
                 // snapshot needed, store.entries already top-N per agent).
                 if case .directory(let path) = sectionSearchScope {
+                    // Keep isLoading=true while the snapshot builds so the
+                    // sentinel's onAppear can't race and fire a paged
+                    // loadMore() against the store — otherwise we end up
+                    // running both the snapshot path AND a paged search in
+                    // parallel for the same open (observed in logs as
+                    // duplicate session.search.agent lines for the same
+                    // cwd, followed by session.search.total offset=N).
+                    isLoading = true
                     let snapshot = await loadSnapshot(path)
                     guard !Task.isCancelled else { return }
                     fullSnapshot = snapshot.entries
@@ -801,8 +808,10 @@ private struct SectionPopoverView: View {
                     loaded = Array(snapshot.entries.prefix(initialWindow))
                     hasMore = initialWindow < snapshot.entries.count
                     errorMessages = snapshot.errors
+                    isLoading = false
                 } else {
                     fullSnapshot = nil
+                    isLoading = false
                 }
 
                 if !searchFocused {
