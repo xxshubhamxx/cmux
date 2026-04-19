@@ -1960,8 +1960,14 @@ class GhosttyApp {
     private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
         guard let mappings = Self.autoInjectedCJKFontMappings() else { return }
 
+        var resolvedFonts: [String: String] = [:]
         let lines = mappings.map { range, font in
-            "font-codepoint-map = \(range)=\(font)"
+            let resolvedFont = resolvedFonts[font] ?? {
+                let resolved = Self.resolvedInjectedCJKFontName(named: font)
+                resolvedFonts[font] = resolved
+                return resolved
+            }()
+            return "font-codepoint-map = \(range)=\(resolvedFont)"
         }.joined(separator: "\n")
         loadInlineGhosttyConfig(
             lines,
@@ -2136,14 +2142,43 @@ class GhosttyApp {
         ) != nil
     }
 
-    /// Stub: returns the input family name unchanged. Replaced by the pinning
-    /// implementation in the follow-up fix commit.
+    /// Resolve auto-injected CJK families through the regular-weight descriptor
+    /// path first so locale-sensitive families such as Hiragino Sans don't fall
+    /// back to ultra-light faces like W0 when Ghostty later matches by name.
     static func resolvedInjectedCJKFontName(
         named name: String,
         size: CGFloat = 12
     ) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? name : trimmed
+        guard !trimmed.isEmpty else { return name }
+        guard let regularWeightFont = discoveredCTFont(named: trimmed, size: size, weightTrait: 0.0) else {
+            return trimmed
+        }
+
+        let candidateNames = [
+            CTFontCopyName(regularWeightFont, kCTFontFullNameKey) as String?,
+            CTFontCopyName(regularWeightFont, kCTFontPostScriptNameKey) as String?,
+        ].compactMap { $0 }
+        let expectedFullName = CTFontCopyFullName(regularWeightFont) as String
+        let expectedPostScriptName = CTFontCopyPostScriptName(regularWeightFont) as String
+
+        for candidate in candidateNames {
+            guard let verifiedFont = discoveredCTFont(named: candidate, size: size) else { continue }
+            let verifiedNames = [
+                CTFontCopyName(verifiedFont, kCTFontFamilyNameKey) as String?,
+                CTFontCopyName(verifiedFont, kCTFontFullNameKey) as String?,
+                CTFontCopyName(verifiedFont, kCTFontPostScriptNameKey) as String?,
+            ].compactMap { $0 }
+            let matchesRegularWeightFace = verifiedNames.contains {
+                normalizedFontName($0) == normalizedFontName(expectedFullName) ||
+                normalizedFontName($0) == normalizedFontName(expectedPostScriptName)
+            }
+            if matchesRegularWeightFace {
+                return candidate
+            }
+        }
+
+        return trimmed
     }
 
     private static func configuredCTFont(
