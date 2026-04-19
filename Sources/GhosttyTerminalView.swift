@@ -3652,6 +3652,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
     private var runtimeSurfaceFreedOutOfBandForTesting = false
+    private let debugForceRefreshCountLock = NSLock()
+    private var debugForceRefreshCountValue = 0
 #endif
     private enum PortalLifecycleState: String {
         case live
@@ -4107,8 +4109,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
     private static let surfaceLogPath = "/tmp/cmux-ghostty-surface.log"
     private static let sizeLogPath = "/tmp/cmux-ghostty-size.log"
-    private static let forceRefreshCountLock = NSLock()
-    private static var forceRefreshCounts: [UUID: Int] = [:]
 
     func debugCurrentPixelSize() -> (width: UInt32, height: UInt32) {
         (lastPixelWidth, lastPixelHeight)
@@ -4119,22 +4119,22 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func debugForceRefreshCount() -> Int {
-        Self.forceRefreshCountLock.lock()
-        defer { Self.forceRefreshCountLock.unlock() }
-        return Self.forceRefreshCounts[id, default: 0]
+        debugForceRefreshCountLock.lock()
+        defer { debugForceRefreshCountLock.unlock() }
+        return debugForceRefreshCountValue
     }
 
     @MainActor
     func resetDebugForceRefreshCount() {
-        Self.forceRefreshCountLock.lock()
-        Self.forceRefreshCounts[id] = 0
-        Self.forceRefreshCountLock.unlock()
+        debugForceRefreshCountLock.lock()
+        debugForceRefreshCountValue = 0
+        debugForceRefreshCountLock.unlock()
     }
 
     private func recordDebugForceRefresh() {
-        Self.forceRefreshCountLock.lock()
-        Self.forceRefreshCounts[id, default: 0] += 1
-        Self.forceRefreshCountLock.unlock()
+        debugForceRefreshCountLock.lock()
+        debugForceRefreshCountValue += 1
+        debugForceRefreshCountLock.unlock()
     }
 
     private static func surfaceLog(_ message: String) {
@@ -10415,10 +10415,12 @@ final class GhosttySurfaceScrollView: NSView {
                 window.makeFirstResponder(nil)
             }
         } else {
-            // Workspace/sidebar selection can make an already-sized terminal visible again
-            // without a portal frame delta or a focus handoff. Reuse the portal refresh
-            // path so the Metal layer is nudged immediately on plain visibility restores.
-            refreshSurfaceNow(reason: "setVisibleInUI")
+            if !wasVisible {
+                // Workspace/sidebar selection can make an already-sized terminal visible again
+                // without a portal frame delta or a focus handoff. Reuse the portal refresh
+                // path so the Metal layer is nudged immediately on plain visibility restores.
+                refreshSurfaceNow(reason: "setVisibleInUI")
+            }
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
