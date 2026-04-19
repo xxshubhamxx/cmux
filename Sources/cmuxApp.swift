@@ -6275,14 +6275,14 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("shortcuts.showModifierHoldHints"),
                             String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"),
-                            subtitle: (showShortcutHintsOnCommandHold && showShortcutHintsOnControlHold)
+                            subtitle: (showShortcutHintsOnCommandHold || showShortcutHintsOnControlHold)
                                 ? String(localized: "settings.shortcuts.showHints.subtitleOn", defaultValue: "Holding Cmd (sidebar/titlebar) or Ctrl/Cmd (pane tabs) shows shortcut hint pills.")
                                 : String(localized: "settings.shortcuts.showHints.subtitleOff", defaultValue: "Holding Cmd or Ctrl keeps shortcut hint pills hidden.")
                         ) {
                             Toggle(
                                 "",
                                 isOn: Binding(
-                                    get: { showShortcutHintsOnCommandHold && showShortcutHintsOnControlHold },
+                                    get: { showShortcutHintsOnCommandHold || showShortcutHintsOnControlHold },
                                     set: { newValue in
                                         showShortcutHintsOnCommandHold = newValue
                                         showShortcutHintsOnControlHold = newValue
