@@ -17,14 +17,14 @@ struct CLIError: Error, CustomStringConvertible {
     var description: String { message }
 }
 
-enum CLIBrokenPipeDisposition {
+private enum CLIBrokenPipeDisposition {
     case exit(Int32)
     case ignore
 }
 
 // Route CLI stdio through write(2) so broken pipes never surface as NSFileHandle exceptions.
 @discardableResult
-func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDisposition) -> Bool {
+private func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDisposition) -> Bool {
     guard !data.isEmpty else { return true }
     return data.withUnsafeBytes { rawBuffer in
         guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else {
@@ -62,7 +62,7 @@ func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDi
 }
 
 @discardableResult
-func cliWrite(_ text: String, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDisposition) -> Bool {
+private func cliWrite(_ text: String, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDisposition) -> Bool {
     guard let data = text.data(using: .utf8) else { return true }
     return cliWrite(data, to: handle, onBrokenPipe: onBrokenPipe)
 }

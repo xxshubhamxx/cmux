@@ -1557,7 +1557,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let stderrWriteFD = stderrPipeFDs[1]
         XCTAssertEqual(Darwin.close(stderrReadFD), 0)
 
-        let stderrHandle = FileHandle(fileDescriptor: stderrWriteFD, closeOnDealloc: true)
+        let stderrHandle = FileHandle(fileDescriptor: stderrWriteFD, closeOnDealloc: false)
         defer { try? stderrHandle.close() }
 
         process.executableURL = URL(fileURLWithPath: cliPath)
@@ -1578,7 +1578,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             process.waitUntilExit()
             exited.fulfill()
         }
-        wait(for: [exited], timeout: 5)
+        let waitResult = XCTWaiter().wait(for: [exited], timeout: 5)
+        guard waitResult == .completed else {
+            process.terminate()
+            XCTFail("CLI did not exit within 5s after closed stderr pipe")
+            return
+        }
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         XCTAssertEqual(
@@ -2835,19 +2840,3 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 }
 
-final class CLIBrokenPipeWriteTests: XCTestCase {
-    func testIgnoreDispositionDoesNotExitWhenPipeReaderCloses() throws {
-        var pipeFDs = [Int32](repeating: 0, count: 2)
-        XCTAssertEqual(pipe(&pipeFDs), 0)
-
-        let readFD = pipeFDs[0]
-        let writeFD = pipeFDs[1]
-        XCTAssertEqual(Darwin.close(readFD), 0)
-
-        let writeHandle = FileHandle(fileDescriptor: writeFD, closeOnDealloc: true)
-        defer { try? writeHandle.close() }
-
-        let wrote = cliWrite("warning\n", to: writeHandle, onBrokenPipe: .ignore)
-        XCTAssertFalse(wrote, "Ignoring EPIPE should report the dropped write without terminating the process")
-    }
-}
