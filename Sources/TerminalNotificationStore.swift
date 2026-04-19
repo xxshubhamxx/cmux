@@ -732,9 +732,13 @@ final class WorkspaceNotificationPresentationStore: ObservableObject {
 
     private var cancellable: AnyCancellable?
 
+    convenience init(tabId: UUID) {
+        self.init(tabId: tabId, notificationStore: .shared)
+    }
+
     init(
         tabId: UUID,
-        notificationStore: TerminalNotificationStore = .shared
+        notificationStore: TerminalNotificationStore
     ) {
         self.presentation = notificationStore.presentation(forTabId: tabId)
         cancellable = notificationStore.presentationPublisher(forTabId: tabId)
@@ -750,7 +754,11 @@ final class WorkspaceNotificationPresentationStoreCache: ObservableObject {
     private let notificationStore: TerminalNotificationStore
     private var stores: [UUID: WorkspaceNotificationPresentationStore] = [:]
 
-    init(notificationStore: TerminalNotificationStore = .shared) {
+    convenience init() {
+        self.init(notificationStore: .shared)
+    }
+
+    init(notificationStore: TerminalNotificationStore) {
         self.notificationStore = notificationStore
     }
 
