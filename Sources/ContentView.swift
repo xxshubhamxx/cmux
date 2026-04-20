@@ -112,8 +112,11 @@ enum SidebarRemoteErrorCopySupport {
     }
 }
 
-func sidebarSelectedWorkspaceBackgroundNSColor(for colorScheme: ColorScheme) -> NSColor {
-    if let hex = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex"),
+func sidebarSelectedWorkspaceBackgroundNSColor(
+    for colorScheme: ColorScheme,
+    sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex")
+) -> NSColor {
+    if let hex = sidebarSelectionColorHex,
        let parsed = NSColor(hex: hex) {
         return parsed
     }
@@ -123,6 +126,61 @@ func sidebarSelectedWorkspaceBackgroundNSColor(for colorScheme: ColorScheme) -> 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
     let clampedOpacity = max(0, min(opacity, 1))
     return NSColor.white.withAlphaComponent(clampedOpacity)
+}
+
+struct SidebarWorkspaceRowBackgroundStyle {
+    let color: NSColor?
+    let opacity: Double
+
+    static let clear = Self(color: nil, opacity: 0)
+}
+
+func sidebarWorkspaceRowBackgroundStyle(
+    activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle,
+    isActive: Bool,
+    isMultiSelected: Bool,
+    customColorHex: String?,
+    colorScheme: ColorScheme,
+    sidebarSelectionColorHex: String?
+) -> SidebarWorkspaceRowBackgroundStyle {
+    let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
+        for: colorScheme,
+        sidebarSelectionColorHex: sidebarSelectionColorHex
+    )
+    let accentBackground = cmuxAccentNSColor(for: colorScheme)
+    let customBackground = customColorHex.flatMap {
+        WorkspaceTabColorSettings.displayNSColor(
+            hex: $0,
+            colorScheme: colorScheme,
+            forceBright: activeTabIndicatorStyle == .leftRail
+        )
+    }
+
+    switch activeTabIndicatorStyle {
+    case .leftRail:
+        if isActive {
+            return SidebarWorkspaceRowBackgroundStyle(color: selectedBackground, opacity: 1)
+        }
+        if isMultiSelected {
+            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: 0.25)
+        }
+        return .clear
+
+    case .solidFill:
+        if isActive {
+            return SidebarWorkspaceRowBackgroundStyle(color: selectedBackground, opacity: 1)
+        }
+        if let customBackground {
+            return SidebarWorkspaceRowBackgroundStyle(
+                color: customBackground,
+                opacity: isMultiSelected ? 0.35 : 0.7
+            )
+        }
+        if isMultiSelected {
+            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: 0.25)
+        }
+        return .clear
+    }
 }
 
 #if compiler(>=6.2)
@@ -13792,28 +13850,17 @@ private struct TabItemView: View, Equatable {
         .disabled(!hasLatestNotifications(in: targetIds))
     }
 
-    private var selectionBackgroundColor: NSColor {
-        if let hex = sidebarSelectionColorHex, let parsed = NSColor(hex: hex) {
-            return parsed
-        }
-        return cmuxAccentNSColor(for: colorScheme)
-    }
-
     private var backgroundColor: Color {
-        switch activeTabIndicatorStyle {
-        case .leftRail:
-            if isActive        { return Color(nsColor: selectionBackgroundColor) }
-            if isMultiSelected { return cmuxAccentColor().opacity(0.25) }
-            return Color.clear
-        case .solidFill:
-            if isActive { return Color(nsColor: selectionBackgroundColor) }
-            if let custom = resolvedCustomTabColor {
-                if isMultiSelected { return custom.opacity(0.35) }
-                return custom.opacity(0.7)
-            }
-            if isMultiSelected { return cmuxAccentColor().opacity(0.25) }
-            return Color.clear
-        }
+        let style = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: activeTabIndicatorStyle,
+            isActive: isActive,
+            isMultiSelected: isMultiSelected,
+            customColorHex: workspaceSnapshot.customColorHex,
+            colorScheme: colorScheme,
+            sidebarSelectionColorHex: sidebarSelectionColorHex
+        )
+        guard let color = style.color else { return .clear }
+        return Color(nsColor: color).opacity(style.opacity)
     }
 
     private var railColor: Color {
