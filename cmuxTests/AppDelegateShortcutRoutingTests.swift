@@ -1598,6 +1598,66 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testMinimalModeCollapsedSidebarResyncsTrafficLightInsetAfterNewWorkspaceCreation() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer {
+            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+        }
+
+        let snapshot = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: false, selection: .tabs, width: nil)
+        )
+        let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected tab manager for created window")
+            return
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: windowId), false)
+
+        guard let sourceWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+
+        // Recreate the regression shape: the window chrome state says minimal +
+        // collapsed sidebar, but the selected workspace's live Bonsplit inset is stale.
+        sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = 0
+
+        guard let newWorkspaceId = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
+            XCTFail("Expected workspace creation to route to the test window")
+            return
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+
+        guard let newWorkspace = manager.tabs.first(where: { $0.id == newWorkspaceId }) else {
+            XCTFail("Expected new workspace in test window")
+            return
+        }
+
+        XCTAssertEqual(
+            newWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset,
+            80,
+            accuracy: 0.5,
+            "New minimal-mode workspaces should reserve traffic-light space immediately even when the source workspace inset is stale"
+        )
+    }
+
     func testAttachUpdateAccessoryRemovesTitlebarAccessoryWhenMinimalModeEnabled() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
