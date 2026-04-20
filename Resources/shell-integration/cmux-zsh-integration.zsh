@@ -202,6 +202,7 @@ typeset -g _CMUX_SHELL_ACTIVITY_LAST=""
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
 typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
+typeset -g _CMUX_GHOSTTY_PROMPT_TAKEOVER=0
 typeset -g _CMUX_WINCH_GUARD_INSTALLED=0
 typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
 typeset -g _CMUX_TMUX_PULL_SIGNATURE=""
@@ -325,6 +326,124 @@ _cmux_tmux_sync_cmux_environment() {
         _cmux_tmux_refresh_cmux_environment
     else
         _cmux_tmux_publish_cmux_environment
+    fi
+}
+
+_cmux_ghostty_prompt_active() {
+    (( _CMUX_GHOSTTY_PROMPT_TAKEOVER )) || return 1
+    (( ${+_ghostty_fd} )) || return 1
+    return 0
+}
+
+_cmux_strip_ghostty_prompt_marks() {
+    # Ghostty patches PS1/PS2 with OSC 133 markers so redraws re-emit them.
+    # cmux emits the markers directly instead, so resize redraws cannot replay
+    # marked prompt strings as scrollback content.
+    PS1=${PS1//$'%{\e]133;A;cl=line\a%}'}
+    PS1=${PS1//$'%{\e]133;A;redraw=last;cl=line\a%}'}
+    PS1=${PS1//$'%{\e]133;A;k=s\a%}'}
+    PS1=${PS1//$'%{\e]133;P;k=i\a%}'}
+    PS1=${PS1//$'%{\e]133;P;k=s\a%}'}
+    PS1=${PS1//$'%{\e]133;B\a%}'}
+    PS2=${PS2//$'%{\e]133;A;cl=line\a%}'}
+    PS2=${PS2//$'%{\e]133;A;redraw=last;cl=line\a%}'}
+    PS2=${PS2//$'%{\e]133;A;k=s\a%}'}
+    PS2=${PS2//$'%{\e]133;P;k=i\a%}'}
+    PS2=${PS2//$'%{\e]133;P;k=s\a%}'}
+    PS2=${PS2//$'%{\e]133;B\a%}'}
+}
+
+_cmux_wrap_ghostty_zle_line_init_for_takeover() {
+    (( $+functions[_ghostty_zle_line_init] )) || return 0
+    (( $+functions[_cmux_ghostty_original_zle_line_init] )) && return 0
+
+    functions[_cmux_ghostty_original_zle_line_init]="${functions[_ghostty_zle_line_init]}"
+    _ghostty_zle_line_init() {
+        _cmux_ghostty_prompt_active || {
+            _cmux_ghostty_original_zle_line_init "$@"
+            return $?
+        }
+
+        local cmux_prompt_mark=$'%{\e]133;A;redraw=last;cl=line\a%}'
+        local cmux_mark_length=${#cmux_prompt_mark}
+        local cmux_status
+        local cmux_strip_start=$(( cmux_mark_length + 1 ))
+        PS1="${cmux_prompt_mark}${PS1}"
+        _cmux_ghostty_original_zle_line_init "$@"
+        cmux_status=$?
+        if [[ "${PS1[1,$cmux_mark_length]}" == "$cmux_prompt_mark" ]]; then
+            PS1="${PS1[$cmux_strip_start,-1]}"
+        fi
+        builtin print -nu $_ghostty_fd '\e]133;B\a'
+        return $cmux_status
+    }
+}
+
+_cmux_take_over_ghostty_prompt_hooks() {
+    local -i cmd_status=$?
+
+    # Let Ghostty finish deferred setup for cwd/title/cursor/path helpers, then
+    # remove only its prompt marker hooks and keep cmux in charge of OSC 133.
+    (( ${+_ghostty_fd} )) || {
+        add-zsh-hook -d precmd _cmux_take_over_ghostty_prompt_hooks
+        return $cmd_status
+    }
+
+    builtin typeset -ag precmd_functions
+    builtin typeset -ag preexec_functions
+    precmd_functions=("${(@)precmd_functions:#_ghostty_precmd}")
+    preexec_functions=("${(@)preexec_functions:#_ghostty_preexec}")
+
+    _cmux_strip_ghostty_prompt_marks
+    _cmux_wrap_ghostty_zle_line_init_for_takeover
+    (( ${+_ghostty_state} )) || builtin typeset -gi _ghostty_state=0
+    _CMUX_GHOSTTY_PROMPT_TAKEOVER=1
+
+    add-zsh-hook -d precmd _cmux_take_over_ghostty_prompt_hooks
+    return $cmd_status
+}
+
+_cmux_ghostty_preexec() {
+    local cmd="${1:-}"
+    _cmux_ghostty_prompt_active || return 0
+
+    if ! builtin zle; then
+        builtin print -nu $_ghostty_fd '\e]133;C\a'
+        (( _ghostty_state = 1 ))
+    fi
+
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
+        builtin print -rnu $_ghostty_fd $'\e]2;'"${cmd//[[:cntrl:]]}"$'\a'
+    fi
+
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
+        builtin print -rnu $_ghostty_fd $'\e[0 q'
+    fi
+}
+
+_cmux_ghostty_precmd() {
+    local -i cmd_status="${1:-$?}"
+    _cmux_ghostty_prompt_active || return 0
+
+    # Some prompt frameworks invoke precmd hooks from zle for redraws. Only
+    # emit fresh-prompt markers on real prompt cycles; Ghostty's zle fallback
+    # can still mark editor redraws without PS1/PS2 marker injection.
+    if ! builtin zle; then
+        if (( _ghostty_state == 1 )); then
+            builtin print -nu $_ghostty_fd '\e]133;D;'$cmd_status'\a'
+        elif (( _ghostty_state == 2 )); then
+            builtin print -nu $_ghostty_fd '\e]133;D\a'
+        fi
+        builtin print -nu $_ghostty_fd '\e]133;A;redraw=last;cl=line\a'
+        (( _ghostty_state = 2 ))
+    fi
+
+    if (( $+functions[_ghostty_report_pwd] )); then
+        _ghostty_report_pwd
+    fi
+
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
+        builtin print -rnu $_ghostty_fd $'\e]2;'"${(%):-%(4~|.../%3~|%~)}"$'\a'
     fi
 }
 
@@ -1065,6 +1184,8 @@ _cmux_command_starts_nested_shell() {
 }
 
 _cmux_preexec() {
+    _cmux_ghostty_preexec "$1"
+
     if (( ! _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _cmux_restore_terminal_identity_after_startup
     fi
@@ -1102,6 +1223,8 @@ _cmux_preexec() {
 
 _cmux_precmd() {
     local last_status=$?
+    _cmux_ghostty_precmd "$last_status"
+
     if (( _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=0
     fi
@@ -1292,6 +1415,7 @@ _cmux_zshexit() {
 }
 
 autoload -Uz add-zsh-hook
+add-zsh-hook precmd _cmux_take_over_ghostty_prompt_hooks
 add-zsh-hook preexec _cmux_preexec
 add-zsh-hook precmd _cmux_precmd
 add-zsh-hook precmd _cmux_fix_path
