@@ -3472,7 +3472,7 @@ class GhosttyApp {
             }
             if let handle = try? FileHandle(forWritingTo: backgroundLogURL) {
                 defer { try? handle.close() }
-                try? handle.seekToEnd()
+                guard (try? handle.seekToEnd()) != nil else { return }
                 try? handle.write(contentsOf: data)
             }
         }
