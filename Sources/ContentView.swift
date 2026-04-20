@@ -10285,6 +10285,39 @@ private struct SidebarTabDragOpacityModifier: ViewModifier {
     }
 }
 
+/// Dedicated close-button view that reads `dragState.hoveredTabId`. Isolating the
+/// hover read here means hover transitions invalidate only this tiny subview,
+/// not the enclosing `TabItemView` body (whose body is ~1500 lines of complex
+/// SwiftUI). Without this extraction, hover moves across the sidebar would
+/// re-evaluate every visible row.
+private struct SidebarTabCloseButton: View {
+    let dragState: SidebarDragState
+    let tabId: UUID
+    let canCloseWorkspace: Bool
+    /// Set to true when the shortcut-hint pill is occupying the same slot; the
+    /// close button then stays fully hidden (opacity 0, no hit testing) even
+    /// while hovered.
+    let showsAnyShortcutHintOverlay: Bool
+    let tooltip: String
+    let foregroundColor: Color
+    let action: () -> Void
+
+    var body: some View {
+        let isHovered = dragState.hoveredTabId == tabId
+        let visible = isHovered && canCloseWorkspace && !showsAnyShortcutHintOverlay
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(foregroundColor)
+        }
+        .buttonStyle(.plain)
+        .safeHelp(tooltip)
+        .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+    }
+}
+
 struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
@@ -10353,8 +10386,12 @@ struct VerticalTabsSidebar: View {
                             .frame(height: trafficLightPadding)
 
                         // LazyVStack is safe here because `dragState` is @Observable:
-                        // drag mutations at 60fps invalidate only the rows/overlays that
-                        // read them, never this sidebar body. See SidebarDragState.
+                        // the ~60fps `dropIndicator` mutations invalidate only the
+                        // dedicated overlays that read them. `draggedTabId` is
+                        // observed by the sidebar body via `onChange` below, but
+                        // only flips at drag start/end, so it doesn't thrash
+                        // layout. Do not read other `dragState` properties from
+                        // this scope. See SidebarDragState.
                         LazyVStack(spacing: tabRowSpacing) {
                             ForEach(tabs, id: \.id) { tab in
                                 let index = tabIndexById[tab.id] ?? 0
@@ -10495,7 +10532,7 @@ struct VerticalTabsSidebar: View {
                 reason: "sidebar_disappear"
             )
         }
-        .onChange(of: dragState.draggedTabId) { newDraggedTabId in
+        .onChange(of: dragState.draggedTabId) { _, newDraggedTabId in
             SidebarDragLifecycleNotification.postStateDidChange(
                 tabId: newDraggedTabId,
                 reason: "drag_state_change"
@@ -12691,17 +12728,33 @@ private struct SidebarEmptyArea: View {
                 dragAutoScrollController: dragAutoScrollController
             ))
             .overlay(alignment: .top) {
-                if shouldShowTopDropIndicator {
-                    Rectangle()
-                        .fill(cmuxAccentColor())
-                        .frame(height: 2)
-                        .padding(.horizontal, 8)
-                        .offset(y: -(rowSpacing / 2))
-                }
+                SidebarEmptyAreaDropIndicatorOverlay(
+                    dragState: dragState,
+                    tabManager: tabManager,
+                    rowSpacing: rowSpacing
+                )
             }
     }
+}
 
-    private var shouldShowTopDropIndicator: Bool {
+/// Dedicated view isolating the ~60fps `dragState.dropIndicator` read out of
+/// `SidebarEmptyArea.body`. Mirrors `SidebarTabDropIndicatorOverlay`.
+private struct SidebarEmptyAreaDropIndicatorOverlay: View {
+    let dragState: SidebarDragState
+    let tabManager: TabManager
+    let rowSpacing: CGFloat
+
+    var body: some View {
+        if shouldShow {
+            Rectangle()
+                .fill(cmuxAccentColor())
+                .frame(height: 2)
+                .padding(.horizontal, 8)
+                .offset(y: -(rowSpacing / 2))
+        }
+    }
+
+    private var shouldShow: Bool {
         guard dragState.draggedTabId != nil, let indicator = dragState.dropIndicator else { return false }
         if indicator.tabId == nil {
             return true
@@ -12902,9 +12955,28 @@ private struct TabItemView: View, Equatable {
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowHeight: CGFloat = 1
+    /// Frozen presentation captured while the row's context menu is open, so
+    /// notifications and modifier-key hint toggles don't visually churn the
+    /// row (or close the menu) while the user is navigating it. See
+    /// https://github.com/manaflow-ai/cmux/issues/2566.
+    @State private var frozenPresentation: FrozenPresentation?
 
-    private var isHovering: Bool {
-        dragState.hoveredTabId == tab.id
+    private struct FrozenPresentation: Equatable {
+        let unreadCount: Int
+        let latestNotificationText: String?
+        let showsModifierShortcutHints: Bool
+    }
+
+    private var effectiveUnreadCount: Int {
+        frozenPresentation?.unreadCount ?? unreadCount
+    }
+
+    private var effectiveLatestNotificationText: String? {
+        frozenPresentation?.latestNotificationText ?? latestNotificationText
+    }
+
+    private var effectiveShowsModifierShortcutHints: Bool {
+        frozenPresentation?.showsModifierShortcutHints ?? showsModifierShortcutHints
     }
 
     var isMultiSelected: Bool {
@@ -13025,9 +13097,6 @@ private struct TabItemView: View, Equatable {
         usesInvertedActiveForeground ? 1.0 : 0.9
     }
 
-    private var showCloseButton: Bool {
-        isHovering && canCloseWorkspace && !(showsModifierShortcutHints || alwaysShowShortcutHints)
-    }
 
     private var workspaceShortcutLabel: String? {
         guard let workspaceShortcutDigit else { return nil }
@@ -13035,7 +13104,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private var showsWorkspaceShortcutHint: Bool {
-        (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
+        (effectiveShowsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
 
     private var trailingAccessoryWidth: CGFloat {
@@ -13113,7 +13182,7 @@ private struct TabItemView: View, Equatable {
                         .lineLimit(1)
                 }
             }
-            .padding(.top, latestNotificationText == nil ? 1 : 2)
+            .padding(.top, effectiveLatestNotificationText == nil ? 1 : 2)
             .safeHelp(workspaceSnapshot.remoteStateHelpText)
         }
     }
@@ -13141,17 +13210,17 @@ private struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let latestNotificationSubtitle = latestNotificationText
+        let latestNotificationSubtitle = effectiveLatestNotificationText
         let effectiveSubtitle = latestNotificationSubtitle
         let detailVisibility = visibleAuxiliaryDetails
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                if unreadCount > 0 {
+                if effectiveUnreadCount > 0 {
                     ZStack {
                         Circle()
                             .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
+                        Text("\(effectiveUnreadCount)")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(.white)
                     }
@@ -13175,21 +13244,19 @@ private struct TabItemView: View, Equatable {
                 Spacer(minLength: 0)
 
                 ZStack(alignment: .trailing) {
-                    Button(action: {
+                    SidebarTabCloseButton(
+                        dragState: dragState,
+                        tabId: tab.id,
+                        canCloseWorkspace: canCloseWorkspace,
+                        showsAnyShortcutHintOverlay: showsWorkspaceShortcutHint,
+                        tooltip: closeButtonTooltip,
+                        foregroundColor: activeSecondaryColor(0.7)
+                    ) {
                         #if DEBUG
                         dlog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
                         #endif
                         tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(activeSecondaryColor(0.7))
                     }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
-                    .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
-                    .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
 
                     if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
                         ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
@@ -13200,7 +13267,7 @@ private struct TabItemView: View, Equatable {
                             .transition(.opacity)
                     }
                 }
-                .animation(.easeOut(duration: 0.12), value: showsModifierShortcutHints || alwaysShowShortcutHints)
+                .animation(.easeOut(duration: 0.12), value: effectiveShowsModifierShortcutHints || alwaysShowShortcutHints)
                 .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
             }
 
@@ -13533,9 +13600,15 @@ private struct TabItemView: View, Equatable {
                     contextMenuState.isVisible = true
                     contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
                     contextMenuState.pendingWorkspaceSnapshot = nil
+                    frozenPresentation = FrozenPresentation(
+                        unreadCount: unreadCount,
+                        latestNotificationText: latestNotificationText,
+                        showsModifierShortcutHints: showsModifierShortcutHints
+                    )
                 }
                 .onDisappear {
                     contextMenuState.isVisible = false
+                    frozenPresentation = nil
                     if dragState.hoveredTabId == tab.id {
                         dragState.hoveredTabId = nil
                     }
