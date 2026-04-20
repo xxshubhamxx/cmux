@@ -102,7 +102,8 @@ final class SessionIndexViewTests: XCTestCase {
         let section = IndexSection(
             key: .directory("/tmp"),
             title: "tmp",
-            icon: .folder
+            icon: .folder,
+            entries: []
         )
         let search: SessionSearchFn = { _, _, _, _ in
             SessionIndexStore.SearchOutcome(entries: [], errors: [])
