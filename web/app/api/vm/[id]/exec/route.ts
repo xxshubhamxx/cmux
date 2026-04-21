@@ -44,8 +44,12 @@ export async function POST(
     const { id } = await params;
     const client = rivetClient(bearer);
     if (!(await userOwnsVm(client, user.id, id))) return notFoundVm(id);
+    // `get` (not `getOrCreate`) so a coordinator entry without a live actor — e.g. after
+    // a partial cleanup failure where userVmsActor kept the id but vmActor.state is gone —
+    // 404s instead of implicit-creating an uninitialised actor that 500s on every action
+    // (Codex P2).
     const result = await client.vmActor
-      .getOrCreate([id])
+      .get([id])
       .exec(body.command, timeoutMs);
     return jsonResponse(result);
   } catch (err) {

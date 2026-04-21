@@ -34,7 +34,8 @@ export async function POST(
     const { id } = await params;
     const client = rivetClient(bearer);
     if (!(await userOwnsVm(client, user.id, id))) return notFoundVm(id);
-    const endpoint = await client.vmActor.getOrCreate([id]).openSSH();
+    // `get` not `getOrCreate` — see the exec route for the rationale.
+    const endpoint = await client.vmActor.get([id]).openSSH();
     return jsonResponse(endpoint);
   } catch (err) {
     console.error("/api/vm/[id]/ssh-endpoint failed", err);

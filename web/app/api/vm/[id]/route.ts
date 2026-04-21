@@ -22,8 +22,23 @@ export async function DELETE(
     const client = rivetClient(bearer);
     // Prevent IDOR: a user may only destroy VMs tracked in their own coordinator actor.
     if (!(await userOwnsVm(client, user.id, id))) return notFoundVm(id);
-    // vmActor.remove() runs provider.destroy() then c.destroy(); the coordinator drops the id.
-    await client.vmActor.getOrCreate([id]).remove();
+    // `get` not `getOrCreate`: a coordinator entry without a live actor (partial cleanup
+    // failure) should 404 instead of spawning an uninitialised actor that 500s. For the
+    // DELETE path specifically we also forget() the coordinator entry regardless, so a
+    // stale mapping can be cleaned up via retry.
+    try {
+      await client.vmActor.get([id]).remove();
+    } catch (err) {
+      // If the actor is genuinely missing, drop the coordinator reference so the user
+      // isn't permanently stuck with an un-removable entry. Providers' not-found is
+      // already treated as success inside vmActor.remove (see web/services/vms/actors/vm.ts).
+      const message = err instanceof Error ? err.message.toLowerCase() : "";
+      const actorMissing =
+        message.includes("actor not found") ||
+        message.includes("actor does not exist") ||
+        message.includes("no actor");
+      if (!actorMissing) throw err;
+    }
     await client.userVmsActor.getOrCreate([user.id]).forget(id);
     return jsonResponse({ ok: true });
   } catch (err) {
