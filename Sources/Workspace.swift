@@ -3317,6 +3317,26 @@ final class WorkspaceRemoteSessionController {
         let remotePath: String
     }
 
+    /// The capabilities advertised by the cmuxd-remote baked into the Freestyle snapshot
+    /// (scratch/vm-experiments/images/install.sh pins v0.63.2). Keep this in lockstep with
+    /// the daemon's `hello` response — if the baked version advertises a new capability,
+    /// bump it here too.
+    private static func bakedVMDaemonHello() -> DaemonHello {
+        DaemonHello(
+            name: "cmuxd-remote",
+            version: "v0.63.2-baked",
+            capabilities: [
+                "session.basic",
+                "session.resize.min",
+                "proxy.http_connect",
+                "proxy.socks5",
+                "proxy.stream",
+                "proxy.stream.push",
+            ],
+            remotePath: "/usr/local/bin/cmuxd-remote"
+        )
+    }
+
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.\(UUID().uuidString)", qos: .utility)
     private let queueKey = DispatchSpecificKey<Void>()
     private weak var workspace: Workspace?
@@ -3530,7 +3550,19 @@ final class WorkspaceRemoteSessionController {
         publishState(.connecting, detail: connectDetail)
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
-            let hello = try bootstrapDaemonLocked()
+            let hello: DaemonHello
+            if configuration.skipDaemonBootstrap {
+                // Cloud-VM path: cmuxd-remote is pre-baked in the image and exposed via
+                // systemd socket activation at /run/cmuxd-remote.sock. We skip the probe,
+                // upload, and stdio-hello steps entirely — they all depend on ssh-exec
+                // channel I/O, which the Freestyle gateway doesn't forward. The reverse-
+                // relay + proxy broker are also gated off; per-feature wiring over the
+                // pre-baked unix socket is a follow-up (task to add ssh -L tunneling).
+                hello = Self.bakedVMDaemonHello()
+                debugLog("remote.bootstrap.skipped reason=vm-baked remotePath=\(hello.remotePath)")
+            } else {
+                hello = try bootstrapDaemonLocked()
+            }
             guard hello.capabilities.contains(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability) else {
                 throw NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon missing required capability \(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability)",
@@ -3548,9 +3580,16 @@ final class WorkspaceRemoteSessionController {
                 remotePath: hello.remotePath
             )
             recordHeartbeatActivityLocked()
-            startReverseRelayLocked(remotePath: hello.remotePath)
-            requestBootstrapRemoteTTYIfNeededLocked()
-            startProxyLocked()
+            if configuration.skipDaemonBootstrap {
+                // Reverse-relay + proxy broker both rely on ssh-exec to launch cmuxd-remote
+                // serve --stdio on the remote. Skip them until we wire the baked unix-socket
+                // transport. The interactive terminal still works — it's a plain shell session.
+                debugLog("remote.relay.skipped reason=vm-baked")
+            } else {
+                startReverseRelayLocked(remotePath: hello.remotePath)
+                requestBootstrapRemoteTTYIfNeededLocked()
+                startProxyLocked()
+            }
         } catch {
             daemonReady = false
             daemonBootstrapVersion = nil
@@ -5972,6 +6011,12 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let localSocketPath: String?
     let terminalStartupCommand: String?
     let foregroundAuthToken: String?
+    /// True for cloud-VM remotes (Freestyle snapshots) where cmuxd-remote is pre-baked in
+    /// the image and started via systemd. Skip the upload+exec bootstrap entirely and synthesize
+    /// a `DaemonHello`. This also disables the reverse-relay + proxy broker paths that rely on
+    /// running `cmuxd-remote serve --stdio` over an ssh exec channel — Freestyle's russh gateway
+    /// forwards interactive shells but stalls on exec-channel I/O, so those paths would hang.
+    let skipDaemonBootstrap: Bool
 
     init(
         destination: String,
@@ -5984,7 +6029,8 @@ struct WorkspaceRemoteConfiguration: Equatable {
         relayToken: String?,
         localSocketPath: String?,
         terminalStartupCommand: String?,
-        foregroundAuthToken: String? = nil
+        foregroundAuthToken: String? = nil,
+        skipDaemonBootstrap: Bool = false
     ) {
         self.destination = destination
         self.port = port
@@ -5997,6 +6043,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         self.localSocketPath = localSocketPath
         self.terminalStartupCommand = terminalStartupCommand
         self.foregroundAuthToken = foregroundAuthToken
+        self.skipDaemonBootstrap = skipDaemonBootstrap
     }
 
     var displayTarget: String {

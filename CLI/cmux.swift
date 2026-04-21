@@ -4289,6 +4289,33 @@ struct CMUXCLI {
         let extraArguments: [String]
         let localSocketPath: String
         let remoteRelayPort: Int
+        /// True when the remote is a cloud VM with cmuxd-remote pre-baked in the image.
+        /// Set by `cmux vm new/shell/attach`; false for plain `cmux ssh`.
+        let skipDaemonBootstrap: Bool
+
+        init(
+            destination: String,
+            port: Int?,
+            identityFile: String?,
+            workspaceName: String?,
+            noFocus: Bool,
+            sshOptions: [String],
+            extraArguments: [String],
+            localSocketPath: String,
+            remoteRelayPort: Int,
+            skipDaemonBootstrap: Bool = false
+        ) {
+            self.destination = destination
+            self.port = port
+            self.identityFile = identityFile
+            self.workspaceName = workspaceName
+            self.noFocus = noFocus
+            self.sshOptions = sshOptions
+            self.extraArguments = extraArguments
+            self.localSocketPath = localSocketPath
+            self.remoteRelayPort = remoteRelayPort
+            self.skipDaemonBootstrap = skipDaemonBootstrap
+        }
     }
 
     private struct RemoteDaemonManifest: Decodable {
@@ -4495,6 +4522,9 @@ struct CMUXCLI {
                 configureParams["local_socket_path"] = sshOptions.localSocketPath
             }
             configureParams["terminal_startup_command"] = remoteTerminalSSHStartupCommand
+            if sshOptions.skipDaemonBootstrap {
+                configureParams["skip_daemon_bootstrap"] = true
+            }
 
             cliDebugLog(
                 "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +
@@ -5318,7 +5348,8 @@ struct CMUXCLI {
                 sshOptions: sshOptionStrings,
                 extraArguments: [],
                 localSocketPath: localSocketPath,
-                remoteRelayPort: remoteRelayPort
+                remoteRelayPort: remoteRelayPort,
+                skipDaemonBootstrap: true
             )
             try runSSHWithOptions(
                 options,
