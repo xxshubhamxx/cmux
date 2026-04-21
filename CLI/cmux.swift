@@ -2040,6 +2040,14 @@ struct CMUXCLI {
                 if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
                     throw CLIError(message: "vm new: unknown flag '\(unknown)'. Known flags: --image, --provider, --detach/-d")
                 }
+                // Stray positional args (e.g. a typo like `cmux vm new myvm`) previously fell
+                // through and still provisioned a VM. That silently costs the user money and
+                // hides the typo. Reject them explicitly.
+                if let extra = remaining.first(where: { !$0.hasPrefix("--") && $0 != "-d" }) {
+                    throw CLIError(
+                        message: "vm new: unexpected argument '\(extra)'. vm new takes no positional args; use --image / --provider / --detach."
+                    )
+                }
                 var params: [String: Any] = [:]
                 if let imageOpt { params["image"] = imageOpt }
                 if let providerOpt { params["provider"] = providerOpt }
