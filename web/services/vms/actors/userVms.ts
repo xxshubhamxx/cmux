@@ -7,6 +7,12 @@ export type UserVmEntry = {
   provider: ProviderId;
   image: string;
   createdAt: number;
+  /**
+   * Client-supplied idempotency key, stored so a retry with the same key returns the
+   * existing VM instead of provisioning a second paid one. Undefined when the client
+   * didn't pass a key (best-effort behaviour, older CLI/curl users).
+   */
+  idempotencyKey?: string;
 };
 
 export type UserVmsState = {
@@ -27,8 +33,18 @@ export const userVmsActor = actor({
 
     create: async (
       c,
-      opts: { image?: string; provider?: ProviderId },
+      opts: { image?: string; provider?: ProviderId; idempotencyKey?: string },
     ): Promise<UserVmEntry> => {
+      // Idempotency: a client retry (network hiccup, timeout, bad Wi-Fi) previously got a
+      // second paid provider VM for the same logical request. If the caller sent a key and
+      // we already have a VM tracked under it for this user, return that entry unchanged —
+      // the RivetKit runtime serializes actions per actor, so the second call is guaranteed
+      // to see whatever state the first call committed.
+      const idempotencyKey = opts.idempotencyKey?.trim();
+      if (idempotencyKey) {
+        const existing = c.state.vms.find((v) => v.idempotencyKey === idempotencyKey);
+        if (existing) return existing;
+      }
       const provider = opts.provider ?? defaultProviderId();
       // Provision the provider VM directly, then spawn a vmActor keyed on the provider id.
       // This avoids the vmActor.onCreate -> driver.create round trip (which used an extra
@@ -40,6 +56,7 @@ export const userVmsActor = actor({
         provider,
         image: handle.image,
         createdAt: handle.createdAt,
+        idempotencyKey: idempotencyKey || undefined,
       };
       const client = c.client<typeof registry>();
       try {

@@ -85,9 +85,18 @@ export async function POST(request: Request): Promise<Response> {
     }
     const provider = body.provider ?? defaultProviderId();
     const image = body.image ?? defaultImageFor(provider);
+    // Idempotency-Key is standard HTTP; we also accept x-cmux-idempotency-key for CLI
+    // callers that don't know about RFC-style keys. Trim + clamp to a reasonable length
+    // so we don't blow up actor state with garbage.
+    const rawKey = (
+      request.headers.get("idempotency-key") ||
+      request.headers.get("x-cmux-idempotency-key") ||
+      ""
+    ).trim();
+    const idempotencyKey = rawKey ? rawKey.slice(0, 128) : undefined;
 
     const client = rivetClient(bearer);
-    const created = await client.userVmsActor.getOrCreate([user.id]).create({ image, provider });
+    const created = await client.userVmsActor.getOrCreate([user.id]).create({ image, provider, idempotencyKey });
     return jsonResponse({
       id: created.providerVmId,
       provider: created.provider,
