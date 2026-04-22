@@ -14626,9 +14626,9 @@ struct CMUXCLI {
 // Installed by `cmux opencode install-hooks` or `cmux setup-hooks`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
-const { spawnSync } = require("node:child_process");
-const fs = require("node:fs");
-const path = require("node:path");
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 function firstString(...values) {
   for (const value of values) {
