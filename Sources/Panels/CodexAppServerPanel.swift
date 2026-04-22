@@ -46,6 +46,7 @@ enum CodexAppServerTranscriptPresentation: Equatable, Sendable {
     case toolCall(name: String?)
     case toolOutput
     case commandOutput
+    case compaction
 }
 
 struct CodexAppServerTranscriptItem: Identifiable, Equatable, Sendable {
@@ -362,6 +363,8 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             appendCommandDelta(Self.stringValue(named: "delta", in: params))
         case "item/completed":
             handleCompletedItem(params?["item"] as? [String: Any])
+        case "thread/compacted":
+            appendCompactionEvent()
         default:
             appendEvent(title: method, body: Self.prettyJSON(params))
         }
@@ -390,7 +393,8 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         case "fileChange":
             appendEvent(
                 title: String(localized: "codexAppServer.event.fileChange", defaultValue: "File change"),
-                body: Self.prettyJSON(item)
+                body: Self.prettyJSON(item),
+                presentation: .toolCall(name: "apply_patch")
             )
         default:
             appendEvent(title: type.isEmpty ? "item/completed" : type, body: Self.prettyJSON(item))
@@ -464,6 +468,21 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             title: String(localized: "codexAppServer.event.error", defaultValue: "Error"),
             body: message
         )
+    }
+
+    private func appendCompactionEvent() {
+        transcriptItems.append(
+            CodexAppServerTranscriptItem(
+                role: .event,
+                title: String(
+                    localized: "codexAppServer.event.contextCompacted",
+                    defaultValue: "Context automatically compacted"
+                ),
+                body: "",
+                presentation: .compaction
+            )
+        )
+        trimTranscriptItemsIfNeeded()
     }
 
     @discardableResult
@@ -658,7 +677,8 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 role: .event,
                 title: String(localized: "codexAppServer.event.fileChange", defaultValue: "File change"),
                 body: Self.truncatedTranscriptBody(Self.prettyJSON(item)),
-                date: date
+                date: date,
+                presentation: .toolCall(name: "apply_patch")
             )
         default:
             let body = Self.stringValue(named: "text", in: item) ?? Self.prettyJSON(item)
@@ -791,12 +811,15 @@ final class CodexAppServerPanel: Panel, ObservableObject {
 
 enum CodexSessionHistoryLoader {
     private static let chunkSize = 1024 * 1024
+    private static let eventMessageNeedle = Data(#""type":"event_msg""#.utf8)
+    private static let contextCompactedNeedle = Data(#""type":"context_compacted""#.utf8)
     private static let responseItemNeedle = Data(#""type":"response_item""#.utf8)
     private static let messageNeedle = Data(#""type":"message""#.utf8)
     private static let userRoleNeedle = Data(#""role":"user""#.utf8)
     private static let assistantRoleNeedle = Data(#""role":"assistant""#.utf8)
     private static let functionCallNeedle = Data(#""type":"function_call""#.utf8)
     private static let functionCallOutputNeedle = Data(#""type":"function_call_output""#.utf8)
+    private static let customToolCallNeedle = Data(#""type":"custom_tool_call""#.utf8)
 
     static func loadHistory(threadId: String, limit: Int) async -> CodexSessionHistorySnapshot {
         await Task.detached(priority: .utility) {
@@ -951,22 +974,31 @@ enum CodexSessionHistoryLoader {
     }
 
     private static func shouldParseLine(_ line: Data) -> Bool {
+        if line.range(of: eventMessageNeedle) != nil {
+            return line.range(of: contextCompactedNeedle) != nil
+        }
         guard line.range(of: responseItemNeedle) != nil else { return false }
         if line.range(of: messageNeedle) != nil {
             return line.range(of: userRoleNeedle) != nil || line.range(of: assistantRoleNeedle) != nil
         }
         return line.range(of: functionCallNeedle) != nil
             || line.range(of: functionCallOutputNeedle) != nil
+            || line.range(of: customToolCallNeedle) != nil
     }
 
     private static func transcriptItem(from line: Data) -> CodexAppServerTranscriptItem? {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              object["type"] as? String == "response_item",
+              let objectType = object["type"] as? String,
               let payload = object["payload"] as? [String: Any] else {
             return nil
         }
 
         let date = dateValue(named: "timestamp", in: object) ?? Date()
+        if objectType == "event_msg" {
+            return eventMessageTranscriptItem(from: payload, date: date)
+        }
+
+        guard objectType == "response_item" else { return nil }
         switch stringValue(named: "type", in: payload) {
         case "message":
             return messageTranscriptItem(from: payload, date: date)
@@ -974,9 +1006,30 @@ enum CodexSessionHistoryLoader {
             return functionCallTranscriptItem(from: payload, date: date)
         case "function_call_output":
             return functionCallOutputTranscriptItem(from: payload, date: date)
+        case "custom_tool_call":
+            return customToolCallTranscriptItem(from: payload, date: date)
         default:
             return nil
         }
+    }
+
+    private static func eventMessageTranscriptItem(
+        from payload: [String: Any],
+        date: Date
+    ) -> CodexAppServerTranscriptItem? {
+        guard stringValue(named: "type", in: payload) == "context_compacted" else {
+            return nil
+        }
+        return CodexAppServerTranscriptItem(
+            role: .event,
+            title: String(
+                localized: "codexAppServer.event.contextCompacted",
+                defaultValue: "Context automatically compacted"
+            ),
+            body: "",
+            date: date,
+            presentation: .compaction
+        )
     }
 
     private static func messageTranscriptItem(
@@ -1041,6 +1094,27 @@ enum CodexSessionHistoryLoader {
             body: CodexAppServerTranscriptPolicy.truncatedBody(output),
             date: date,
             presentation: .toolOutput
+        )
+    }
+
+    private static func customToolCallTranscriptItem(
+        from payload: [String: Any],
+        date: Date
+    ) -> CodexAppServerTranscriptItem? {
+        let name = stringValue(named: "name", in: payload)
+        let body = (stringValue(named: "input", in: payload)
+            ?? stringValue(named: "arguments", in: payload)
+            ?? prettyJSON(payload))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return nil }
+        let title = (name?.isEmpty == false ? name : nil)
+            ?? String(localized: "codexAppServer.event.toolCall", defaultValue: "Tool call")
+        return CodexAppServerTranscriptItem(
+            role: .event,
+            title: title,
+            body: CodexAppServerTranscriptPolicy.truncatedBody(body),
+            date: date,
+            presentation: .toolCall(name: name)
         )
     }
 

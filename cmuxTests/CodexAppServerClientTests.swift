@@ -264,6 +264,155 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         ])
     }
 
+    func testLocalCodexHistoryLoaderRestoresCustomToolsAndCompactionsFromJsonl() throws {
+        let fileManager = FileManager.default
+        let threadId = "019d6637-e5cc-7cc0-a321-2c43b799036c"
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-codex-history-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: tempDirectory) }
+
+        let sessionDirectory = tempDirectory
+            .appendingPathComponent("2026/04/06", isDirectory: true)
+        try fileManager.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let fileURL = sessionDirectory
+            .appendingPathComponent("rollout-2026-04-06T21-33-52-\(threadId).jsonl")
+
+        let patch = """
+        *** Begin Patch
+        *** Update File: ci.yml
+        @@
+        -old
+        +new
+        *** End Patch
+        """
+        let records: [[String: Any]] = [
+            [
+                "timestamp": "2026-04-06T21:33:52.000Z",
+                "type": "session_meta",
+                "payload": ["id": threadId],
+            ],
+            [
+                "timestamp": "2026-04-06T21:34:00.000Z",
+                "type": "event_msg",
+                "payload": ["type": "context_compacted"],
+            ],
+            [
+                "timestamp": "2026-04-06T21:34:01.000Z",
+                "type": "response_item",
+                "payload": [
+                    "type": "custom_tool_call",
+                    "name": "apply_patch",
+                    "input": patch,
+                ],
+            ],
+            [
+                "timestamp": "2026-04-06T21:34:02.000Z",
+                "type": "response_item",
+                "payload": [
+                    "type": "function_call",
+                    "name": "web.run",
+                    "arguments": """
+                    {"search_query":[{"q":"actions/checkout v5 Node 24 GitHub Actions 2026"},{"q":"Swatinem rust-cache GitHub action Node 24 v3 2026"}]}
+                    """,
+                ],
+            ],
+        ]
+        let jsonl = try records.map(Self.jsonLine).joined(separator: "\n")
+        try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let snapshot = CodexSessionHistoryLoader.loadHistorySync(
+            threadId: threadId,
+            limit: 10,
+            searchRoots: [tempDirectory]
+        )
+
+        XCTAssertEqual(snapshot.totalDisplayableItemCount, 3)
+        XCTAssertEqual(snapshot.transcriptItems.map(\.presentation), [
+            .compaction,
+            .toolCall(name: "apply_patch"),
+            .toolCall(name: "web.run"),
+        ])
+        XCTAssertEqual(snapshot.transcriptItems[0].title, "Context automatically compacted")
+        XCTAssertTrue(snapshot.transcriptItems[1].body.contains("*** Update File: ci.yml"))
+        XCTAssertTrue(snapshot.transcriptItems[2].body.contains("Node 24 GitHub Actions 2026"))
+    }
+
+    func testTrajectoryTranscriptEntriesSummarizeEditedCommandsAndWebSearches() {
+        let patch = """
+        *** Begin Patch
+        *** Update File: ci.yml
+        @@
+        -a
+        -b
+        +c
+        +d
+        *** End Patch
+        """
+        let entries = CodexTrajectoryTranscriptDisplayEntry.entries(from: [
+            Self.transcriptToolCall(name: "apply_patch", body: patch),
+            Self.transcriptToolCall(name: "exec_command", body: "git diff -- .github/workflows/ci.yml"),
+            Self.transcriptToolCall(name: "exec_command", body: "git status --short --branch"),
+            Self.transcriptToolCall(
+                name: "web.run",
+                body: #"{"search_query":[{"q":"actions/checkout v5 Node 24 GitHub Actions 2026"},{"q":"Swatinem rust-cache GitHub action Node 24 v3 2026"}]}"#
+            ),
+        ])
+
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].kind, .toolGroup)
+        XCTAssertEqual(entries[0].title, "Edited 1 file, ran 2 commands, searched web 2 times")
+        XCTAssertTrue(entries[0].block.text.contains("Edited ci.yml +2 -2"))
+        XCTAssertTrue(entries[0].block.text.contains("Ran git diff -- .github/workflows/ci.yml"))
+        XCTAssertTrue(entries[0].block.text.contains("actions/checkout v5 Node 24 GitHub Actions 2026"))
+    }
+
+    func testTrajectoryTranscriptEntriesSummarizeExplorationAndWebSearches() {
+        let entries = CodexTrajectoryTranscriptDisplayEntry.entries(from: [
+            Self.transcriptToolCall(name: "exec_command", body: "sed -n '1,20p' ci.yml"),
+            Self.transcriptToolCall(name: "exec_command", body: #"rg "zig|ZIG|cargo-zigbuild|setup-zig|cclib|ghostty" ."#),
+            Self.transcriptToolCall(name: "exec_command", body: "rg --files"),
+            Self.transcriptToolCall(name: "exec_command", body: "gh run view 24777233613 --repo manaflow-ai/cmux-cli --log-failed"),
+            Self.transcriptToolCall(name: "exec_command", body: "git status --short --branch"),
+            Self.transcriptToolCall(name: "exec_command", body: "cargo metadata --no-deps --format-version 1"),
+            Self.transcriptToolCall(name: "exec_command", body: "gh run watch --repo manaflow-ai/cmux-cli 24777233613 --interval 5"),
+            Self.transcriptToolCall(name: "exec_command", body: "gh run view 24777233613 --repo manaflow-ai/cmux-cli --log-failed"),
+            Self.transcriptToolCall(
+                name: "web.run",
+                body: #"{"search_query":[{"q":"actions/checkout v5 Node 24 GitHub Actions 2026"},{"q":"Swatinem rust-cache GitHub action Node 24 v3 2026"}]}"#
+            ),
+        ])
+
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].title, "Explored 1 file, 1 search, 1 list, ran 5 commands, searched web 2 times")
+        XCTAssertTrue(entries[0].block.text.contains("Read ci.yml"))
+        XCTAssertTrue(entries[0].block.text.contains("Searched for zig|ZIG|cargo-zigbuild|setup-zig|cclib|ghostty in ."))
+        XCTAssertTrue(entries[0].block.text.contains("Listed files"))
+    }
+
+    func testTrajectoryTranscriptEntriesRenderWebOnlyAndCompactionRows() {
+        let webEntries = CodexTrajectoryTranscriptDisplayEntry.entries(from: [
+            Self.transcriptToolCall(
+                name: "web.run",
+                body: #"{"search_query":[{"q":"actions/checkout v5 Node 24 GitHub Actions 2026"},{"q":"Swatinem rust-cache GitHub action Node 24 v3 2026"}]}"#
+            ),
+        ])
+        XCTAssertEqual(webEntries.count, 1)
+        XCTAssertEqual(webEntries[0].title, "Searched web 2 times")
+        XCTAssertTrue(webEntries[0].block.text.contains("actions/checkout v5 Node 24 GitHub Actions 2026"))
+
+        let compactionEntries = CodexTrajectoryTranscriptDisplayEntry.entries(from: [
+            CodexAppServerTranscriptItem(
+                role: .event,
+                title: "Context automatically compacted",
+                body: "",
+                presentation: .compaction
+            ),
+        ])
+        XCTAssertEqual(compactionEntries.count, 1)
+        XCTAssertEqual(compactionEntries[0].kind, .compaction)
+        XCTAssertEqual(compactionEntries[0].title, "Context automatically compacted")
+    }
+
     @MainActor
     func testResumeSnapshotCapsRestoredTranscriptToTailItems() throws {
         let turns: [[String: Any]] = (0..<3).map { index in
@@ -405,6 +554,15 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
                 ],
             ],
         ]
+    }
+
+    private static func transcriptToolCall(name: String, body: String) -> CodexAppServerTranscriptItem {
+        CodexAppServerTranscriptItem(
+            role: .event,
+            title: name,
+            body: body,
+            presentation: .toolCall(name: name)
+        )
     }
 
     private static func jsonLine(_ object: [String: Any]) throws -> String {

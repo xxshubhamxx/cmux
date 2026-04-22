@@ -14,12 +14,13 @@ struct CodexTrajectoryTranscriptView: NSViewRepresentable {
     }
 }
 
-fileprivate enum CodexTrajectoryTranscriptDisplayKind: Hashable {
+enum CodexTrajectoryTranscriptDisplayKind: Hashable {
     case plain
     case toolGroup
+    case compaction
 }
 
-fileprivate struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
+struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
     var id: String
     var kind: CodexTrajectoryTranscriptDisplayKind
     var title: String
@@ -29,6 +30,10 @@ fileprivate struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
 
     var isAccordion: Bool {
         kind == .toolGroup
+    }
+
+    var isCompaction: Bool {
+        kind == .compaction
     }
 
     static func entries(from items: [CodexAppServerTranscriptItem]) -> [Self] {
@@ -46,6 +51,9 @@ fileprivate struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
         for item in items {
             if item.isToolTranscriptItem {
                 toolItems.append(item)
+            } else if item.presentation == .compaction {
+                flushToolItems()
+                entries.append(compaction(from: item))
             } else {
                 flushToolItems()
                 entries.append(plain(from: item))
@@ -53,6 +61,24 @@ fileprivate struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
         }
         flushToolItems()
         return entries
+    }
+
+    private static func compaction(from item: CodexAppServerTranscriptItem) -> Self {
+        Self(
+            id: item.id.uuidString,
+            kind: .compaction,
+            title: item.title,
+            subtitle: "",
+            statusText: nil,
+            block: CodexTrajectoryBlock(
+                id: item.id.uuidString,
+                kind: .status,
+                title: item.title,
+                text: "",
+                isStreaming: false,
+                createdAt: item.date
+            )
+        )
     }
 
     private static func plain(from item: CodexAppServerTranscriptItem) -> Self {
@@ -79,25 +105,7 @@ fileprivate struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
         let detailText = runs.map(\.detailText).filter { !$0.isEmpty }.joined(separator: "\n\n")
         guard !detailText.isEmpty else { return nil }
 
-        let commandCount = runs.filter { !$0.command.isEmpty }.count
-        let title: String
-        if commandCount == 1 {
-            title = String(localized: "codexAppServer.toolGroup.ranCommand.one", defaultValue: "Ran command")
-        } else if commandCount > 1 {
-            let format = String(
-                localized: "codexAppServer.toolGroup.ranCommand.many",
-                defaultValue: "Ran %1$ld commands"
-            )
-            title = String(format: format, locale: Locale.current, commandCount)
-        } else if runs.count == 1 {
-            title = String(localized: "codexAppServer.toolGroup.ranTool.one", defaultValue: "Ran tool")
-        } else {
-            let format = String(
-                localized: "codexAppServer.toolGroup.ranTool.many",
-                defaultValue: "Ran %1$ld tools"
-            )
-            title = String(format: format, locale: Locale.current, runs.count)
-        }
+        let title = CodexTrajectoryToolRun.title(for: runs)
 
         let subtitle = runs.compactMap(\.summary).first ?? first.title
         return Self(
@@ -132,24 +140,44 @@ fileprivate struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
     }
 }
 
+private enum CodexTrajectoryToolRunKind: Hashable {
+    case command
+    case edit
+    case read
+    case search
+    case list
+    case webSearch
+    case tool
+}
+
 private struct CodexTrajectoryToolRun: Hashable {
+    var kind: CodexTrajectoryToolRunKind
     var label: String
+    var summaryLine: String
     var command: String
     var output: String
     var exitCode: Int?
 
     var summary: String? {
-        if !command.isEmpty {
-            return command
+        if !summaryLine.isEmpty {
+            return summaryLine
         }
         return output.split(whereSeparator: \.isNewline).first.map(String.init)
     }
 
     var detailText: String {
-        var lines: [String] = [label]
+        let heading = summaryLine.isEmpty ? label : summaryLine
+        var lines: [String] = [heading]
         if !command.isEmpty {
-            lines.append("")
-            lines.append("$ \(command)")
+            let commandHeading = String(
+                format: String(localized: "codexAppServer.toolGroup.ranCommandLine", defaultValue: "Ran %@"),
+                locale: Locale.current,
+                command
+            )
+            if heading != commandHeading {
+                lines.append("")
+                lines.append("$ \(command)")
+            }
         }
         if !output.isEmpty {
             lines.append("")
@@ -171,26 +199,27 @@ private struct CodexTrajectoryToolRun: Hashable {
         for item in items {
             switch item.presentation {
             case .toolCall(let name):
-                if var run = runs.last, run.command.isEmpty, !run.output.isEmpty {
-                    run.label = toolLabel(name: name, fallback: item.title)
-                    run.command = item.body
-                    runs[runs.count - 1] = run
+                let newRuns = runsForToolCall(name: name, body: item.body, fallbackTitle: item.title)
+                if let run = runs.last, run.command.isEmpty, !run.output.isEmpty {
+                    if newRuns.count == 1 {
+                        var merged = newRuns[0]
+                        merged.output = run.output
+                        merged.exitCode = run.exitCode
+                        runs[runs.count - 1] = merged
+                    } else {
+                        runs.append(contentsOf: newRuns)
+                    }
                     continue
                 }
-                runs.append(
-                    Self(
-                        label: toolLabel(name: name, fallback: item.title),
-                        command: item.body,
-                        output: "",
-                        exitCode: nil
-                    )
-                )
+                runs.append(contentsOf: newRuns)
             case .toolOutput, .commandOutput:
                 let normalized = CodexTrajectoryToolOutput.normalize(item.body)
                 if runs.isEmpty {
                     runs.append(
                         Self(
+                            kind: .tool,
                             label: item.title.isEmpty ? outputLabel : item.title,
+                            summaryLine: item.title.isEmpty ? outputLabel : item.title,
                             command: "",
                             output: normalized.text,
                             exitCode: normalized.exitCode
@@ -210,11 +239,297 @@ private struct CodexTrajectoryToolRun: Hashable {
                     }
                     runs.append(run)
                 }
-            case .plain:
+            case .plain, .compaction:
                 break
             }
         }
         return runs
+    }
+
+    static func title(for runs: [Self]) -> String {
+        let editCount = count(.edit, in: runs)
+        let commandCount = count(.command, in: runs)
+        let readCount = count(.read, in: runs)
+        let searchCount = count(.search, in: runs)
+        let listCount = count(.list, in: runs)
+        let webSearchCount = count(.webSearch, in: runs)
+        let toolCount = count(.tool, in: runs)
+
+        var parts: [String] = []
+        if editCount > 0 {
+            parts.append(editCountTitle(editCount))
+        }
+
+        let hasExploration = readCount > 0 || searchCount > 0 || listCount > 0
+        if hasExploration {
+            let explorationParts = [
+                readCount > 0 ? fileCountTitle(readCount) : nil,
+                searchCount > 0 ? searchCountTitle(searchCount) : nil,
+                listCount > 0 ? listCountTitle(listCount) : nil,
+            ].compactMap { $0 }
+
+            if editCount == 0 {
+                let format = String(
+                    localized: "codexAppServer.toolGroup.explored",
+                    defaultValue: "Explored %@"
+                )
+                parts.append(
+                    String(
+                        format: format,
+                        locale: Locale.current,
+                        explorationParts.joined(separator: ", ")
+                    )
+                )
+            } else {
+                parts.append(contentsOf: explorationParts)
+            }
+        }
+
+        if commandCount > 0 {
+            parts.append(commandCountTitle(commandCount, isContinuation: !parts.isEmpty))
+        }
+        if webSearchCount > 0 {
+            parts.append(webSearchCountTitle(webSearchCount, isContinuation: !parts.isEmpty))
+        }
+        if toolCount > 0 {
+            parts.append(toolCountTitle(toolCount))
+        }
+
+        guard !parts.isEmpty else {
+            return String(localized: "codexAppServer.toolGroup.ranTool.one", defaultValue: "Ran tool")
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    private static func runsForToolCall(name: String?, body: String, fallbackTitle: String) -> [Self] {
+        let toolName = normalizedToolName(name ?? fallbackTitle)
+        switch toolName {
+        case "exec_command", "functions.exec_command", "shell", "command":
+            return [shellRun(command: body, fallbackTitle: fallbackTitle)]
+        case "apply_patch", "functions.apply_patch":
+            return editRuns(from: body, fallbackTitle: fallbackTitle)
+        case "web.run", "web":
+            return webSearchRuns(from: body, fallbackTitle: fallbackTitle)
+        case "tool_search.tool_search_tool", "tool_search_tool":
+            return [toolSearchRun(from: body, fallbackTitle: fallbackTitle)]
+        case "multi_tool_use.parallel":
+            let nested = parallelToolRuns(from: body, fallbackTitle: fallbackTitle)
+            return nested.isEmpty ? [genericToolRun(name: name, body: body, fallbackTitle: fallbackTitle)] : nested
+        default:
+            return [genericToolRun(name: name, body: body, fallbackTitle: fallbackTitle)]
+        }
+    }
+
+    private static func shellRun(command: String, fallbackTitle: String) -> Self {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tokens = shellTokens(from: trimmed)
+        let executable = tokens.first.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
+
+        if isListCommand(executable: executable, tokens: tokens) {
+            return Self(
+                kind: .list,
+                label: toolLabel(name: "shell", fallback: fallbackTitle),
+                summaryLine: String(localized: "codexAppServer.toolGroup.listedFiles", defaultValue: "Listed files"),
+                command: trimmed,
+                output: "",
+                exitCode: nil
+            )
+        }
+
+        if isReadCommand(executable: executable),
+           let path = fileArgument(from: tokens) {
+            let format = String(
+                localized: "codexAppServer.toolGroup.readFile",
+                defaultValue: "Read %@"
+            )
+            return Self(
+                kind: .read,
+                label: toolLabel(name: "shell", fallback: fallbackTitle),
+                summaryLine: String(format: format, locale: Locale.current, displayPath(path)),
+                command: trimmed,
+                output: "",
+                exitCode: nil
+            )
+        }
+
+        if isSearchCommand(executable: executable),
+           let search = searchArguments(from: tokens) {
+            let summary: String
+            if let path = search.path, !path.isEmpty {
+                let format = String(
+                    localized: "codexAppServer.toolGroup.searchedForIn",
+                    defaultValue: "Searched for %@ in %@"
+                )
+                summary = String(
+                    format: format,
+                    locale: Locale.current,
+                    search.query,
+                    displayPath(path)
+                )
+            } else {
+                let format = String(
+                    localized: "codexAppServer.toolGroup.searchedFor",
+                    defaultValue: "Searched for %@"
+                )
+                summary = String(format: format, locale: Locale.current, search.query)
+            }
+            return Self(
+                kind: .search,
+                label: toolLabel(name: "shell", fallback: fallbackTitle),
+                summaryLine: summary,
+                command: trimmed,
+                output: "",
+                exitCode: nil
+            )
+        }
+
+        let format = String(
+            localized: "codexAppServer.toolGroup.ranCommandLine",
+            defaultValue: "Ran %@"
+        )
+        return Self(
+            kind: .command,
+            label: toolLabel(name: "shell", fallback: fallbackTitle),
+            summaryLine: String(format: format, locale: Locale.current, trimmed),
+            command: trimmed,
+            output: "",
+            exitCode: nil
+        )
+    }
+
+    private static func editRuns(from body: String, fallbackTitle: String) -> [Self] {
+        let patchRuns = patchFileChanges(from: body).map { change in
+            let format = String(
+                localized: "codexAppServer.toolGroup.editedLine",
+                defaultValue: "Edited %@ +%ld -%ld"
+            )
+            return Self(
+                kind: .edit,
+                label: toolLabel(name: "apply_patch", fallback: fallbackTitle),
+                summaryLine: String(
+                    format: format,
+                    locale: Locale.current,
+                    displayPath(change.path),
+                    change.added,
+                    change.removed
+                ),
+                command: body,
+                output: "",
+                exitCode: nil
+            )
+        }
+        if !patchRuns.isEmpty {
+            return patchRuns
+        }
+
+        let paths = jsonPaths(from: body)
+        if !paths.isEmpty {
+            return paths.map { path in
+                let format = String(
+                    localized: "codexAppServer.toolGroup.editedLine",
+                    defaultValue: "Edited %@ +%ld -%ld"
+                )
+                return Self(
+                    kind: .edit,
+                    label: toolLabel(name: "apply_patch", fallback: fallbackTitle),
+                    summaryLine: String(format: format, locale: Locale.current, displayPath(path), 0, 0),
+                    command: body,
+                    output: "",
+                    exitCode: nil
+                )
+            }
+        }
+
+        return [
+            Self(
+                kind: .edit,
+                label: toolLabel(name: "apply_patch", fallback: fallbackTitle),
+                summaryLine: String(localized: "codexAppServer.toolGroup.editedFiles", defaultValue: "Edited files"),
+                command: body,
+                output: "",
+                exitCode: nil
+            ),
+        ]
+    }
+
+    private static func webSearchRuns(from body: String, fallbackTitle: String) -> [Self] {
+        guard let object = jsonDictionary(from: body) else {
+            return [genericToolRun(name: "web.run", body: body, fallbackTitle: fallbackTitle)]
+        }
+        let queries = queryStrings(from: object, key: "search_query")
+            + queryStrings(from: object, key: "image_query")
+        guard !queries.isEmpty else {
+            return [genericToolRun(name: "web.run", body: body, fallbackTitle: fallbackTitle)]
+        }
+        return queries.map { query in
+            Self(
+                kind: .webSearch,
+                label: toolLabel(name: "web.run", fallback: fallbackTitle),
+                summaryLine: query,
+                command: "",
+                output: "",
+                exitCode: nil
+            )
+        }
+    }
+
+    private static func toolSearchRun(from body: String, fallbackTitle: String) -> Self {
+        let query = jsonDictionary(from: body).flatMap { stringValue(named: "query", in: $0) }
+            ?? body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let format = String(
+            localized: "codexAppServer.toolGroup.searchedFor",
+            defaultValue: "Searched for %@"
+        )
+        return Self(
+            kind: .search,
+            label: toolLabel(name: "tool_search_tool", fallback: fallbackTitle),
+            summaryLine: String(format: format, locale: Locale.current, query),
+            command: "",
+            output: "",
+            exitCode: nil
+        )
+    }
+
+    private static func parallelToolRuns(from body: String, fallbackTitle: String) -> [Self] {
+        guard let object = jsonDictionary(from: body),
+              let toolUses = object["tool_uses"] as? [[String: Any]] else {
+            return []
+        }
+        return toolUses.flatMap { toolUse -> [Self] in
+            let name = stringValue(named: "recipient_name", in: toolUse)
+                ?? stringValue(named: "name", in: toolUse)
+            let parameters: Any = toolUse["parameters"] ?? toolUse["input"] ?? [String: Any]()
+            let body: String
+            if let value = parameters as? String {
+                body = value
+            } else if let object = parameters as? [String: Any] {
+                if let command = stringValue(named: "cmd", in: object)
+                    ?? stringValue(named: "command", in: object) {
+                    body = command
+                } else {
+                    body = prettyJSON(object)
+                }
+            } else {
+                body = String(describing: parameters)
+            }
+            return runsForToolCall(name: name, body: body, fallbackTitle: name ?? fallbackTitle)
+        }
+    }
+
+    private static func genericToolRun(name: String?, body: String, fallbackTitle: String) -> Self {
+        let label = toolLabel(name: name, fallback: fallbackTitle)
+        let format = String(
+            localized: "codexAppServer.toolGroup.usedTool",
+            defaultValue: "Used %@"
+        )
+        return Self(
+            kind: .tool,
+            label: label,
+            summaryLine: String(format: format, locale: Locale.current, label),
+            command: body,
+            output: "",
+            exitCode: nil
+        )
     }
 
     private static var outputLabel: String {
@@ -233,6 +548,327 @@ private struct CodexTrajectoryToolRun: Hashable {
             return String(localized: "codexAppServer.toolGroup.shell", defaultValue: "Shell")
         }
         return candidate.isEmpty ? outputLabel : candidate
+    }
+
+    private static func normalizedToolName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func count(_ kind: CodexTrajectoryToolRunKind, in runs: [Self]) -> Int {
+        runs.filter { $0.kind == kind }.count
+    }
+
+    private static func editCountTitle(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "codexAppServer.toolGroup.editedFile.one", defaultValue: "Edited 1 file")
+        }
+        let format = String(
+            localized: "codexAppServer.toolGroup.editedFile.many",
+            defaultValue: "Edited %1$ld files"
+        )
+        return String(format: format, locale: Locale.current, count)
+    }
+
+    private static func fileCountTitle(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "codexAppServer.toolGroup.file.one", defaultValue: "1 file")
+        }
+        let format = String(
+            localized: "codexAppServer.toolGroup.file.many",
+            defaultValue: "%1$ld files"
+        )
+        return String(format: format, locale: Locale.current, count)
+    }
+
+    private static func searchCountTitle(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "codexAppServer.toolGroup.search.one", defaultValue: "1 search")
+        }
+        let format = String(
+            localized: "codexAppServer.toolGroup.search.many",
+            defaultValue: "%1$ld searches"
+        )
+        return String(format: format, locale: Locale.current, count)
+    }
+
+    private static func listCountTitle(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "codexAppServer.toolGroup.list.one", defaultValue: "1 list")
+        }
+        let format = String(
+            localized: "codexAppServer.toolGroup.list.many",
+            defaultValue: "%1$ld lists"
+        )
+        return String(format: format, locale: Locale.current, count)
+    }
+
+    private static func commandCountTitle(_ count: Int, isContinuation: Bool) -> String {
+        if count == 1 {
+            return isContinuation
+                ? String(localized: "codexAppServer.toolGroup.ranCommand.one.continuation", defaultValue: "ran command")
+                : String(localized: "codexAppServer.toolGroup.ranCommand.one", defaultValue: "Ran command")
+        }
+        let format = isContinuation
+            ? String(
+                localized: "codexAppServer.toolGroup.ranCommand.many.continuation",
+                defaultValue: "ran %1$ld commands"
+            )
+            : String(localized: "codexAppServer.toolGroup.ranCommand.many", defaultValue: "Ran %1$ld commands")
+        return String(format: format, locale: Locale.current, count)
+    }
+
+    private static func webSearchCountTitle(_ count: Int, isContinuation: Bool) -> String {
+        if count == 1 {
+            return isContinuation
+                ? String(localized: "codexAppServer.toolGroup.searchedWeb.one.continuation", defaultValue: "searched web")
+                : String(localized: "codexAppServer.toolGroup.searchedWeb.one.start", defaultValue: "Searched web")
+        }
+        let format = isContinuation
+            ? String(
+                localized: "codexAppServer.toolGroup.searchedWeb.many.continuation",
+                defaultValue: "searched web %1$ld times"
+            )
+            : String(
+                localized: "codexAppServer.toolGroup.searchedWeb.many.start",
+                defaultValue: "Searched web %1$ld times"
+            )
+        return String(format: format, locale: Locale.current, count)
+    }
+
+    private static func toolCountTitle(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "codexAppServer.toolGroup.ranTool.one", defaultValue: "Ran tool")
+        }
+        let format = String(
+            localized: "codexAppServer.toolGroup.ranTool.many",
+            defaultValue: "Ran %1$ld tools"
+        )
+        return String(format: format, locale: Locale.current, count)
+    }
+
+    private static func isReadCommand(executable: String) -> Bool {
+        ["cat", "sed", "nl", "head", "tail"].contains(executable)
+    }
+
+    private static func isSearchCommand(executable: String) -> Bool {
+        ["rg", "grep", "ag"].contains(executable)
+    }
+
+    private static func isListCommand(executable: String, tokens: [String]) -> Bool {
+        if ["ls", "find", "fd"].contains(executable) {
+            return true
+        }
+        if executable == "rg", tokens.contains("--files") {
+            return true
+        }
+        if executable == "git", tokens.dropFirst().first == "ls-files" {
+            return true
+        }
+        return false
+    }
+
+    private static func shellTokens(from command: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var quote: Character?
+        var isEscaped = false
+
+        func flush() {
+            guard !current.isEmpty else { return }
+            tokens.append(current)
+            current.removeAll(keepingCapacity: true)
+        }
+
+        for character in command {
+            if isEscaped {
+                current.append(character)
+                isEscaped = false
+                continue
+            }
+            if character == "\\" {
+                isEscaped = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                continue
+            }
+            if character == "\"" || character == "'" {
+                quote = character
+                continue
+            }
+            if character.unicodeScalars.allSatisfy({ CharacterSet.whitespacesAndNewlines.contains($0) }) {
+                flush()
+            } else {
+                current.append(character)
+            }
+        }
+        flush()
+        return tokens
+    }
+
+    private static func fileArgument(from tokens: [String]) -> String? {
+        for token in tokens.dropFirst().reversed() {
+            guard !token.hasPrefix("-"),
+                  token != "|",
+                  token != ">",
+                  token != "2>",
+                  token != "1>" else {
+                continue
+            }
+            return token
+        }
+        return nil
+    }
+
+    private static func searchArguments(from tokens: [String]) -> (query: String, path: String?)? {
+        guard tokens.count > 1 else { return nil }
+        var arguments: [String] = []
+        var shouldSkipNext = false
+        let optionsWithValues: Set<String> = [
+            "-e", "-f", "-g", "--glob", "--type", "-t", "--type-not", "-T", "--context", "-C",
+            "--after-context", "-A", "--before-context", "-B",
+        ]
+
+        for token in tokens.dropFirst() {
+            if shouldSkipNext {
+                shouldSkipNext = false
+                continue
+            }
+            if optionsWithValues.contains(token) {
+                shouldSkipNext = true
+                continue
+            }
+            if token.hasPrefix("-") {
+                continue
+            }
+            arguments.append(token)
+        }
+        guard let query = arguments.first else { return nil }
+        return (query, arguments.dropFirst().last)
+    }
+
+    private struct PatchFileChange {
+        var path: String
+        var added: Int
+        var removed: Int
+    }
+
+    private static func patchFileChanges(from body: String) -> [PatchFileChange] {
+        var changes: [PatchFileChange] = []
+        var current: PatchFileChange?
+
+        func finishCurrent() {
+            if let current {
+                changes.append(current)
+            }
+            current = nil
+        }
+
+        for rawLine in body.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(rawLine)
+            if let path = patchPath(from: line) {
+                finishCurrent()
+                current = PatchFileChange(path: path, added: 0, removed: 0)
+                continue
+            }
+            guard current != nil else { continue }
+            if line.hasPrefix("+"), !line.hasPrefix("+++") {
+                current?.added += 1
+            } else if line.hasPrefix("-"), !line.hasPrefix("---") {
+                current?.removed += 1
+            }
+        }
+        finishCurrent()
+        return changes
+    }
+
+    private static func patchPath(from line: String) -> String? {
+        let prefixes = [
+            "*** Update File: ",
+            "*** Add File: ",
+            "*** Delete File: ",
+        ]
+        for prefix in prefixes where line.hasPrefix(prefix) {
+            let path = String(line.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return path.isEmpty ? nil : path
+        }
+        return nil
+    }
+
+    private static func jsonPaths(from body: String) -> [String] {
+        guard let value = jsonValue(from: body) else { return [] }
+        var paths: [String] = []
+
+        func collect(_ value: Any) {
+            if let object = value as? [String: Any] {
+                for (key, child) in object {
+                    if ["path", "file", "filePath", "filename"].contains(key),
+                       let string = child as? String,
+                       !string.isEmpty {
+                        paths.append(string)
+                    }
+                    collect(child)
+                }
+            } else if let array = value as? [Any] {
+                array.forEach(collect)
+            }
+        }
+
+        collect(value)
+        return Array(Set(paths)).sorted()
+    }
+
+    private static func queryStrings(from object: [String: Any], key: String) -> [String] {
+        guard let queries = object[key] as? [[String: Any]] else { return [] }
+        return queries.compactMap { query in
+            stringValue(named: "q", in: query)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        .filter { !$0.isEmpty }
+    }
+
+    private static func displayPath(_ rawPath: String) -> String {
+        var path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if path.hasPrefix("./") {
+            path.removeFirst(2)
+        }
+        guard path.hasPrefix("/") else { return path }
+        return URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private static func jsonDictionary(from text: String) -> [String: Any]? {
+        jsonValue(from: text) as? [String: Any]
+    }
+
+    private static func jsonValue(from text: String) -> Any? {
+        guard let data = text.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8) else {
+            return nil
+        }
+        return try? JSONSerialization.jsonObject(with: data)
+    }
+
+    private static func stringValue(named key: String, in object: [String: Any]) -> String? {
+        if let value = object[key] as? String {
+            return value
+        }
+        if let value = object[key] as? NSNumber {
+            return value.stringValue
+        }
+        return nil
+    }
+
+    private static func prettyJSON(_ value: Any) -> String {
+        guard JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return String(describing: value)
+        }
+        return text
     }
 }
 
@@ -301,7 +937,7 @@ private extension CodexAppServerTranscriptItem {
         switch presentation {
         case .toolCall, .toolOutput, .commandOutput:
             return true
-        case .plain:
+        case .plain, .compaction:
             return false
         }
     }
@@ -382,6 +1018,7 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView {
         case plain
         case accordionHeader
         case accordionContent
+        case compaction
     }
 
     private struct PageEntry {
@@ -424,6 +1061,7 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView {
     private let horizontalInset: CGFloat = 14
     private let rowSpacing: CGFloat = 10
     private let accordionHeaderHeight: CGFloat = 40
+    private let compactionHeight: CGFloat = 58
     private let accordionContentIndent: CGFloat = 24
     private let accordionContentTopSpacing: CGFloat = 8
     private let accordionAnimationDuration: TimeInterval = 0.18
@@ -522,6 +1160,8 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView {
                     coordinates: .yDown
                 )
                 context.restoreGState()
+            case .compaction:
+                drawCompaction(entry: pageEntry.entry, at: y, context: context)
             }
         }
     }
@@ -577,7 +1217,19 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView {
         var heights: [CGFloat] = []
 
         for entry in entries {
-            if entry.isAccordion {
+            if entry.isCompaction {
+                pageEntries.append(
+                    PageEntry(
+                        entry: entry,
+                        page: nil,
+                        chrome: .compaction,
+                        topSpacing: 0,
+                        bottomSpacing: rowSpacing,
+                        fullContentHeight: compactionHeight
+                    )
+                )
+                heights.append(compactionHeight)
+            } else if entry.isAccordion {
                 let progress = expansionProgress(for: entry.id)
                 pageEntries.append(
                     PageEntry(
@@ -728,6 +1380,59 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView {
             y: y + rowSpacing / 2,
             width: max(1, documentWidth - horizontalInset * 2),
             height: accordionHeaderHeight
+        )
+    }
+
+    private func drawCompaction(
+        entry: CodexTrajectoryTranscriptDisplayEntry,
+        at y: CGFloat,
+        context: CGContext
+    ) {
+        let rect = CGRect(
+            x: horizontalInset,
+            y: y,
+            width: max(1, documentWidth - horizontalInset * 2),
+            height: compactionHeight
+        )
+        let font = CTFontCreateUIFontForLanguage(.system, 12, nil)
+            ?? CTFontCreateWithName("Helvetica" as CFString, 12, nil)
+        let textColor = Self.color(.secondaryLabelColor, appearance: effectiveAppearance)
+        let lineColor = Self.color(.separatorColor, appearance: effectiveAppearance)
+        let attributes: [CFString: Any] = [
+            kCTFontAttributeName: font,
+            kCTForegroundColorAttributeName: textColor.cgColor,
+        ]
+        let attributed = CFAttributedStringCreate(kCFAllocatorDefault, entry.title as CFString, attributes as CFDictionary)!
+        let line = CTLineCreateWithAttributedString(attributed)
+        let textWidth = min(
+            rect.width * 0.72,
+            max(1, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+        )
+        let gap: CGFloat = 14
+        let centerY = rect.midY
+        let textRect = CGRect(
+            x: rect.midX - textWidth / 2,
+            y: centerY - 8,
+            width: textWidth,
+            height: 16
+        )
+
+        context.saveGState()
+        context.setStrokeColor(lineColor.withAlphaComponent(0.45).cgColor)
+        context.setLineWidth(1)
+        context.move(to: CGPoint(x: rect.minX, y: centerY))
+        context.addLine(to: CGPoint(x: max(rect.minX, textRect.minX - gap), y: centerY))
+        context.move(to: CGPoint(x: min(rect.maxX, textRect.maxX + gap), y: centerY))
+        context.addLine(to: CGPoint(x: rect.maxX, y: centerY))
+        context.strokePath()
+        context.restoreGState()
+
+        drawTruncatedLine(
+            entry.title,
+            font: font,
+            color: textColor.cgColor,
+            rect: textRect,
+            context: context
         )
     }
 

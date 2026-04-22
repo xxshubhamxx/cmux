@@ -223,6 +223,23 @@
         }
       }
     },
+    "codexAppServer.event.contextCompacted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context automatically compacted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストを自動圧縮しました"
+          }
+        }
+      }
+    },
     "codexAppServer.event.historyOmitted": {
       "extractionState": "manual",
       "localizations": {
@@ -529,6 +546,176 @@
         }
       }
     },
+    "codexAppServer.toolGroup.editedFile.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edited 1 file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 個のファイルを編集"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.editedFile.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edited %1$ld files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$ld 個のファイルを編集"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.editedFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edited files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを編集"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.editedLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edited %@ +%ld -%ld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を編集 +%ld -%ld"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.explored": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explored %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を調査"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.file.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 個のファイル"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.file.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$ld files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$ld 個のファイル"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.list.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 list"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 回の一覧表示"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.list.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$ld lists"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$ld 回の一覧表示"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.listedFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listed files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを一覧表示"
+          }
+        }
+      }
+    },
     "codexAppServer.toolGroup.ranCommand.many": {
       "extractionState": "manual",
       "localizations": {
@@ -536,6 +723,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ran %1$ld commands"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$ld 個のコマンドを実行"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.ranCommand.many.continuation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ran %1$ld commands"
           }
         },
         "ja": {
@@ -559,6 +763,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "コマンドを実行"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.ranCommand.one.continuation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ran command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドを実行"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.ranCommandLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ran %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を実行"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.readFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を読み込み"
           }
         }
       }
@@ -614,6 +869,142 @@
         }
       }
     },
+    "codexAppServer.toolGroup.search.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 回の検索"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.search.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$ld searches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$ld 回の検索"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.searchedFor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Searched for %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を検索"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.searchedForIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Searched for %@ in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を %@ で検索"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.searchedWeb.one.start": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Searched web"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web を検索"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.searchedWeb.one.continuation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "searched web"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web を検索"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.searchedWeb.many.start": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Searched web %1$ld times"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web を %1$ld 回検索"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.searchedWeb.many.continuation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "searched web %1$ld times"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web を %1$ld 回検索"
+          }
+        }
+      }
+    },
     "codexAppServer.toolGroup.success": {
       "extractionState": "manual",
       "localizations": {
@@ -627,6 +1018,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "成功"
+          }
+        }
+      }
+    },
+    "codexAppServer.toolGroup.usedTool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を使用"
           }
         }
       }
