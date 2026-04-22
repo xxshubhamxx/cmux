@@ -844,6 +844,10 @@ struct cmuxApp: App {
                 }
             }
         }
+
+        Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
+            ConfigSettingsView()
+        }
     }
 
     private func showAboutPanel() {
@@ -1666,6 +1670,7 @@ private enum DebugWindowConfigSnapshot {
         shortcutHintPaneTabYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.paneHintYKey, fallback: ShortcutHintDebugSettings.defaultPaneHintY)))
         shortcutHintAlwaysShow=\(boolValue(defaults, key: ShortcutHintDebugSettings.alwaysShowHintsKey, fallback: ShortcutHintDebugSettings.defaultAlwaysShowHints))
         shortcutHintShowOnCommandHold=\(boolValue(defaults, key: ShortcutHintDebugSettings.showHintsOnCommandHoldKey, fallback: ShortcutHintDebugSettings.defaultShowHintsOnCommandHold))
+        shortcutHintShowOnControlHold=\(boolValue(defaults, key: ShortcutHintDebugSettings.showHintsOnControlHoldKey, fallback: ShortcutHintDebugSettings.defaultShowHintsOnControlHold))
         """
 
         let backgroundPayload = """
@@ -4134,6 +4139,37 @@ enum TelemetrySettings {
     static let enabledForCurrentLaunch = isEnabled()
 }
 
+enum CmdClickMarkdownRouteSettings {
+    static let key = "openMarkdownInCmuxViewer"
+    static let defaultValue = false
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
+    }
+
+    /// Cheap extension check. Safe to call off the main thread before any
+    /// filesystem probe so remote/non-markdown paths can be filtered early.
+    static func isMarkdownPath(_ path: String) -> Bool {
+        let ext = (path as NSString).pathExtension.lowercased()
+        return ext == "md" || ext == "markdown" || ext == "mkd" || ext == "mdx"
+    }
+
+    static func shouldRoute(path: String) -> Bool {
+        guard isEnabled(), isMarkdownPath(path) else { return false }
+        // Match the `markdown.open` socket path: only route real, readable
+        // files. Rejects FIFOs, device nodes, sockets, symlinks to non-regular
+        // targets, and permission-denied paths so the viewer never opens into
+        // an unavailable state.
+        let resolved = (path as NSString).resolvingSymlinksInPath
+        guard FileManager.default.isReadableFile(atPath: resolved),
+              let attrs = try? FileManager.default.attributesOfItem(atPath: resolved),
+              (attrs[.type] as? FileAttributeType) == .typeRegular else {
+            return false
+        }
+        return true
+    }
+}
+
 enum PreferredEditorSettings {
     static let key = "preferredEditorCommand"
 
@@ -4350,6 +4386,7 @@ struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
+    @Environment(\.openWindow) private var openWindow
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -4368,6 +4405,7 @@ struct SettingsView: View {
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
+    @AppStorage(CmdClickMarkdownRouteSettings.key) private var openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -4424,6 +4462,8 @@ struct SettingsView: View {
     private var openSidebarPortLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser
     @AppStorage(ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
     private var showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+    @AppStorage(ShortcutHintDebugSettings.showHintsOnControlHoldKey)
+    private var showShortcutHintsOnControlHold = ShortcutHintDebugSettings.defaultShowHintsOnControlHold
     @AppStorage("sidebarShowSSH") private var sidebarShowSSH = true
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
@@ -4436,6 +4476,7 @@ struct SettingsView: View {
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
+    @ObservedObject private var authManager = AuthManager.shared
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
@@ -4947,6 +4988,11 @@ struct SettingsView: View {
             ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"))
+                    SettingsCard {
+                        AuthSettingsRow(authManager: authManager)
+                    }
+
                     SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
                     SettingsCard {
                         SettingsCardRow(
@@ -5070,6 +5116,38 @@ struct SettingsView: View {
                             )
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .action,
+                            String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"),
+                            subtitle: String(
+                                localized: "settings.app.configWindow.subtitle",
+                                defaultValue: "Open the cmux config, standalone Ghostty config, and merged preview in one utility window."
+                            )
+                        ) {
+                            Button(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config Window")) {
+                                openWindow(id: ConfigSettingsView.windowID)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.openMarkdownInCmuxViewer"),
+                            String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"),
+                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "Cmd-clicking .md/.markdown/.mkd/.mdx files opens the cmux markdown viewer panel instead of the preferred editor.")
+                        ) {
+                            Toggle("", isOn: $openMarkdownInCmuxViewer)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer")
+                                )
                         }
 
                         SettingsCardDivider()
@@ -6231,11 +6309,20 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("shortcuts.showModifierHoldHints"),
                             String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"),
-                            subtitle: showShortcutHintsOnCommandHold
+                            subtitle: (showShortcutHintsOnCommandHold || showShortcutHintsOnControlHold)
                                 ? String(localized: "settings.shortcuts.showHints.subtitleOn", defaultValue: "Holding Cmd (sidebar/titlebar) or Ctrl/Cmd (pane tabs) shows shortcut hint pills.")
                                 : String(localized: "settings.shortcuts.showHints.subtitleOff", defaultValue: "Holding Cmd or Ctrl keeps shortcut hint pills hidden.")
                         ) {
-                            Toggle("", isOn: $showShortcutHintsOnCommandHold)
+                            Toggle(
+                                "",
+                                isOn: Binding(
+                                    get: { showShortcutHintsOnCommandHold || showShortcutHintsOnControlHold },
+                                    set: { newValue in
+                                        showShortcutHintsOnCommandHold = newValue
+                                        showShortcutHintsOnControlHold = newValue
+                                    }
+                                )
+                            )
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -6485,6 +6572,7 @@ struct SettingsView: View {
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         preferredEditorCommand = ""
+        openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
@@ -6539,6 +6627,7 @@ struct SettingsView: View {
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         openSidebarPortLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser
         showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+        showShortcutHintsOnControlHold = ShortcutHintDebugSettings.defaultShowHintsOnControlHold
         sidebarShowSSH = true
         sidebarShowPorts = true
         sidebarShowLog = true
@@ -6646,6 +6735,84 @@ private struct SettingsSectionHeader: View {
             .foregroundColor(.secondary)
             .padding(.leading, 2)
             .padding(.bottom, -2)
+    }
+}
+
+private struct AuthSettingsRow: View {
+    @ObservedObject var authManager: AuthManager
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(titleText)
+                    .font(.system(size: 13, weight: .medium))
+                if let subtitle = subtitleText {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+            Spacer(minLength: 12)
+            if authManager.isLoading || authManager.isRestoringSession {
+                ProgressView().controlSize(.small)
+            }
+            Button(action: buttonAction) {
+                Text(buttonTitle)
+            }
+            .controlSize(.small)
+            .disabled(authManager.isLoading || authManager.isRestoringSession)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private var titleText: String {
+        if authManager.isAuthenticated {
+            if let email = authManager.currentUser?.primaryEmail, !email.isEmpty {
+                return email
+            }
+            return String(
+                localized: "settings.account.signedIn.title",
+                defaultValue: "Signed in"
+            )
+        }
+        return String(
+            localized: "settings.account.signedOut.title",
+            defaultValue: "Not signed in"
+        )
+    }
+
+    private var subtitleText: String? {
+        if authManager.isAuthenticated {
+            return authManager.currentUser?.displayName
+        }
+        return String(
+            localized: "settings.account.signedOut.subtitle",
+            defaultValue: "Sign in with your cmux account to enable sync across devices."
+        )
+    }
+
+    private var buttonTitle: String {
+        if authManager.isAuthenticated {
+            return String(
+                localized: "settings.account.signOut",
+                defaultValue: "Sign Out"
+            )
+        }
+        return String(
+            localized: "settings.account.signIn",
+            defaultValue: "Sign In…"
+        )
+    }
+
+    private func buttonAction() {
+        if authManager.isAuthenticated {
+            Task { @MainActor in
+                await authManager.signOut()
+            }
+        } else {
+            authManager.beginSignIn()
+        }
     }
 }
 
@@ -7175,12 +7342,11 @@ private struct ShortcutSettingRow: View {
     }
 
     var body: some View {
-        KeyboardShortcutRecorder(
-            label: action.label,
-            subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: action),
+        ShortcutRecorderSettingsControl(
+            action: action,
             shortcut: $shortcut,
+            subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: action),
             displayString: { action.displayedShortcutString(for: $0) },
-            transformRecordedShortcut: { action.normalizedRecordedShortcut($0) },
             isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(action)
         )
             .onChange(of: shortcut) { newValue in
@@ -7192,6 +7358,71 @@ private struct ShortcutSettingRow: View {
                     shortcut = latest
                 }
             }
+    }
+}
+
+private struct ShortcutRecorderSettingsControl: View {
+    let action: KeyboardShortcutSettings.Action
+    @Binding var shortcut: StoredShortcut
+    var subtitle: String? = nil
+    var displayString: (StoredShortcut) -> String = { $0.displayString }
+    var isDisabled: Bool = false
+
+    @State private var rejectedAttempt: ShortcutRecorderRejectedAttempt?
+
+    var body: some View {
+        KeyboardShortcutRecorder(
+            label: action.label,
+            subtitle: subtitle,
+            shortcut: $shortcut,
+            displayString: displayString,
+            transformRecordedShortcut: { action.normalizedRecordedShortcutResult($0) },
+            validationMessage: validationPresentation?.message,
+            validationButtonTitle: validationPresentation?.swapButtonTitle,
+            onValidationButtonPressed: validationPresentation?.canSwap == true
+                ? { swapConflictingShortcut() }
+                : nil,
+            undoButtonTitle: validationPresentation?.undoButtonTitle,
+            onUndoButtonPressed: rejectedAttempt != nil ? { rejectedAttempt = nil } : nil,
+            hasPendingRejection: rejectedAttempt != nil,
+            isDisabled: isDisabled,
+            onRecorderFeedbackChanged: { rejectedAttempt = $0 }
+        )
+        .onChange(of: shortcut) { _ in
+            rejectedAttempt = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification)) { _ in
+            if KeyboardShortcutRecorderActivity.isAnyRecorderActive {
+                rejectedAttempt = nil
+            }
+        }
+    }
+
+    private var validationPresentation: ShortcutRecorderValidationPresentation? {
+        ShortcutRecorderValidationPresentation(
+            attempt: rejectedAttempt,
+            action: action,
+            currentShortcut: shortcut
+        )
+    }
+
+    private func swapConflictingShortcut() {
+        guard case let .conflictsWithAction(conflictingAction)? = rejectedAttempt?.reason,
+              let proposedShortcut = rejectedAttempt?.proposedShortcut else {
+            return
+        }
+
+        KeyboardShortcutRecorderActivity.stopAllRecording()
+
+        let previousShortcut = shortcut
+        KeyboardShortcutSettings.swapShortcutConflict(
+            proposedShortcut: proposedShortcut,
+            currentAction: action,
+            conflictingAction: conflictingAction,
+            previousShortcut: previousShortcut
+        )
+        shortcut = proposedShortcut
+        rejectedAttempt = nil
     }
 }
 
@@ -7239,11 +7470,10 @@ private struct GlobalHotkeySection: View {
 
             SettingsCardDivider()
 
-            KeyboardShortcutRecorder(
-                label: String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows"),
-                subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action),
+            ShortcutRecorderSettingsControl(
+                action: SystemWideHotkeySettings.action,
                 shortcut: $shortcut,
-                transformRecordedShortcut: { SystemWideHotkeySettings.action.normalizedRecordedShortcut($0) },
+                subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action),
                 isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(SystemWideHotkeySettings.action)
             )
                 .padding(.horizontal, 14)

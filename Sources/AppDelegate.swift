@@ -44,6 +44,114 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     }
 }
 
+/// Caches `AXWindows` responses so repeated AX polls can reuse the same
+/// snapshot while the app window graph is unchanged. Only `.windows` is
+/// cached; `.children` and `.visibleChildren` fall through to AppKit so the
+/// menu bar stays present in the accessibility tree for VoiceOver and other
+/// AX clients. `.mainWindow` / `.focusedWindow` also fall through, so AppKit
+/// remains authoritative on focus transitions.
+final class CmuxApplicationAccessibilityHierarchyCache {
+    enum Resolution {
+        case passthrough
+        case handled(Any?)
+    }
+
+    struct WindowToken: Equatable {
+        let identity: ObjectIdentifier
+        let windowNumber: Int
+        let isVisible: Bool
+        let isMiniaturized: Bool
+    }
+
+    struct StateToken: Equatable {
+        let windows: [WindowToken]
+
+        init(windows: [NSWindow]) {
+            self.windows = windows.map {
+                WindowToken(
+                    identity: ObjectIdentifier($0),
+                    windowNumber: $0.windowNumber,
+                    isVisible: $0.isVisible,
+                    isMiniaturized: $0.isMiniaturized
+                )
+            }
+        }
+    }
+
+    struct Snapshot {
+        let windows: [NSWindow]
+    }
+
+    static let shared = CmuxApplicationAccessibilityHierarchyCache()
+
+    private let notificationCenter: NotificationCenter
+    private var cachedStateToken: StateToken?
+    private var cachedSnapshot: Snapshot?
+    private var windowCloseObserver: NSObjectProtocol?
+
+    init(notificationCenter: NotificationCenter = .default) {
+        self.notificationCenter = notificationCenter
+        // Drop strong refs to any window the instant it closes so the cache
+        // never keeps a closed NSWindow alive between AX polls.
+        windowCloseObserver = notificationCenter.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.invalidate()
+        }
+    }
+
+    deinit {
+        if let windowCloseObserver {
+            notificationCenter.removeObserver(windowCloseObserver)
+        }
+    }
+
+    func invalidate() {
+        cachedStateToken = nil
+        cachedSnapshot = nil
+    }
+
+    func resolve(attribute: NSAccessibility.Attribute, application: NSApplication) -> Resolution {
+        guard Self.supportsCaching(attribute) else { return .passthrough }
+        let windows = application.windows
+        let stateToken = StateToken(windows: windows)
+        let value = value(for: attribute, stateToken: stateToken) {
+            Snapshot(windows: windows)
+        }
+        return .handled(value)
+    }
+
+    func value(
+        for attribute: NSAccessibility.Attribute,
+        stateToken: StateToken,
+        builder: () -> Snapshot
+    ) -> Any? {
+        guard Self.supportsCaching(attribute) else { return nil }
+
+        let snapshot: Snapshot
+        if cachedStateToken == stateToken, let cachedSnapshot {
+            snapshot = cachedSnapshot
+        } else {
+            snapshot = builder()
+            cachedStateToken = stateToken
+            cachedSnapshot = snapshot
+        }
+
+        switch attribute.rawValue {
+        case NSAccessibility.Attribute.windows.rawValue:
+            return snapshot.windows
+        default:
+            return nil
+        }
+    }
+
+    private static func supportsCaching(_ attribute: NSAccessibility.Attribute) -> Bool {
+        attribute.rawValue == NSAccessibility.Attribute.windows.rawValue
+    }
+}
+
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
@@ -2351,6 +2459,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         method_exchangeImplementations(originalMethod, swizzledMethod)
     }()
+    private static let didInstallApplicationAccessibilitySwizzle: Void = {
+        let targetClass: AnyClass = NSApplication.self
+        let originalSelector = #selector(NSApplication.accessibilityAttributeValue(_:))
+        let swizzledSelector = #selector(NSApplication.cmux_accessibilityAttributeValue(_:))
+        guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
+            return
+        }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }()
 
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
@@ -2521,6 +2639,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        let authCallbacks = urls.filter(AuthCallbackRouter.isAuthCallbackURL)
+        for url in authCallbacks {
+            Task { @MainActor in
+                do {
+                    try await AuthManager.shared.handleCallbackURL(url)
+                } catch {
+                    NSLog("auth.callback failed: %@", "\(error)")
+                }
+            }
+        }
+
         let directories = externalOpenDirectories(from: urls)
         guard !directories.isEmpty else { return }
 
@@ -2538,6 +2667,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         AppIconLaunchState.markDidFinishLaunching()
+
+        claimAuthCallbackURLSchemes()
 
         DistributedNotificationCenter.default().addObserver(
             self,
@@ -5829,6 +5960,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard isMainTerminalWindow(window) else { return }
         guard window.attachedSheet == nil else { return }
         guard !isCommandPaletteEffectivelyVisible(in: window) else { return }
+        // If the active first responder is a text-field editor (e.g. a popover's
+        // search field whose field editor is borrowed from the parent window),
+        // never re-route the keystroke to the terminal. Symmetric with
+        // applyFirstResponderIfNeeded's NSText guard. Terminals use GhosttyNSView,
+        // never NSText, so this can't suppress legitimate terminal repair.
+        if window.firstResponder is NSText {
+            return
+        }
         guard let context = contextForMainWindow(window) ?? contextForMainTerminalWindow(window),
               let workspace = context.tabManager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
@@ -6826,6 +6965,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func claimAuthCallbackURLSchemes() {
+        // Pin the current build as the default for cmux://  and cmux-dev://
+        // so the auth-callback deeplink routes back to this app instead of an
+        // unrelated LaunchServices entry.
+        let bundleURL = Bundle.main.bundleURL
+        for scheme in ["cmux", "cmux-dev"] {
+            NSWorkspace.shared.setDefaultApplication(
+                at: bundleURL,
+                toOpenURLsWithScheme: scheme
+            ) { _ in }
+        }
+    }
+
     private func externalOpenDirectories(from urls: [URL]) -> [String] {
         // LaunchServices can surface the running app bundle on relaunch; ignore self paths so
         // they do not get treated as explicit folder opens and suppress session restore.
@@ -7165,6 +7317,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sidebarSelectionState = SidebarSelectionState(
             selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
         )
+
+        // Seed the per-window Bonsplit tab-bar leading inset before ContentView first
+        // renders. The initial workspace is created inside TabManager.init, at which
+        // point there is no source workspace or prior window inset to inherit from, so
+        // applyCreationChromeInheritance returns early and leaves the Bonsplit inset
+        // at 0 — which is wrong in minimal mode with the sidebar collapsed, where the
+        // native traffic lights need an 80pt reserved strip on the tab bar. Without
+        // this seed, the first-frame layout can mispaint in the new window until
+        // ContentView.onAppear eventually runs syncTrafficLightInset (#2737).
+        let initialTabBarLeadingInset: CGFloat =
+            (WorkspacePresentationModeSettings.isMinimal() && !sidebarState.isVisible)
+                ? 80
+                : 0
+        tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)
         let notificationStore = TerminalNotificationStore.shared
 
         let cmuxConfigStore = CmuxConfigStore()
@@ -7881,8 +8047,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabManager else { return }
         let tab = tabManager.addTab()
         let config = GhosttyConfig.load()
-        let lineCount = min(max(config.scrollbackLimit * 2, 2000), 60000)
-        let command = "for i in {1..\(lineCount)}; do printf \"scrollback %06d\\n\" $i; done\n"
+        let minimumTargetBytes = 2_000_000
+        let maximumTargetBytes = 200_000_000
+        let minimumLineCount = 2000
+        let effectiveLimit = max(config.scrollbackLimit, 0)
+        let doubledLimit = min(effectiveLimit, maximumTargetBytes / 2) * 2
+        let targetBytes = min(max(doubledLimit, minimumTargetBytes), maximumTargetBytes)
+        // `%06d` guarantees at least a 6-digit field width. Any lines beyond
+        // 999,999 only get wider, so this conservative floor always emits at
+        // least `targetBytes` without oscillating at digit-count boundaries.
+        let baseBytesPerLine = "scrollback 000000\n".utf8.count
+        let lineCount = max((targetBytes + baseBytesPerLine - 1) / baseBytesPerLine, minimumLineCount)
+
+        let command = #"awk 'BEGIN { for (i = 1; i <= \#(lineCount); ++i) printf "scrollback %06d\n", i }'"# + "\n"
         sendTextWhenReady(command, to: tab)
     }
 
@@ -10288,6 +10465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     static func installWindowResponderSwizzlesForTesting() {
+        _ = didInstallApplicationAccessibilitySwizzle
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
         _ = didInstallWindowSendEventSwizzle
@@ -10306,6 +10484,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func installWindowResponderSwizzles() {
+        _ = Self.didInstallApplicationAccessibilitySwizzle
         _ = Self.didInstallApplicationSendEventSwizzle
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
@@ -10314,9 +10493,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installShortcutMonitor() {
         // Local monitor only receives events when app is active (not global)
-        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
+        shortcutMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .keyUp, .flagsChanged, .systemDefined]
+        ) { [weak self] event in
             guard let self else { return event }
-            if event.type == .keyDown {
+            if event.type == .keyDown || event.type == .systemDefined {
 #if DEBUG
                 let phaseTotalStart = ProcessInfo.processInfo.systemUptime
                 let preludeStart = ProcessInfo.processInfo.systemUptime
@@ -10627,6 +10808,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleCustomShortcut(event: NSEvent) -> Bool {
+        guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
+            clearConfiguredShortcutChordState()
+            return false
+        }
+
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
         // When a non-Latin input source is active (Korean, Chinese, Japanese, etc.),
@@ -12319,7 +12505,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
     func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
-        if event.type == .keyDown {
+        if event.type == .keyDown || event.type == .systemDefined {
             return handleCustomShortcut(event: event)
         }
         handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
@@ -14113,6 +14299,22 @@ private final class CmuxFieldEditorOwningWebViewBox: NSObject {
 }
 
 private extension NSApplication {
+    @objc func cmux_accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if Thread.isMainThread {
+            switch CmuxApplicationAccessibilityHierarchyCache.shared.resolve(
+                attribute: attribute,
+                application: self
+            ) {
+            case .handled(let value):
+                return value
+            case .passthrough:
+                break
+            }
+        }
+
+        return cmux_accessibilityAttributeValue(attribute)
+    }
+
     @objc func cmux_applicationSendEvent(_ event: NSEvent) {
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
@@ -14553,7 +14755,15 @@ private extension NSWindow {
             }
 #endif
             if !consumedByMenu {
-                // Fall through to the original performKeyEquivalent path below.
+                // After a direct-to-menu miss, let Ghostty resolve the command key
+                // through its normal binding path so user key overrides still win.
+                let consumedByGhostty = firstResponderGhosttyView?.performKeyEquivalentAfterMenuMiss(with: event) == true
+#if DEBUG
+                dlog("  → mainMenu miss; ghostty command path: \(consumedByGhostty)")
+#endif
+                if consumedByGhostty {
+                    return true
+                }
             } else {
 #if DEBUG
                 dlog("  → consumed by mainMenu (bypassed SwiftUI)")
