@@ -136,16 +136,69 @@ enum CodexAppServerRequestFactory {
     }
 }
 
+struct CodexAppServerLineBuffer {
+    private var buffer = Data()
+    private var scanOffset = 0
+
+    var bufferedByteCount: Int {
+        buffer.count
+    }
+
+    mutating func append(_ data: Data) -> [Data] {
+        guard !data.isEmpty else { return [] }
+        buffer.append(data)
+
+        var lines: [Data] = []
+        while scanOffset < buffer.endIndex {
+            guard let newline = buffer[scanOffset..<buffer.endIndex].firstIndex(of: 0x0A) else {
+                scanOffset = buffer.endIndex
+                break
+            }
+
+            let lineData = Data(buffer[..<newline])
+            buffer.removeSubrange(..<buffer.index(after: newline))
+            scanOffset = buffer.startIndex
+            if !lineData.isEmpty {
+                lines.append(lineData)
+            }
+        }
+        return lines
+    }
+
+    mutating func removeAll(keepingCapacity keepCapacity: Bool = false) {
+        buffer.removeAll(keepingCapacity: keepCapacity)
+        scanOffset = buffer.startIndex
+    }
+}
+
 final class CodexAppServerClient: @unchecked Sendable {
     typealias EventHandler = (CodexAppServerEvent) -> Void
 
     private final class PendingRequest {
         let continuation: CheckedContinuation<[String: Any], Error>
+        let maximumResponseBytesToParse: Int?
+        let oversizedResponseFallback: [String: Any]?
 
-        init(_ continuation: CheckedContinuation<[String: Any], Error>) {
+        init(
+            _ continuation: CheckedContinuation<[String: Any], Error>,
+            maximumResponseBytesToParse: Int? = nil,
+            oversizedResponseFallback: [String: Any]? = nil
+        ) {
             self.continuation = continuation
+            self.maximumResponseBytesToParse = maximumResponseBytesToParse
+            self.oversizedResponseFallback = oversizedResponseFallback
+        }
+
+        func fallbackIfOversized(byteCount: Int) -> [String: Any]? {
+            guard let maximumResponseBytesToParse,
+                  byteCount > maximumResponseBytesToParse else {
+                return nil
+            }
+            return oversizedResponseFallback
         }
     }
+
+    private static let maximumResumeResponseBytesToParse = 16 * 1024 * 1024
 
     private let stateQueue = DispatchQueue(label: "cmux.codexAppServerClient.state")
     private let callbackQueue: DispatchQueue
@@ -153,7 +206,7 @@ final class CodexAppServerClient: @unchecked Sendable {
     private var stdinPipe: Pipe?
     private var stdoutPipe: Pipe?
     private var stderrPipe: Pipe?
-    private var stdoutBuffer = Data()
+    private var stdoutLineBuffer = CodexAppServerLineBuffer()
     private var nextRequestId = 1
     private var pending: [Int: PendingRequest] = [:]
 
@@ -180,8 +233,8 @@ final class CodexAppServerClient: @unchecked Sendable {
     }
 
     func stop() {
-        stateQueue.sync {
-            stopLocked()
+        stateQueue.async {
+            self.stopLocked()
         }
     }
 
@@ -205,7 +258,12 @@ final class CodexAppServerClient: @unchecked Sendable {
 
     func resumeThread(threadId: String, cwd: String?) async throws -> [String: Any] {
         let response = try await sendRequestObject(
-            CodexAppServerRequestFactory.threadResumeRequest(id: nextId(), threadId: threadId, cwd: cwd)
+            CodexAppServerRequestFactory.threadResumeRequest(id: nextId(), threadId: threadId, cwd: cwd),
+            maximumResponseBytesToParse: Self.maximumResumeResponseBytesToParse,
+            oversizedResponseFallback: [
+                "thread": ["id": threadId],
+                "_cmuxResponseTruncated": true,
+            ]
         )
         guard let thread = response["thread"] as? [String: Any],
               let resumedThreadId = thread["id"] as? String,
@@ -307,7 +365,7 @@ final class CodexAppServerClient: @unchecked Sendable {
         stdinPipe = nil
         stdoutPipe = nil
         stderrPipe = nil
-        stdoutBuffer.removeAll(keepingCapacity: false)
+        stdoutLineBuffer.removeAll(keepingCapacity: false)
         failPending(CodexAppServerClientError.processExited)
     }
 
@@ -481,7 +539,11 @@ final class CodexAppServerClient: @unchecked Sendable {
             || text.hasPrefix("#! /bin/env node")
     }
 
-    private func sendRequestObject(_ object: [String: Any]) async throws -> [String: Any] {
+    private func sendRequestObject(
+        _ object: [String: Any],
+        maximumResponseBytesToParse: Int? = nil,
+        oversizedResponseFallback: [String: Any]? = nil
+    ) async throws -> [String: Any] {
         guard let id = Self.integerId(from: object["id"]) else {
             throw CodexAppServerClientError.invalidResponse("request object missing numeric id")
         }
@@ -494,7 +556,11 @@ final class CodexAppServerClient: @unchecked Sendable {
                     return
                 }
 
-                self.pending[id] = PendingRequest(continuation)
+                self.pending[id] = PendingRequest(
+                    continuation,
+                    maximumResponseBytesToParse: maximumResponseBytesToParse,
+                    oversizedResponseFallback: oversizedResponseFallback
+                )
                 do {
                     try Self.writeJSONObject(object, to: stdinPipe.fileHandleForWriting)
                 } catch {
@@ -552,17 +618,21 @@ final class CodexAppServerClient: @unchecked Sendable {
 
     private func ingestStdout(_ data: Data) {
         stateQueue.async {
-            self.stdoutBuffer.append(data)
-            while let newline = self.stdoutBuffer.firstIndex(of: 0x0A) {
-                let lineData = self.stdoutBuffer[..<newline]
-                self.stdoutBuffer.removeSubrange(...newline)
-                guard !lineData.isEmpty else { continue }
-                self.handleStdoutLine(Data(lineData))
+            for line in self.stdoutLineBuffer.append(data) {
+                self.handleStdoutLine(line)
             }
         }
     }
 
     private func handleStdoutLine(_ data: Data) {
+        if let id = Self.responseId(in: data),
+           let request = pending[id],
+           let fallback = request.fallbackIfOversized(byteCount: data.count) {
+            pending.removeValue(forKey: id)
+            request.continuation.resume(returning: fallback)
+            return
+        }
+
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             if let text = String(data: data, encoding: .utf8) {
                 emit(.stderr("Unparseable Codex app-server output: \(text)\n"))
@@ -601,6 +671,7 @@ final class CodexAppServerClient: @unchecked Sendable {
             self.stdinPipe = nil
             self.stdoutPipe = nil
             self.stderrPipe = nil
+            self.stdoutLineBuffer.removeAll(keepingCapacity: false)
             self.failPending(CodexAppServerClientError.processExited)
             self.emit(.terminated(status))
         }
@@ -626,6 +697,39 @@ final class CodexAppServerClient: @unchecked Sendable {
         }
         if let value = value as? NSNumber {
             return value.intValue
+        }
+        return nil
+    }
+
+    private static func responseId(in data: Data) -> Int? {
+        guard let prefix = String(data: data.prefix(4096), encoding: .utf8) else {
+            return nil
+        }
+
+        var searchStart = prefix.startIndex
+        while let idLabelRange = prefix.range(of: "\"id\"", range: searchStart..<prefix.endIndex) {
+            var index = idLabelRange.upperBound
+            while index < prefix.endIndex, prefix[index].isWhitespace {
+                index = prefix.index(after: index)
+            }
+            guard index < prefix.endIndex, prefix[index] == ":" else {
+                searchStart = idLabelRange.upperBound
+                continue
+            }
+            index = prefix.index(after: index)
+            while index < prefix.endIndex, prefix[index].isWhitespace {
+                index = prefix.index(after: index)
+            }
+
+            var digits = ""
+            while index < prefix.endIndex, prefix[index].isNumber {
+                digits.append(prefix[index])
+                index = prefix.index(after: index)
+            }
+            if let id = Int(digits) {
+                return id
+            }
+            searchStart = idLabelRange.upperBound
         }
         return nil
     }

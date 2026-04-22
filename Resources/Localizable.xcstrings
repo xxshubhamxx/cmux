@@ -223,6 +223,74 @@
         }
       }
     },
+    "codexAppServer.event.historyOmitted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "History omitted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴を省略しました"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.historyOmitted.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex returned a very large history. The thread is connected, and new messages will stream here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex が非常に大きな履歴を返しました。スレッドには接続済みで、新しいメッセージはここに表示されます。"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.historyTruncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier history omitted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の履歴を省略しました"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.historyTruncated.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Showing the latest %1$ld of %2$ld restored items."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元した項目 %2$ld 件のうち最新 %1$ld 件を表示しています。"
+          }
+        }
+      }
+    },
     "codexAppServer.event.output": {
       "extractionState": "manual",
       "localizations": {
@@ -474,6 +542,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "あなた"
+          }
+        }
+      }
+    },
+    "codexAppServer.transcriptItem.truncatedPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[Earlier output omitted]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[以前の出力を省略しました]"
           }
         }
       }

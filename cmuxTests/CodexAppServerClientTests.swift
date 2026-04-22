@@ -160,6 +160,82 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         ])
     }
 
+    func testLineBufferFramesLinesAcrossLargeChunks() throws {
+        var buffer = CodexAppServerLineBuffer()
+
+        XCTAssertTrue(buffer.append(Data(repeating: 65, count: 32_768)).isEmpty)
+        XCTAssertEqual(buffer.bufferedByteCount, 32_768)
+
+        let lines = buffer.append(Data([0x0A, 66, 0x0A]))
+
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertEqual(lines[0].count, 32_768)
+        XCTAssertEqual(String(data: lines[1], encoding: .utf8), "B")
+        XCTAssertEqual(buffer.bufferedByteCount, 0)
+    }
+
+    @MainActor
+    func testResumeSnapshotCapsRestoredTranscriptToTailItems() throws {
+        let turns: [[String: Any]] = (0..<3).map { index in
+            [
+                "startedAt": index,
+                "items": [
+                    [
+                        "type": "userMessage",
+                        "content": [
+                            [
+                                "type": "text",
+                                "text": "user \(index)",
+                            ],
+                        ],
+                    ],
+                    [
+                        "type": "agentMessage",
+                        "text": "agent \(index)",
+                    ],
+                ],
+            ]
+        }
+        let response: [String: Any] = [
+            "cwd": "/Users/cmux/project",
+            "thread": [
+                "id": "thread-123",
+                "turns": turns,
+            ],
+        ]
+
+        let snapshot = CodexAppServerPanel.resumeSnapshot(
+            from: response,
+            fallbackThreadId: "fallback-thread",
+            restoredItemLimit: 3
+        )
+
+        XCTAssertEqual(snapshot.threadId, "thread-123")
+        XCTAssertEqual(snapshot.cwd, "/Users/cmux/project")
+        XCTAssertEqual(snapshot.totalRestoredItemCount, 6)
+        XCTAssertTrue(snapshot.didTruncate)
+        XCTAssertFalse(snapshot.responseWasTruncated)
+        XCTAssertEqual(snapshot.transcriptItems.map(\.body), ["agent 1", "user 2", "agent 2"])
+    }
+
+    @MainActor
+    func testResumeSnapshotHandlesOversizedResponseFallback() throws {
+        let response: [String: Any] = [
+            "_cmuxResponseTruncated": true,
+            "thread": ["id": "thread-large"],
+        ]
+
+        let snapshot = CodexAppServerPanel.resumeSnapshot(
+            from: response,
+            fallbackThreadId: "fallback-thread",
+            restoredItemLimit: 3
+        )
+
+        XCTAssertEqual(snapshot.threadId, "thread-large")
+        XCTAssertTrue(snapshot.responseWasTruncated)
+        XCTAssertTrue(snapshot.transcriptItems.isEmpty)
+    }
+
     func testGeneratedSchemasCoverCodexAppServerProtocolUnions() {
         XCTAssertEqual(CodexAppServerProtocolSchemas.sourceRemote, "https://github.com/openai/codex.git")
         XCTAssertEqual(

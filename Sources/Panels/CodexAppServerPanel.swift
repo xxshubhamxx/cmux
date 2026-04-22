@@ -33,7 +33,7 @@ enum CodexAppServerPanelStatus: Equatable {
     }
 }
 
-enum CodexAppServerTranscriptRole: Equatable {
+enum CodexAppServerTranscriptRole: Equatable, Sendable {
     case user
     case assistant
     case event
@@ -41,7 +41,7 @@ enum CodexAppServerTranscriptRole: Equatable {
     case error
 }
 
-struct CodexAppServerTranscriptItem: Identifiable, Equatable {
+struct CodexAppServerTranscriptItem: Identifiable, Equatable, Sendable {
     let id: UUID
     var role: CodexAppServerTranscriptRole
     var title: String
@@ -78,6 +78,15 @@ struct CodexAppServerPendingRequest: Identifiable {
     }
 }
 
+struct CodexAppServerResumeSnapshot: Equatable {
+    var threadId: String
+    var cwd: String?
+    var transcriptItems: [CodexAppServerTranscriptItem]
+    var totalRestoredItemCount: Int
+    var didTruncate: Bool
+    var responseWasTruncated: Bool
+}
+
 enum CodexAppServerApprovalDecision: String {
     case accept
     case decline
@@ -88,6 +97,10 @@ enum CodexAppServerApprovalDecision: String {
 final class CodexAppServerPanel: Panel, ObservableObject {
     let id: UUID
     let panelType: PanelType = .codexAppServer
+
+    private static let restoredTranscriptItemLimit = 250
+    private static let maxTranscriptItems = 500
+    private static let maxTranscriptItemCharacters = 160_000
 
     private(set) var workspaceId: UUID
 
@@ -337,7 +350,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         case "commandExecution":
             appendEvent(
                 title: String(localized: "codexAppServer.event.command", defaultValue: "Command"),
-                body: commandSummary(from: item)
+                body: Self.commandSummary(from: item)
             )
         case "fileChange":
             appendEvent(
@@ -361,17 +374,18 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         guard let delta, !delta.isEmpty else { return }
         if let id = activeAssistantItemId,
            let index = transcriptItems.firstIndex(where: { $0.id == id }) {
-            transcriptItems[index].body += delta
+            transcriptItems[index].body = Self.truncatedTranscriptBody(transcriptItems[index].body + delta)
             transcriptItems[index].date = Date()
         } else {
             let item = CodexAppServerTranscriptItem(
                 role: .assistant,
                 title: String(localized: "codexAppServer.role.assistant", defaultValue: "Codex"),
-                body: delta,
+                body: Self.truncatedTranscriptBody(delta),
                 isStreaming: true
             )
             activeAssistantItemId = item.id
             transcriptItems.append(item)
+            trimTranscriptItemsIfNeeded()
         }
     }
 
@@ -407,28 +421,107 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     }
 
     private func applyResumeResponse(_ response: [String: Any], fallbackThreadId: String) {
-        let thread = response["thread"] as? [String: Any]
-        threadId = Self.stringValue(named: "id", in: thread) ?? fallbackThreadId
-        if let resumedCwd = Self.stringValue(named: "cwd", in: response)
-            ?? Self.stringValue(named: "cwd", in: thread),
-            !resumedCwd.isEmpty {
+        let snapshot = Self.resumeSnapshot(
+            from: response,
+            fallbackThreadId: fallbackThreadId,
+            restoredItemLimit: Self.restoredTranscriptItemLimit
+        )
+        threadId = snapshot.threadId
+        if let resumedCwd = snapshot.cwd, !resumedCwd.isEmpty {
             cwd = resumedCwd
         }
 
-        let turns = thread?["turns"] as? [[String: Any]] ?? []
-        let restoredItems = turns.flatMap { restoredTranscriptItems(fromTurn: $0) }
-        guard !restoredItems.isEmpty else { return }
-        transcriptItems = restoredItems
         activeAssistantItemId = nil
+
+        if snapshot.responseWasTruncated {
+            appendEvent(
+                title: String(localized: "codexAppServer.event.historyOmitted", defaultValue: "History omitted"),
+                body: String(
+                    localized: "codexAppServer.event.historyOmitted.body",
+                    defaultValue: "Codex returned a very large history. The thread is connected, and new messages will stream here."
+                )
+            )
+            return
+        }
+
+        guard !snapshot.transcriptItems.isEmpty else { return }
+        if snapshot.didTruncate {
+            transcriptItems = [Self.historyTruncatedItem(snapshot: snapshot)] + snapshot.transcriptItems
+        } else {
+            transcriptItems = snapshot.transcriptItems
+        }
     }
 
-    private func restoredTranscriptItems(fromTurn turn: [String: Any]) -> [CodexAppServerTranscriptItem] {
-        let date = Self.dateValue(named: "startedAt", in: turn) ?? Date()
-        let items = turn["items"] as? [[String: Any]] ?? []
-        return items.compactMap { restoredTranscriptItem(fromThreadItem: $0, date: date) }
+    static func resumeSnapshot(
+        from response: [String: Any],
+        fallbackThreadId: String,
+        restoredItemLimit: Int
+    ) -> CodexAppServerResumeSnapshot {
+        let thread = response["thread"] as? [String: Any]
+        let resolvedThreadId = Self.stringValue(named: "id", in: thread) ?? fallbackThreadId
+        let resolvedCwd = Self.stringValue(named: "cwd", in: response)
+            ?? Self.stringValue(named: "cwd", in: thread)
+        let responseWasTruncated = (response["_cmuxResponseTruncated"] as? Bool) == true
+        guard !responseWasTruncated else {
+            return CodexAppServerResumeSnapshot(
+                threadId: resolvedThreadId,
+                cwd: resolvedCwd,
+                transcriptItems: [],
+                totalRestoredItemCount: 0,
+                didTruncate: false,
+                responseWasTruncated: true
+            )
+        }
+
+        let turns = thread?["turns"] as? [[String: Any]] ?? []
+        var restoredItems: [CodexAppServerTranscriptItem] = []
+        for turn in turns {
+            let date = Self.dateValue(named: "startedAt", in: turn) ?? Date()
+            let items = turn["items"] as? [[String: Any]] ?? []
+            for item in items {
+                if let restoredItem = restoredTranscriptItem(fromThreadItem: item, date: date) {
+                    restoredItems.append(restoredItem)
+                }
+            }
+        }
+
+        let totalRestoredItemCount = restoredItems.count
+        let limit = max(1, restoredItemLimit)
+        let didTruncate = totalRestoredItemCount > limit
+        if didTruncate {
+            restoredItems = Array(restoredItems.suffix(limit))
+        }
+
+        return CodexAppServerResumeSnapshot(
+            threadId: resolvedThreadId,
+            cwd: resolvedCwd,
+            transcriptItems: restoredItems,
+            totalRestoredItemCount: totalRestoredItemCount,
+            didTruncate: didTruncate,
+            responseWasTruncated: false
+        )
     }
 
-    private func restoredTranscriptItem(
+    private static func historyTruncatedItem(snapshot: CodexAppServerResumeSnapshot) -> CodexAppServerTranscriptItem {
+        let format = String(
+            localized: "codexAppServer.event.historyTruncated.body",
+            defaultValue: "Showing the latest %1$ld of %2$ld restored items."
+        )
+        let body = String(
+            format: format,
+            locale: Locale.current,
+            snapshot.transcriptItems.count,
+            snapshot.totalRestoredItemCount
+        )
+        return CodexAppServerTranscriptItem(
+            role: .event,
+            title: String(localized: "codexAppServer.event.historyTruncated", defaultValue: "Earlier history omitted"),
+            body: body,
+            date: snapshot.transcriptItems.first?.date ?? Date()
+        )
+    }
+
+    private static func restoredTranscriptItem(
         fromThreadItem item: [String: Any],
         date: Date
     ) -> CodexAppServerTranscriptItem? {
@@ -462,7 +555,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             return CodexAppServerTranscriptItem(
                 role: .event,
                 title: String(localized: "codexAppServer.event.command", defaultValue: "Command"),
-                body: commandSummary(from: item),
+                body: Self.commandSummary(from: item),
                 date: date
             )
         case "fileChange":
@@ -487,7 +580,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     }
 
     private func append(role: CodexAppServerTranscriptRole, title: String, body: String) {
-        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedBody = Self.truncatedTranscriptBody(body.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !trimmedBody.isEmpty else { return }
         transcriptItems.append(
             CodexAppServerTranscriptItem(
@@ -496,6 +589,31 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 body: trimmedBody
             )
         )
+        trimTranscriptItemsIfNeeded()
+    }
+
+    private func trimTranscriptItemsIfNeeded() {
+        let overflow = transcriptItems.count - Self.maxTranscriptItems
+        guard overflow > 0 else { return }
+
+        var remainingToRemove = overflow
+        transcriptItems.removeAll { item in
+            guard remainingToRemove > 0 else { return false }
+            if let activeAssistantItemId, item.id == activeAssistantItemId {
+                return false
+            }
+            remainingToRemove -= 1
+            return true
+        }
+    }
+
+    private static func truncatedTranscriptBody(_ body: String) -> String {
+        guard body.count > maxTranscriptItemCharacters else { return body }
+        let prefix = String(
+            localized: "codexAppServer.transcriptItem.truncatedPrefix",
+            defaultValue: "[Earlier output omitted]"
+        )
+        return "\(prefix)\n\(String(body.suffix(maxTranscriptItemCharacters)))"
     }
 
     private func removePendingRequest(id: Int) {
@@ -546,7 +664,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         return text.isEmpty ? nil : text
     }
 
-    private func commandSummary(from item: [String: Any]) -> String {
+    private static func commandSummary(from item: [String: Any]) -> String {
         if let command = item["command"] as? String {
             return command
         }
