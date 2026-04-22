@@ -12310,6 +12310,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return handleCustomShortcut(event: event)
     }
 
+    func activeBrowserSearchOverlayPanelId(in window: NSWindow) -> UUID? {
+        guard let firstResponder = window.firstResponder else { return nil }
+        let responderIsFieldEditor = (firstResponder as? NSTextView)?.isFieldEditor == true
+        guard responderIsFieldEditor else { return nil }
+
+        let routedManager = synchronizeActiveMainWindowContext(preferredWindow: window) ?? tabManager
+        guard let workspace = routedManager?.selectedWorkspace else { return nil }
+        return workspace.panels.values
+            .compactMap { $0 as? BrowserPanel }
+            .first { panel in
+                panel.searchState != nil && panel.preferredFocusIntent == .findField
+            }?.id
+    }
+
     @discardableResult
     func requestRenameWorkspaceViaCommandPalette(preferredWindow: NSWindow? = nil) -> Bool {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
@@ -14555,7 +14569,7 @@ private extension NSWindow {
         let searchOverlayPanelId = firstResponder.flatMap {
             browserSearchOverlayPanelId(for: $0) ??
                 BrowserWindowPortalRegistry.searchOverlayPanelId(for: $0, in: self)
-        }
+        } ?? AppDelegate.shared?.activeBrowserSearchOverlayPanelId(in: self)
         guard let searchOverlayPanelId else { return false }
         guard AppDelegate.shared?.handleBrowserSearchOverlayKeyDown(
             event,
@@ -14620,7 +14634,7 @@ private extension NSWindow {
         let firstResponderSearchOverlayPanelId = self.firstResponder.flatMap {
             browserSearchOverlayPanelId(for: $0) ??
                 BrowserWindowPortalRegistry.searchOverlayPanelId(for: $0, in: self)
-        }
+        } ?? AppDelegate.shared?.activeBrowserSearchOverlayPanelId(in: self)
         if let firstResponderSearchOverlayPanelId,
            event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
            AppDelegate.shared?.handleBrowserSearchOverlayKeyDown(

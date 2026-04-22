@@ -627,7 +627,7 @@ final class CmuxWebView: WKWebView {
     }
 
     private struct RestoredTextInputSnapshot: Equatable {
-        let id: String
+        let tag: String
         let value: String
         let selectionStart: Int
         let selectionEnd: Int
@@ -635,14 +635,13 @@ final class CmuxWebView: WKWebView {
         init?(_ result: Any?) {
             guard let payload = result as? [String: Any],
                   (payload["ok"] as? Bool) == true,
-                  let id = payload["id"] as? String,
-                  !id.isEmpty,
+                  let tag = payload["tag"] as? String,
                   let value = payload["value"] as? String,
                   let selectionStart = (payload["selectionStart"] as? NSNumber)?.intValue,
                   let selectionEnd = (payload["selectionEnd"] as? NSNumber)?.intValue else {
                 return nil
             }
-            self.id = id
+            self.tag = tag
             self.value = value
             self.selectionStart = selectionStart
             self.selectionEnd = selectionEnd
@@ -652,47 +651,23 @@ final class CmuxWebView: WKWebView {
     private static let restoredTextInputSnapshotScript = """
     (() => {
       try {
-        const readState = () => {
-          let state = window.__cmuxAddressBarFocusState;
-          try {
-            if ((!state || typeof state.id !== "string" || !state.id) &&
-                window.top && window.top.__cmuxAddressBarFocusState) {
-              state = window.top.__cmuxAddressBarFocusState;
-            }
-          } catch (_) {}
-          return state;
-        };
-        const state = readState();
-        if (!state || typeof state.id !== "string" || !state.id) {
-          return { ok: false, reason: "no_state" };
-        }
-        const selector = '[data-cmux-addressbar-focus-id="' + state.id + '"]';
-        const findTarget = (doc) => {
+        const activeEditable = (doc) => {
           if (!doc) return null;
-          const direct = doc.querySelector(selector);
-          if (direct && direct.isConnected) return direct;
-          const frames = doc.querySelectorAll("iframe,frame");
-          for (let i = 0; i < frames.length; i += 1) {
+          const active = doc.activeElement;
+          if (!active || !active.isConnected) return null;
+          const tag = (active.tagName || "").toLowerCase();
+          if (tag === "iframe" || tag === "frame") {
             try {
-              const nested = findTarget(frames[i].contentDocument);
+              const nested = activeEditable(active.contentDocument);
               if (nested) return nested;
             } catch (_) {}
           }
+          if (tag === "input" || tag === "textarea") return active;
           return null;
         };
-        const target = findTarget(document);
-        if (!target) return { ok: false, reason: "missing_target" };
+        const target = activeEditable(document);
+        if (!target) return { ok: false, reason: "missing_active_editable" };
         const tag = (target.tagName || "").toLowerCase();
-        if (tag !== "input" && tag !== "textarea") {
-          return { ok: false, reason: "unsupported_target" };
-        }
-        try {
-          if (target.ownerDocument.activeElement !== target) {
-            target.focus({ preventScroll: true });
-          }
-        } catch (_) {
-          try { target.focus(); } catch (_) {}
-        }
         if (target.ownerDocument.activeElement !== target) {
           return { ok: false, reason: "not_focused" };
         }
@@ -701,7 +676,7 @@ final class CmuxWebView: WKWebView {
         }
         return {
           ok: true,
-          id: state.id,
+          tag,
           value: String(target.value || ""),
           selectionStart: target.selectionStart,
           selectionEnd: target.selectionEnd
@@ -721,47 +696,22 @@ final class CmuxWebView: WKWebView {
         (() => {
           const text = \(arrayLiteral)[0];
           try {
-            const readState = () => {
-              let state = window.__cmuxAddressBarFocusState;
-              try {
-                if ((!state || typeof state.id !== "string" || !state.id) &&
-                    window.top && window.top.__cmuxAddressBarFocusState) {
-                  state = window.top.__cmuxAddressBarFocusState;
-                }
-              } catch (_) {}
-              return state;
-            };
-            const state = readState();
-            if (!state || typeof state.id !== "string" || !state.id) {
-              return { inserted: false, reason: "no_state" };
-            }
-            const selector = '[data-cmux-addressbar-focus-id="' + state.id + '"]';
-            const findTarget = (doc) => {
+            const activeEditable = (doc) => {
               if (!doc) return null;
-              const direct = doc.querySelector(selector);
-              if (direct && direct.isConnected) return direct;
-              const frames = doc.querySelectorAll("iframe,frame");
-              for (let i = 0; i < frames.length; i += 1) {
+              const active = doc.activeElement;
+              if (!active || !active.isConnected) return null;
+              const tag = (active.tagName || "").toLowerCase();
+              if (tag === "iframe" || tag === "frame") {
                 try {
-                  const nested = findTarget(frames[i].contentDocument);
+                  const nested = activeEditable(active.contentDocument);
                   if (nested) return nested;
                 } catch (_) {}
               }
+              if (tag === "input" || tag === "textarea") return active;
               return null;
             };
-            const target = findTarget(document);
-            if (!target) return { inserted: false, reason: "missing_target" };
-            const tag = (target.tagName || "").toLowerCase();
-            if (tag !== "input" && tag !== "textarea") {
-              return { inserted: false, reason: "unsupported_target" };
-            }
-            try {
-              if (target.ownerDocument.activeElement !== target) {
-                target.focus({ preventScroll: true });
-              }
-            } catch (_) {
-              try { target.focus(); } catch (_) {}
-            }
+            const target = activeEditable(document);
+            if (!target) return { inserted: false, reason: "missing_active_editable" };
             if (target.ownerDocument.activeElement !== target) {
               return { inserted: false, reason: "not_focused" };
             }
