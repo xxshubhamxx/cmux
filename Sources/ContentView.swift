@@ -962,37 +962,84 @@ struct ContentView: View {
     }
 
     private var terminalContentWithSidebarDropOverlay: some View {
+        terminalContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .layoutPriority(1)
+            .overlay {
+                SidebarExternalDropOverlay(draggedTabId: sidebarDraggedTabId)
+            }
+    }
+
+    private var terminalContentWithRightSidebarPanel: some View {
         // File explorer is always in the view tree. Visibility is controlled by
         // frame width (0 when hidden), avoiding SwiftUI view insertion/removal
         // and all associated transition animations.
-        let explorerVisible = fileExplorerState.isVisible
         return HStack(spacing: 0) {
-            terminalContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .layoutPriority(1)
-                .overlay {
-                    SidebarExternalDropOverlay(draggedTabId: sidebarDraggedTabId)
-                }
-            if explorerVisible {
+            terminalContentWithSidebarDropOverlay
+            if rightSidebarVisible {
                 Divider()
             }
-            RightSidebarPanelView(
-                fileExplorerStore: fileExplorerStore,
-                fileExplorerState: fileExplorerState,
-                sessionIndexStore: sessionIndexStore,
-                onResumeSession: { entry in
-                    resumeSession(entry: entry)
-                }
-            )
-                .frame(width: explorerVisible ? fileExplorerWidth : 0)
-                .clipped()
-                .allowsHitTesting(explorerVisible)
-                .accessibilityHidden(!explorerVisible)
-                .overlay(alignment: .leading) {
-                    if explorerVisible {
-                        fileExplorerResizerHandle
-                    }
-                }
+            rightSidebarPanelWithBackdrop
+        }
+    }
+
+    private var rightSidebarVisible: Bool {
+        fileExplorerState.isVisible
+    }
+
+    private var rightSidebarWidth: CGFloat {
+        rightSidebarVisible ? fileExplorerWidth : 0
+    }
+
+    private func sidebarBackdropLayer(width: CGFloat) -> some View {
+        SidebarBackdrop()
+            .ignoresSafeArea()
+            .frame(width: width)
+            .clipped()
+            .allowsHitTesting(false)
+    }
+
+    private func sidebarPanelContainer<Content: View>(
+        width: CGFloat,
+        alignment: Alignment,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ZStack(alignment: alignment) {
+            sidebarBackdropLayer(width: width)
+            content()
+        }
+        .frame(width: width)
+    }
+
+    private var sidebarPanelWithBackdrop: some View {
+        sidebarPanelContainer(width: sidebarWidth, alignment: .leading) {
+            sidebarView
+        }
+    }
+
+    private var rightSidebarPanelWithBackdrop: some View {
+        sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing) {
+            rightSidebarPanel
+        }
+    }
+
+    private var rightSidebarPanel: some View {
+        return RightSidebarPanelView(
+            fileExplorerStore: fileExplorerStore,
+            fileExplorerState: fileExplorerState,
+            sessionIndexStore: sessionIndexStore,
+            onResumeSession: { entry in
+                resumeSession(entry: entry)
+            }
+        )
+        .frame(width: rightSidebarWidth)
+        .clipped()
+        .allowsHitTesting(rightSidebarVisible)
+        .accessibilityHidden(!rightSidebarVisible)
+        .overlay(alignment: .leading) {
+            if rightSidebarVisible {
+                fileExplorerResizerHandle
+            }
         }
         .transaction { $0.animation = nil }
         .onAppear {
@@ -1306,14 +1353,23 @@ struct ContentView: View {
         let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
             && !sidebarMatchTerminalBackground
         if useWithinWindow {
-            // Overlay mode: terminal extends full width, sidebar on top
-            // This allows withinWindow blur to see the terminal content
+            // Overlay mode keeps the left sidebar on top, but the right
+            // sidebar stays in an HStack so terminal rows are clipped before
+            // the sidebar backdrop samples the window.
             layout = AnyView(
                 ZStack(alignment: .leading) {
-                    terminalContentWithSidebarDropOverlay
-                        .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                    HStack(spacing: 0) {
+                        terminalContentWithSidebarDropOverlay
+                            .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .layoutPriority(1)
+                        if rightSidebarVisible {
+                            Divider()
+                        }
+                        rightSidebarPanelWithBackdrop
+                    }
                     if sidebarState.isVisible {
-                        sidebarView
+                        sidebarPanelWithBackdrop
                     }
                 }
             )
@@ -1322,9 +1378,9 @@ struct ContentView: View {
             layout = AnyView(
                 HStack(spacing: 0) {
                     if sidebarState.isVisible {
-                        sidebarView
+                        sidebarPanelWithBackdrop
                     }
-                    terminalContentWithSidebarDropOverlay
+                    terminalContentWithRightSidebarPanel
                 }
             )
         }
@@ -7402,7 +7458,6 @@ struct VerticalTabsSidebar: View {
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
-        .background(SidebarBackdrop().ignoresSafeArea())
         .overlay(alignment: .trailing) {
             SidebarTrailingBorder()
         }
