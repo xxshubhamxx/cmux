@@ -2977,16 +2977,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isApplyingSessionRestore && !includeScrollback
     }
 
-    nonisolated static func shouldSkipSessionSaveDuringStartupRestore(
-        isApplyingStartupSessionRestore: Bool,
-        includeScrollback: Bool
-    ) -> Bool {
-        shouldSkipSessionSaveDuringRestore(
-            isApplyingSessionRestore: isApplyingStartupSessionRestore,
-            includeScrollback: includeScrollback
-        )
-    }
-
     nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool) -> Bool {
         !isTerminatingApp
     }

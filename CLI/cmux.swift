@@ -13885,9 +13885,7 @@ struct CMUXCLI {
             "CLAUDE_CONFIG_DIR",
             "CMUX_CUSTOM_CLAUDE_PATH",
             "CODEX_HOME",
-            "OPENCODE_CONFIG_DIR",
-            "PATH",
-            "SHELL"
+            "OPENCODE_CONFIG_DIR"
         ]
         var result: [String: String] = [:]
         for key in allowedKeys {
@@ -14857,7 +14855,7 @@ export default CMUXSessionRestore;
         }
     }
 
-    private func removeOpenCodePluginRegistration(configDir: URL) throws {
+    private func updateOpenCodePluginRegistration(configDir: URL, shouldInstall: Bool) throws {
         let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
         var config: [String: Any]
         if let data = try? Data(contentsOf: configURL) {
@@ -14869,7 +14867,11 @@ export default CMUXSessionRestore;
             config = [:]
         }
 
-        let plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
+        var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
+        if shouldInstall,
+           !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) {
+            plugins.append(Self.openCodeSessionPluginConfigSpec)
+        }
         config["plugin"] = plugins
 
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
@@ -14894,7 +14896,7 @@ export default CMUXSessionRestore;
 
         let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
         try writeOpenCodeSessionPlugin(in: configDir)
-        try removeOpenCodePluginRegistration(configDir: configDir)
+        try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true)
         print("OpenCode hooks installed at \(pluginURL.path)")
     }
 
@@ -14913,8 +14915,9 @@ export default CMUXSessionRestore;
         }
 
         try fm.removeItem(at: pluginURL)
-        try removeOpenCodePluginRegistration(
-            configDir: URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+        try updateOpenCodePluginRegistration(
+            configDir: URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true),
+            shouldInstall: false
         )
         print("Removed OpenCode cmux plugin from \(pluginURL.path)")
     }

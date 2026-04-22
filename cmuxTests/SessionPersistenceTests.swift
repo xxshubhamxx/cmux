@@ -479,22 +479,22 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    func testShouldSkipSessionSaveDuringStartupRestorePolicy() {
+    func testShouldSkipSessionSaveDuringRestorePolicy() {
         XCTAssertTrue(
-            AppDelegate.shouldSkipSessionSaveDuringStartupRestore(
-                isApplyingStartupSessionRestore: true,
+            AppDelegate.shouldSkipSessionSaveDuringRestore(
+                isApplyingSessionRestore: true,
                 includeScrollback: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionSaveDuringStartupRestore(
-                isApplyingStartupSessionRestore: true,
+            AppDelegate.shouldSkipSessionSaveDuringRestore(
+                isApplyingSessionRestore: true,
                 includeScrollback: true
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionSaveDuringStartupRestore(
-                isApplyingStartupSessionRestore: false,
+            AppDelegate.shouldSkipSessionSaveDuringRestore(
+                isApplyingSessionRestore: false,
                 includeScrollback: false
             )
         )
