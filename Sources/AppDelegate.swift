@@ -2350,6 +2350,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         method_exchangeImplementations(originalMethod, swizzledMethod)
     }()
+    private static let didInstallApplicationSendActionSwizzle: Void = {
+        let targetClass: AnyClass = NSApplication.self
+        let originalSelector = #selector(NSApplication.sendAction(_:to:from:))
+        let swizzledSelector = #selector(NSApplication.cmux_sendAction(_:to:from:))
+        guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
+            return
+        }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }()
 
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
@@ -9041,8 +9051,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let cmuxWebView = browserPanel.webView as? CmuxWebView {
             updates["webViewRestoredTextRepairArmed"] =
                 cmuxWebView.debugRestoredWebContentTextInputRepairArmed ? "true" : "false"
+            updates["webViewRestoredTextRepairLastReason"] =
+                cmuxWebView.debugRestoredWebContentTextInputRepairLastReason
         } else {
             updates["webViewRestoredTextRepairArmed"] = "false"
+            updates["webViewRestoredTextRepairLastReason"] = ""
         }
         if let firstResponder = browserPanel.webView.window?.firstResponder {
             updates["webViewFirstResponderType"] = String(describing: type(of: firstResponder))
@@ -10317,6 +10330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     static func installWindowResponderSwizzlesForTesting() {
+        _ = didInstallApplicationSendActionSwizzle
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
         _ = didInstallWindowSendEventSwizzle
@@ -10335,6 +10349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func installWindowResponderSwizzles() {
+        _ = Self.didInstallApplicationSendActionSwizzle
         _ = Self.didInstallApplicationSendEventSwizzle
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
@@ -14515,6 +14530,19 @@ private extension NSApplication {
             return
         }
         cmux_applicationSendEvent(event)
+    }
+
+    @objc func cmux_sendAction(_ action: Selector, to target: Any?, from sender: Any?) -> Bool {
+        if let event = currentEvent,
+           event.type == .keyDown,
+           AppDelegate.shared?.handlePaneFocusNavigationCommandEvent(
+               event,
+               preferredWindow: event.window ?? keyWindow ?? mainWindow,
+               source: "appSendAction.\(NSStringFromSelector(action))"
+           ) == true {
+            return true
+        }
+        return cmux_sendAction(action, to: target, from: sender)
     }
 }
 

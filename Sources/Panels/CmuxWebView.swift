@@ -365,6 +365,7 @@ final class CmuxWebView: WKWebView {
     private var pointerFocusAllowanceDepth: Int = 0
     private var programmaticFocusAllowanceDepth: Int = 0
     private var restoredWebContentTextInputRepairArmed = false
+    private var restoredWebContentTextInputRepairLastReason = ""
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
     var allowsFirstResponderAcquisitionEffective: Bool {
@@ -376,6 +377,9 @@ final class CmuxWebView: WKWebView {
     var debugProgrammaticFocusAllowanceDepth: Int { programmaticFocusAllowanceDepth }
     var debugRestoredWebContentTextInputRepairArmed: Bool {
         restoredWebContentTextInputRepairArmed
+    }
+    var debugRestoredWebContentTextInputRepairLastReason: String {
+        restoredWebContentTextInputRepairLastReason
     }
 
     override init(frame: NSRect, configuration: WKWebViewConfiguration) {
@@ -528,6 +532,7 @@ final class CmuxWebView: WKWebView {
 
     func armRestoredWebContentTextInputRepair(reason: String) {
         restoredWebContentTextInputRepairArmed = true
+        restoredWebContentTextInputRepairLastReason = "arm.\(reason)"
 #if DEBUG
         dlog(
             "browser.focus.textRepair.arm web=\(ObjectIdentifier(self)) " +
@@ -537,6 +542,7 @@ final class CmuxWebView: WKWebView {
     }
 
     func disarmRestoredWebContentTextInputRepair(reason: String) {
+        restoredWebContentTextInputRepairLastReason = "disarm.\(reason)"
         guard restoredWebContentTextInputRepairArmed else { return }
         restoredWebContentTextInputRepairArmed = false
 #if DEBUG
@@ -684,6 +690,70 @@ final class CmuxWebView: WKWebView {
           selectionStart: target.selectionStart,
           selectionEnd: target.selectionEnd
         };
+      } catch (_) {
+        return { ok: false, reason: "error" };
+      }
+    })();
+    """
+
+    private static let restorableTextInputFocusScript = """
+    (() => {
+      try {
+        const isEditable = (el) => {
+          if (!el) return false;
+          const tag = (el.tagName || "").toLowerCase();
+          const type = (el.type || "").toLowerCase();
+          return tag === "textarea" || (tag === "input" && type !== "hidden");
+        };
+        const activeEditable = (doc) => {
+          if (!doc) return null;
+          const active = doc.activeElement;
+          if (!active || !active.isConnected) return null;
+          const tag = (active.tagName || "").toLowerCase();
+          if (tag === "iframe" || tag === "frame") {
+            try {
+              const nested = activeEditable(active.contentDocument);
+              if (nested) return nested;
+            } catch (_) {}
+          }
+          return isEditable(active) ? active : null;
+        };
+        const readState = () => {
+          let state = window.__cmuxAddressBarFocusState;
+          try {
+            if ((!state || typeof state.id !== "string" || !state.id) &&
+                window.top && window.top.__cmuxAddressBarFocusState) {
+              state = window.top.__cmuxAddressBarFocusState;
+            }
+          } catch (_) {}
+          return state;
+        };
+        const targetFromStoredState = (doc) => {
+          const state = readState();
+          if (!doc || !state || typeof state.id !== "string" || !state.id) return null;
+          const selector = '[data-cmux-addressbar-focus-id="' + state.id + '"]';
+          const findTarget = (rootDoc) => {
+            if (!rootDoc) return null;
+            const direct = rootDoc.querySelector(selector);
+            if (direct && direct.isConnected && isEditable(direct)) return direct;
+            const frames = rootDoc.querySelectorAll("iframe,frame");
+            for (let i = 0; i < frames.length; i += 1) {
+              try {
+                const nested = findTarget(frames[i].contentDocument);
+                if (nested) return nested;
+              } catch (_) {}
+            }
+            return null;
+          };
+          return findTarget(doc);
+        };
+        if (activeEditable(document)) {
+          return { ok: true, source: "active" };
+        }
+        if (targetFromStoredState(document)) {
+          return { ok: true, source: "stored" };
+        }
+        return { ok: false, reason: "missing_editable" };
       } catch (_) {
         return { ok: false, reason: "error" };
       }
@@ -841,6 +911,29 @@ final class CmuxWebView: WKWebView {
         return RestoredTextInputSnapshot(evaluation.result)
     }
 
+    func hasRestorableWebContentTextInputFocus() -> Bool {
+        let evaluation = evaluateJavaScriptSynchronously(Self.restorableTextInputFocusScript)
+        let payload = evaluation.result as? [String: Any]
+        let payloadOK = (payload?["ok"] as? Bool) ??
+            (payload?["ok"] as? NSNumber)?.boolValue ??
+            false
+        let ok = evaluation.completed &&
+            evaluation.error == nil &&
+            payloadOK
+#if DEBUG
+        let source = (payload?["source"] as? String) ?? "nil"
+        let reason = (payload?["reason"] as? String) ?? "nil"
+        let errorDescription = evaluation.completed
+            ? (evaluation.error?.localizedDescription ?? "nil")
+            : "timeout"
+        dlog(
+            "browser.focus.textRepair.restorable web=\(ObjectIdentifier(self)) " +
+            "ok=\(ok ? 1 : 0) source=\(source) reason=\(reason) error=\(errorDescription)"
+        )
+#endif
+        return ok
+    }
+
     private func performRestoredTextInputRepairIfNeeded(
         event: NSEvent,
         text: String
@@ -896,8 +989,8 @@ final class CmuxWebView: WKWebView {
         let inserted = insert.completed &&
             insert.error == nil &&
             ((insert.result as? [String: Any])?["inserted"] as? Bool == true)
-#if DEBUG
         let reason = ((insert.result as? [String: Any])?["reason"] as? String) ?? "nil"
+#if DEBUG
         let errorDescription = insert.completed
             ? (insert.error?.localizedDescription ?? "nil")
             : "timeout"
@@ -906,6 +999,18 @@ final class CmuxWebView: WKWebView {
             "inserted=\(inserted ? 1 : 0) reason=\(reason) error=\(errorDescription)"
         )
 #endif
+        if inserted {
+            restoredWebContentTextInputRepairLastReason = "bridgeInserted"
+            return "focusRepairBridgeInserted"
+        }
+
+        if insert.completed,
+           insert.error == nil,
+           !hasRestorableWebContentTextInputFocus() {
+            disarmRestoredWebContentTextInputRepair(reason: "bridgeInsertFailed.\(reason)")
+            return nil
+        }
+
         if !insert.completed || insert.error != nil || !inserted {
             let webIdentifier = ObjectIdentifier(self)
             evaluateJavaScript(script) { [weak self] result, error in
@@ -920,12 +1025,18 @@ final class CmuxWebView: WKWebView {
                 )
 #endif
                 if !inserted {
-                    self?.disarmRestoredWebContentTextInputRepair(reason: "bridgeAsyncInsertFailed.\(reason)")
+                    if self?.hasRestorableWebContentTextInputFocus() == true {
+                        self?.restoredWebContentTextInputRepairLastReason = "bridgeAsyncRetained.\(reason)"
+                    } else {
+                        self?.disarmRestoredWebContentTextInputRepair(reason: "bridgeAsyncInsertFailed.\(reason)")
+                    }
+                } else {
+                    self?.restoredWebContentTextInputRepairLastReason = "bridgeAsyncInserted"
                 }
             }
             return "focusRepairBridgeScheduled"
         }
-        return "focusRepairBridgeInserted"
+        return nil
     }
 
     private func bridgeRestoredTextInputRepairIfWrapperIsFirstResponder(text: String) -> String? {

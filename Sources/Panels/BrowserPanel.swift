@@ -5274,6 +5274,10 @@ extension BrowserPanel {
             shouldRestoreWebContent: true,
             webViewInstanceID: webViewInstanceID
         )
+        if let cmuxWebView = webView as? CmuxWebView,
+           cmuxWebView.hasRestorableWebContentTextInputFocus() {
+            cmuxWebView.armRestoredWebContentTextInputRepair(reason: "findDismiss.\(reason).pending")
+        }
         updateSubfocusState(.webView)
         searchState = nil
         drivePendingWebContentRestoreIfPossible(trigger: "findDismiss.\(reason)")
@@ -5799,23 +5803,26 @@ extension BrowserPanel {
             if hasWebViewResponder {
                 self.noteWebViewFocused()
             }
+            let cmuxWebView = self.webView as? CmuxWebView
+            let hasRestorableTextInput = cmuxWebView?.hasRestorableWebContentTextInputFocus() ?? false
             let shouldBridgeRestoredTextInput = hasWebViewResponder &&
-                (restored || reason.hasPrefix("findDismiss."))
+                (restored || reason.hasPrefix("findDismiss.") || hasRestorableTextInput)
             if shouldBridgeRestoredTextInput {
-                (self.webView as? CmuxWebView)?.armRestoredWebContentTextInputRepair(reason: reason)
+                cmuxWebView?.armRestoredWebContentTextInputRepair(reason: reason)
             } else {
-                (self.webView as? CmuxWebView)?.disarmRestoredWebContentTextInputRepair(reason: "restoreNotReady.\(reason)")
+                cmuxWebView?.disarmRestoredWebContentTextInputRepair(reason: "restoreNotReady.\(reason)")
             }
 #if DEBUG
             dlog(
                 "browser.focus.webContent.return panel=\(self.id.uuidString.prefix(5)) " +
                 "reason=\(reason) restored=\(restored ? 1 : 0) " +
                 "webViewResponder=\(hasWebViewResponder ? 1 : 0) " +
-                "reacquired=\(reacquiredWebContentResponder ? 1 : 0)"
+                "reacquired=\(reacquiredWebContentResponder ? 1 : 0) " +
+                "restorableTextInput=\(hasRestorableTextInput ? 1 : 0)"
             )
             self.debugLogWebContentFocusSnapshot(
                 event: "webContent.return.end",
-                detail: "reason=\(reason) restored=\(restored ? 1 : 0) webViewResponder=\(hasWebViewResponder ? 1 : 0) reacquired=\(reacquiredWebContentResponder ? 1 : 0)"
+                detail: "reason=\(reason) restored=\(restored ? 1 : 0) webViewResponder=\(hasWebViewResponder ? 1 : 0) reacquired=\(reacquiredWebContentResponder ? 1 : 0) restorableTextInput=\(hasRestorableTextInput ? 1 : 0)"
             )
 #endif
             complete(restored)
