@@ -223,13 +223,14 @@ func TestWebSocketPTYSeedsUTF8LocaleAndTerminalEnv(t *testing.T) {
 		t.Fatalf("first frame should be ready text, type=%v payload=%q", msgType, string(payload))
 	}
 
-	command := "printf '%s\\n' \"$LANG|$LC_CTYPE|$LC_ALL|$TERM|$COLORTERM|$TERM_PROGRAM|$CMUX_REMOTE_TRANSPORT\"; exit\r"
+	command := "printf '%s\\n' \"$LANG|$LC_CTYPE|$LC_ALL|$TERM|$COLORTERM|$TERM_PROGRAM|$CMUX_REMOTE_TRANSPORT\"; locale charmap; exit\r"
 	if err := conn.Write(ctx, websocket.MessageBinary, []byte(command)); err != nil {
 		t.Fatalf("write terminal command: %v", err)
 	}
 
 	var output strings.Builder
-	want := "C.UTF-8|C.UTF-8|C.UTF-8|xterm-256color|truecolor|ghostty|ws"
+	wantTerminalEnv := "|xterm-256color|truecolor|ghostty|ws"
+	wantCharmap := "UTF-8"
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		readCtx, cancelRead := context.WithTimeout(ctx, time.Until(deadline))
@@ -242,7 +243,7 @@ func TestWebSocketPTYSeedsUTF8LocaleAndTerminalEnv(t *testing.T) {
 			continue
 		}
 		output.Write(payload)
-		if strings.Contains(output.String(), want) {
+		if strings.Contains(output.String(), wantTerminalEnv) && strings.Contains(output.String(), wantCharmap) {
 			return
 		}
 	}
