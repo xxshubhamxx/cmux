@@ -4084,7 +4084,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if existingContexts.isEmpty {
             for windowSnapshot in snapshotWindows {
-                _ = createMainWindow(sessionWindowSnapshot: windowSnapshot)
+                _ = createMainWindow(
+                    sessionWindowSnapshot: windowSnapshot,
+                    shouldActivate: shouldActivate
+                )
             }
         } else {
             for (context, windowSnapshot) in zip(existingContexts, snapshotWindows) {
@@ -4097,7 +4100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             if snapshotWindows.count > existingContexts.count {
                 for windowSnapshot in snapshotWindows.dropFirst(existingContexts.count) {
-                    _ = createMainWindow(sessionWindowSnapshot: windowSnapshot)
+                    _ = createMainWindow(
+                        sessionWindowSnapshot: windowSnapshot,
+                        shouldActivate: shouldActivate
+                    )
                 }
             }
 
@@ -7308,7 +7314,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func createMainWindow(
         initialWorkingDirectory: String? = nil,
-        sessionWindowSnapshot: SessionWindowSnapshot? = nil
+        sessionWindowSnapshot: SessionWindowSnapshot? = nil,
+        shouldActivate: Bool = true
     ) -> UUID {
         let windowId = UUID()
         let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
@@ -7437,9 +7444,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarSelectionState: sidebarSelectionState
         )
         installFileDropOverlay(on: window, tabManager: tabManager)
-        if TerminalController.shouldSuppressSocketCommandActivation() {
+        if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {
             window.orderFront(nil)
-            if TerminalController.socketCommandAllowsInAppFocusMutations() {
+            if shouldActivate, TerminalController.socketCommandAllowsInAppFocusMutations() {
                 setActiveMainWindow(window)
             }
         } else {
