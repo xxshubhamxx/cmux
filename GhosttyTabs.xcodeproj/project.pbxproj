@@ -41,6 +41,7 @@
 		807E058A23061EFB70A1B7F8 /* WindowGlassEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B54144FA244A0B482D2903D /* WindowGlassEffect.swift */; };
 		B8A46BF76E9EE0ACC8EA684F /* FileDropOverlaySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB896797E467113947140E8 /* FileDropOverlaySupport.swift */; };
 		92BF8F77C965481AABA44292 /* WindowOverlaySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F8285C58D8C433695FE18B6 /* WindowOverlaySupport.swift */; };
+		BF0A9164789945228DC80899 /* TitlebarLeadingInsetSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D2ED53E264B475EA816391A /* TitlebarLeadingInsetSupport.swift */; };
 		F57072635F25EBCA741E125D /* SidebarState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */; };
 		A8CBA43C2DA5AB9E3A1E65A4 /* CommandPaletteSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A09EB2E92203B2E95923A7 /* CommandPaletteSearch.swift */; };
 		0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */; };
@@ -281,6 +282,7 @@
 		0B54144FA244A0B482D2903D /* WindowGlassEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowGlassEffect.swift; sourceTree = "<group>"; };
 		AEB896797E467113947140E8 /* FileDropOverlaySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/FileDropOverlaySupport.swift; sourceTree = "<group>"; };
 		7F8285C58D8C433695FE18B6 /* WindowOverlaySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowOverlaySupport.swift; sourceTree = "<group>"; };
+		7D2ED53E264B475EA816391A /* TitlebarLeadingInsetSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/TitlebarLeadingInsetSupport.swift; sourceTree = "<group>"; };
 		D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarState.swift; sourceTree = "<group>"; };
 		38A09EB2E92203B2E95923A7 /* CommandPaletteSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteSearch.swift; sourceTree = "<group>"; };
 		6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalDirectoryOpenSupport.swift; sourceTree = "<group>"; };
@@ -545,6 +547,7 @@
 				0B54144FA244A0B482D2903D /* WindowGlassEffect.swift */,
 				AEB896797E467113947140E8 /* FileDropOverlaySupport.swift */,
 				7F8285C58D8C433695FE18B6 /* WindowOverlaySupport.swift */,
+				7D2ED53E264B475EA816391A /* TitlebarLeadingInsetSupport.swift */,
 				D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */,
 				38A09EB2E92203B2E95923A7 /* CommandPaletteSearch.swift */,
 				6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */,
@@ -929,6 +932,7 @@
 				807E058A23061EFB70A1B7F8 /* WindowGlassEffect.swift in Sources */,
 				B8A46BF76E9EE0ACC8EA684F /* FileDropOverlaySupport.swift in Sources */,
 				92BF8F77C965481AABA44292 /* WindowOverlaySupport.swift in Sources */,
+				BF0A9164789945228DC80899 /* TitlebarLeadingInsetSupport.swift in Sources */,
 				F57072635F25EBCA741E125D /* SidebarState.swift in Sources */,
 				A8CBA43C2DA5AB9E3A1E65A4 /* CommandPaletteSearch.swift in Sources */,
 				0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */,
