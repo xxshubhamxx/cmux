@@ -5298,14 +5298,20 @@ struct CMUXCLI {
             guard !trimmed.isEmpty else { continue }
             merged.append(trimmed)
         }
-        if !hasSSHOptionKey(merged, key: "ControlMaster") {
+        let controlMaster = sshOptionValue(named: "ControlMaster", in: merged)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let controlMasterDisabled = ["no", "false", "off"].contains(controlMaster ?? "")
+        if controlMaster == nil {
             merged.append("ControlMaster=auto")
         }
-        if !hasSSHOptionKey(merged, key: "ControlPersist") {
-            merged.append("ControlPersist=600")
-        }
-        if !hasSSHOptionKey(merged, key: "ControlPath") {
-            merged.append("ControlPath=\(defaultSSHControlPathTemplate(remoteRelayPort: remoteRelayPort))")
+        if !controlMasterDisabled {
+            if !hasSSHOptionKey(merged, key: "ControlPersist") {
+                merged.append("ControlPersist=600")
+            }
+            if !hasSSHOptionKey(merged, key: "ControlPath") {
+                merged.append("ControlPath=\(defaultSSHControlPathTemplate(remoteRelayPort: remoteRelayPort))")
+            }
         }
         return merged
     }
@@ -5460,6 +5466,10 @@ struct CMUXCLI {
             // offer but rejects the signed challenge and closes the connection before "none"
             // can be tried. With no identities offered, ssh falls through to "none" and
             // succeeds.
+            //
+            // Each VM pane needs an independent gateway session. Reusing OpenSSH control
+            // sockets can make a new split disturb the original shell, which collapses the
+            // split as soon as the original child exits.
             let sshOptionStrings = [
                 "StrictHostKeyChecking=no",
                 "UserKnownHostsFile=/dev/null",
@@ -5467,6 +5477,7 @@ struct CMUXCLI {
                 "IdentitiesOnly=yes",
                 "IdentityFile=/dev/null",
                 "PreferredAuthentications=none,password",
+                "ControlMaster=no",
             ]
             let localSocketPath = client.socketPath
             let remoteRelayPort = generateRemoteRelayPort()
