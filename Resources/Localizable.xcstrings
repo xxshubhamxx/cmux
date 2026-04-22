@@ -240,6 +240,40 @@
         }
       }
     },
+    "codexAppServer.event.item": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Item"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計画"
+          }
+        }
+      }
+    },
     "codexAppServer.event.request": {
       "extractionState": "manual",
       "localizations": {
@@ -253,6 +287,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "承認が必要です"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.resumed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thread resumed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スレッドを再開しました"
           }
         }
       }

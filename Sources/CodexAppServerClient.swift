@@ -108,6 +108,16 @@ enum CodexAppServerRequestFactory {
         return request(id: id, method: "thread/start", params: params)
     }
 
+    static func threadResumeRequest(id: Int, threadId: String, cwd: String?) -> [String: Any] {
+        var params: [String: Any] = [
+            "threadId": threadId,
+        ]
+        if let cwd, !cwd.isEmpty {
+            params["cwd"] = cwd
+        }
+        return request(id: id, method: "thread/resume", params: params)
+    }
+
     static func turnStartRequest(id: Int, threadId: String, text: String, cwd: String?) -> [String: Any] {
         var params: [String: Any] = [
             "threadId": threadId,
@@ -191,6 +201,18 @@ final class CodexAppServerClient: @unchecked Sendable {
             throw CodexAppServerClientError.invalidResponse("thread/start response did not include thread.id")
         }
         return threadId
+    }
+
+    func resumeThread(threadId: String, cwd: String?) async throws -> [String: Any] {
+        let response = try await sendRequestObject(
+            CodexAppServerRequestFactory.threadResumeRequest(id: nextId(), threadId: threadId, cwd: cwd)
+        )
+        guard let thread = response["thread"] as? [String: Any],
+              let resumedThreadId = thread["id"] as? String,
+              !resumedThreadId.isEmpty else {
+            throw CodexAppServerClientError.invalidResponse("thread/resume response did not include thread.id")
+        }
+        return response
     }
 
     func startTurn(threadId: String, text: String, cwd: String?) async throws -> String {

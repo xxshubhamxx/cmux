@@ -10443,6 +10443,7 @@ final class Workspace: Identifiable, ObservableObject {
     func newCodexAppServerSurface(
         inPane paneId: PaneID,
         cwd: String? = nil,
+        resumeThreadId: String? = nil,
         focus: Bool? = nil
     ) -> CodexAppServerPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
@@ -10454,7 +10455,11 @@ final class Workspace: Identifiable, ObservableObject {
             ?? sourcePanelId.flatMap { panelDirectories[$0] }
             ?? currentDirectory
 
-        let codexPanel = CodexAppServerPanel(workspaceId: id, cwd: resolvedCwd)
+        let codexPanel = CodexAppServerPanel(
+            workspaceId: id,
+            cwd: resolvedCwd,
+            resumeThreadId: resumeThreadId
+        )
         panels[codexPanel.id] = codexPanel
         panelTitles[codexPanel.id] = codexPanel.displayTitle
 

@@ -98,11 +98,13 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     @Published private(set) var pendingRequests: [CodexAppServerPendingRequest] = []
 
     private let client: CodexAppServerClient
+    private let initialResumeThreadId: String?
     private var threadId: String?
     private var currentTurnId: String?
     private var activeAssistantItemId: UUID?
     private var isStarted = false
     private var isClosed = false
+    private var didResumeInitialThread = false
 
     var displayTitle: String {
         String(localized: "codexAppServer.panel.title", defaultValue: "Codex")
@@ -120,11 +122,13 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         id: UUID = UUID(),
         workspaceId: UUID,
         cwd: String,
+        resumeThreadId: String? = nil,
         client: CodexAppServerClient = CodexAppServerClient()
     ) {
         self.id = id
         self.workspaceId = workspaceId
         self.cwd = cwd
+        self.initialResumeThreadId = resumeThreadId?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.client = client
         self.client.onEvent = { [weak self] event in
             Task { @MainActor in
@@ -143,11 +147,26 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         do {
             try await client.startAndInitialize()
             isStarted = true
-            status = .ready
-            appendEvent(
-                title: String(localized: "codexAppServer.event.started", defaultValue: "App server started"),
-                body: currentWorkingDirectory()
-            )
+            if let initialResumeThreadId, !initialResumeThreadId.isEmpty, !didResumeInitialThread {
+                status = .running
+                let response = try await client.resumeThread(
+                    threadId: initialResumeThreadId,
+                    cwd: currentWorkingDirectory()
+                )
+                didResumeInitialThread = true
+                applyResumeResponse(response, fallbackThreadId: initialResumeThreadId)
+                status = .ready
+                appendEvent(
+                    title: String(localized: "codexAppServer.event.resumed", defaultValue: "Thread resumed"),
+                    body: threadId ?? initialResumeThreadId
+                )
+            } else {
+                status = .ready
+                appendEvent(
+                    title: String(localized: "codexAppServer.event.started", defaultValue: "App server started"),
+                    body: currentWorkingDirectory()
+                )
+            }
         } catch {
             status = .failed(error.localizedDescription)
             appendError(error.localizedDescription)
@@ -387,6 +406,86 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         )
     }
 
+    private func applyResumeResponse(_ response: [String: Any], fallbackThreadId: String) {
+        let thread = response["thread"] as? [String: Any]
+        threadId = Self.stringValue(named: "id", in: thread) ?? fallbackThreadId
+        if let resumedCwd = Self.stringValue(named: "cwd", in: response)
+            ?? Self.stringValue(named: "cwd", in: thread),
+            !resumedCwd.isEmpty {
+            cwd = resumedCwd
+        }
+
+        let turns = thread?["turns"] as? [[String: Any]] ?? []
+        let restoredItems = turns.flatMap { restoredTranscriptItems(fromTurn: $0) }
+        guard !restoredItems.isEmpty else { return }
+        transcriptItems = restoredItems
+        activeAssistantItemId = nil
+    }
+
+    private func restoredTranscriptItems(fromTurn turn: [String: Any]) -> [CodexAppServerTranscriptItem] {
+        let date = Self.dateValue(named: "startedAt", in: turn) ?? Date()
+        let items = turn["items"] as? [[String: Any]] ?? []
+        return items.compactMap { restoredTranscriptItem(fromThreadItem: $0, date: date) }
+    }
+
+    private func restoredTranscriptItem(
+        fromThreadItem item: [String: Any],
+        date: Date
+    ) -> CodexAppServerTranscriptItem? {
+        let type = Self.stringValue(named: "type", in: item) ?? ""
+        switch type {
+        case "userMessage":
+            guard let text = Self.userMessageText(from: item), !text.isEmpty else { return nil }
+            return CodexAppServerTranscriptItem(
+                role: .user,
+                title: String(localized: "codexAppServer.role.user", defaultValue: "You"),
+                body: text,
+                date: date
+            )
+        case "agentMessage":
+            guard let text = Self.stringValue(named: "text", in: item), !text.isEmpty else { return nil }
+            return CodexAppServerTranscriptItem(
+                role: .assistant,
+                title: String(localized: "codexAppServer.role.assistant", defaultValue: "Codex"),
+                body: text,
+                date: date
+            )
+        case "plan":
+            guard let text = Self.stringValue(named: "text", in: item), !text.isEmpty else { return nil }
+            return CodexAppServerTranscriptItem(
+                role: .event,
+                title: String(localized: "codexAppServer.event.plan", defaultValue: "Plan"),
+                body: text,
+                date: date
+            )
+        case "commandExecution":
+            return CodexAppServerTranscriptItem(
+                role: .event,
+                title: String(localized: "codexAppServer.event.command", defaultValue: "Command"),
+                body: commandSummary(from: item),
+                date: date
+            )
+        case "fileChange":
+            return CodexAppServerTranscriptItem(
+                role: .event,
+                title: String(localized: "codexAppServer.event.fileChange", defaultValue: "File change"),
+                body: Self.prettyJSON(item),
+                date: date
+            )
+        default:
+            let body = Self.stringValue(named: "text", in: item) ?? Self.prettyJSON(item)
+            guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return CodexAppServerTranscriptItem(
+                role: .event,
+                title: type.isEmpty
+                    ? String(localized: "codexAppServer.event.item", defaultValue: "Item")
+                    : type,
+                body: body,
+                date: date
+            )
+        }
+    }
+
     private func append(role: CodexAppServerTranscriptRole, title: String, body: String) {
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedBody.isEmpty else { return }
@@ -416,6 +515,35 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             return value.stringValue
         }
         return nil
+    }
+
+    private static func dateValue(named key: String, in object: [String: Any]?) -> Date? {
+        guard let value = object?[key] else { return nil }
+        if let value = value as? NSNumber {
+            return Date(timeIntervalSince1970: value.doubleValue)
+        }
+        if let value = value as? Double {
+            return Date(timeIntervalSince1970: value)
+        }
+        if let value = value as? Int {
+            return Date(timeIntervalSince1970: TimeInterval(value))
+        }
+        return nil
+    }
+
+    private static func userMessageText(from item: [String: Any]) -> String? {
+        guard let content = item["content"] as? [[String: Any]] else { return nil }
+        let parts = content.compactMap { input -> String? in
+            if let text = stringValue(named: "text", in: input) {
+                return text
+            }
+            if let url = stringValue(named: "url", in: input) {
+                return url
+            }
+            return nil
+        }
+        let text = parts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
 
     private func commandSummary(from item: [String: Any]) -> String {

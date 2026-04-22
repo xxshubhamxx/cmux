@@ -45,6 +45,21 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertEqual(params["ephemeral"] as? Bool, true)
     }
 
+    func testThreadResumeRequestCarriesThreadIdAndCwd() throws {
+        let request = CodexAppServerRequestFactory.threadResumeRequest(
+            id: 8,
+            threadId: "00000000-0000-0000-0000-000000000000",
+            cwd: "/Users/cmux/project"
+        )
+
+        XCTAssertEqual(request["id"] as? Int, 8)
+        XCTAssertEqual(request["method"] as? String, "thread/resume")
+
+        let params = try XCTUnwrap(request["params"] as? [String: Any])
+        XCTAssertEqual(params["threadId"] as? String, "00000000-0000-0000-0000-000000000000")
+        XCTAssertEqual(params["cwd"] as? String, "/Users/cmux/project")
+    }
+
     func testTurnStartRequestUsesTextInputItemShape() throws {
         let request = CodexAppServerRequestFactory.turnStartRequest(
             id: 9,

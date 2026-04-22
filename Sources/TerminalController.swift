@@ -5336,6 +5336,15 @@ class TerminalController {
             let newPanelId: UUID?
             if panelType == .browser {
                 newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: v2FocusAllowed())?.id
+            } else if panelType == .codexAppServer {
+                let cwd = v2RawString(params, "cwd")?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let threadId = v2RawString(params, "thread_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
+                newPanelId = ws.newCodexAppServerSurface(
+                    inPane: paneId,
+                    cwd: cwd?.isEmpty == false ? cwd : nil,
+                    resumeThreadId: threadId?.isEmpty == false ? threadId : nil,
+                    focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+                )?.id
             } else {
                 newPanelId = ws.newTerminalSurface(inPane: paneId, focus: v2FocusAllowed())?.id
             }
