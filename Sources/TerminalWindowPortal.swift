@@ -11,7 +11,9 @@ private let notificationPortalLogger = Logger(
 )
 
 private func notificationPortalLog(_ message: String) {
-    notificationPortalLogger.debug("\(message, privacy: .public)")
+    // Default String-interpolation privacy is `.private`; hosted-view pointers
+    // and window numbers stay redacted in release unified logs.
+    notificationPortalLogger.debug("\(message)")
 }
 
 private func notificationPortalObjectToken(_ object: AnyObject?) -> String {

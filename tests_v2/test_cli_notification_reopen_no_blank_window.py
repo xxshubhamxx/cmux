@@ -223,7 +223,14 @@ def main() -> int:
     with cmux(SOCKET_PATH) as c:
         try:
             c.activate_app()
-            time.sleep(0.25)
+            # Replace a fixed activate-app sleep with a poll so slow CI runners
+            # don't hit `current_window()`'s no-window error before the first
+            # main terminal window has finished coming up.
+            _wait_for(
+                lambda: _window_count(c.window_snapshot()) >= 1,
+                timeout_s=3.0,
+                label="at least one app window after activate_app",
+            )
 
             foreground_window = c.current_window()
             baseline_snapshot = c.window_snapshot()

@@ -21,7 +21,10 @@ private let cliNotificationDebugLogger = Logger(
 )
 
 private func cliNotificationDebugLog(_ message: String) {
-    cliNotificationDebugLogger.debug("\(message, privacy: .public)")
+    // See AppDelegate.notificationDebugLog — default String interpolation
+    // privacy (`.private`) keeps bundle identifiers, pids, and argv payloads
+    // redacted in release unified logs.
+    cliNotificationDebugLogger.debug("\(message)")
 }
 
 struct CLIError: Error, CustomStringConvertible {
@@ -3305,7 +3308,12 @@ struct CMUXCLI {
             cliNotificationDebugLog(
                 "cli.activateApp.existing bundleId=\(bundleIdentifier) pid=\(running.processIdentifier) activated=\(activated ? 1 : 0)"
             )
-            return
+            if activated {
+                return
+            }
+            cliNotificationDebugLog(
+                "cli.activateApp.fallback bundleId=\(bundleIdentifier) reason=activate_returned_false"
+            )
         }
 #endif
         let process = Process()

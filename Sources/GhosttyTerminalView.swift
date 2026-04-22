@@ -19,7 +19,9 @@ private let notificationSurfaceLogger = Logger(
 )
 
 private func notificationSurfaceLog(_ message: String) {
-    notificationSurfaceLogger.debug("\(message, privacy: .public)")
+    // Default String-interpolation privacy is `.private`; surface UUIDs and
+    // portal binding tokens stay redacted in release unified logs.
+    notificationSurfaceLogger.debug("\(message)")
 }
 
 @_silgen_name("ghostty_surface_clear_selection")

@@ -10,7 +10,9 @@ private let notificationStoreLogger = Logger(
 )
 
 private func notificationStoreLog(_ message: String) {
-    notificationStoreLogger.debug("\(message, privacy: .public)")
+    // Default String-interpolation privacy is `.private`, which redacts tab /
+    // surface / notification UUIDs in release unified logs.
+    notificationStoreLogger.debug("\(message)")
 }
 
 // UNUserNotificationCenter.removeDeliveredNotifications(withIdentifiers:) and

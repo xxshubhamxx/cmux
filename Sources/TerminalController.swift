@@ -11265,9 +11265,12 @@ class TerminalController {
     }
 
     private func v2DebugWindowSnapshot() -> V2CallResult {
+#if DEBUG
         // NSApp.windows, AppDelegate.mainWindowContexts, and per-window AppKit
         // properties are main-actor state; the exact-snapshot contract for this
         // debug RPC requires synchronous main-thread execution.
+        // AppDelegate.debugWindowSnapshot() is itself `#if DEBUG`, so this body
+        // must be guarded too or release builds fail to link.
         let payload: [String: Any]? = v2MainSync {
             AppDelegate.shared?.debugWindowSnapshot()
         }
@@ -11275,6 +11278,9 @@ class TerminalController {
             return .err(code: "unavailable", message: "AppDelegate.debugWindowSnapshot unavailable", data: nil)
         }
         return .ok(payload)
+#else
+        return .err(code: "unavailable", message: "debug.window.snapshot is DEBUG-only", data: nil)
+#endif
     }
 
     private func v2DebugFlashCount(params: [String: Any]) -> V2CallResult {
