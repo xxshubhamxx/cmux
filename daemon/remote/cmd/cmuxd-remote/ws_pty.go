@@ -1,0 +1,327 @@
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/creack/pty"
+	"nhooyr.io/websocket"
+)
+
+type wsPTYServerConfig struct {
+	ListenAddr    string
+	AuthLeaseFile string
+	Shell         string
+}
+
+type wsPTYLease struct {
+	Version       int    `json:"version"`
+	TokenSHA256   string `json:"token_sha256"`
+	ExpiresAtUnix int64  `json:"expires_at_unix"`
+	SessionID     string `json:"session_id,omitempty"`
+	SingleUse     bool   `json:"single_use"`
+}
+
+type wsPTYAuthFrame struct {
+	Type         string `json:"type"`
+	Token        string `json:"token"`
+	SessionID    string `json:"session_id,omitempty"`
+	AttachmentID string `json:"attachment_id,omitempty"`
+	Cols         int    `json:"cols,omitempty"`
+	Rows         int    `json:"rows,omitempty"`
+}
+
+type wsPTYControlFrame struct {
+	Type string `json:"type"`
+	Cols int    `json:"cols,omitempty"`
+	Rows int    `json:"rows,omitempty"`
+}
+
+type wsPTYEventFrame struct {
+	Type      string `json:"type"`
+	SessionID string `json:"session_id,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+var (
+	errWSLeaseMissing   = errors.New("attach lease missing")
+	errWSLeaseExpired   = errors.New("attach lease expired")
+	errWSLeaseForbidden = errors.New("attach lease rejected")
+	wsLeaseMu           sync.Mutex
+)
+
+func runWebSocketPTYServer(ctx context.Context, cfg wsPTYServerConfig, stderr io.Writer) error {
+	addr := cfg.ListenAddr
+	if strings.TrimSpace(addr) == "" {
+		addr = "127.0.0.1:7777"
+	}
+	if strings.TrimSpace(cfg.AuthLeaseFile) == "" {
+		return errors.New("auth lease file is required")
+	}
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
+
+	server := &http.Server{
+		Handler:           newWebSocketPTYHandler(cfg, stderr),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}()
+
+	_, _ = fmt.Fprintf(stderr, "cmuxd-remote ws listening on %s\n", listener.Addr().String())
+	err = server.Serve(listener)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+func newWebSocketPTYHandler(cfg wsPTYServerConfig, stderr io.Writer) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		_, statErr := os.Stat(cfg.AuthLeaseFile)
+		locked := statErr != nil
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":     true,
+			"locked": locked,
+		})
+	})
+	mux.HandleFunc("/terminal", func(w http.ResponseWriter, r *http.Request) {
+		handleWebSocketPTY(w, r, cfg, stderr)
+	})
+	return mux
+}
+
+func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerConfig, stderr io.Writer) {
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		CompressionMode: websocket.CompressionDisabled,
+	})
+	if err != nil {
+		return
+	}
+	defer conn.Close(websocket.StatusInternalError, "closed")
+	conn.SetReadLimit(1 << 20)
+
+	authCtx, cancelAuth := context.WithTimeout(r.Context(), 5*time.Second)
+	msgType, payload, err := conn.Read(authCtx)
+	cancelAuth()
+	if err != nil {
+		_ = conn.Close(websocket.StatusPolicyViolation, "auth required")
+		return
+	}
+	if msgType != websocket.MessageText {
+		_ = conn.Close(websocket.StatusUnsupportedData, "auth must be text JSON")
+		return
+	}
+
+	var auth wsPTYAuthFrame
+	if err := json.Unmarshal(payload, &auth); err != nil || auth.Type != "auth" || auth.Token == "" {
+		_ = conn.Close(websocket.StatusPolicyViolation, "invalid auth")
+		return
+	}
+	if auth.Cols <= 0 {
+		auth.Cols = 80
+	}
+	if auth.Rows <= 0 {
+		auth.Rows = 24
+	}
+	if auth.SessionID == "" {
+		auth.SessionID = "default"
+	}
+
+	if err := consumeWebSocketPTYLease(cfg.AuthLeaseFile, auth); err != nil {
+		if errors.Is(err, errWSLeaseMissing) {
+			_ = conn.Close(websocket.StatusPolicyViolation, "no active lease")
+			return
+		}
+		if errors.Is(err, errWSLeaseExpired) {
+			_ = conn.Close(websocket.StatusPolicyViolation, "lease expired")
+			return
+		}
+		_ = conn.Close(websocket.StatusPolicyViolation, "lease rejected")
+		return
+	}
+
+	shellPath := resolvePTYShell(cfg.Shell)
+	cmd := exec.Command(shellPath)
+	cmd.Env = append(os.Environ(),
+		"TERM=xterm-256color",
+		"CMUX_REMOTE_TRANSPORT=ws",
+	)
+	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{
+		Cols: uint16(auth.Cols),
+		Rows: uint16(auth.Rows),
+	})
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "ws pty start failed: %v\n", err)
+		_ = conn.Close(websocket.StatusInternalError, "pty start failed")
+		return
+	}
+	defer func() {
+		_ = ptyFile.Close()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	}()
+
+	writeMu := &sync.Mutex{}
+	if err := writeWSJSON(r.Context(), conn, writeMu, wsPTYEventFrame{
+		Type:      "ready",
+		SessionID: auth.SessionID,
+	}); err != nil {
+		return
+	}
+
+	done := make(chan struct{})
+	go pumpPTYToWebSocket(r.Context(), conn, writeMu, ptyFile, done)
+	pumpWebSocketToPTY(r.Context(), conn, ptyFile, done)
+	_ = conn.Close(websocket.StatusNormalClosure, "closed")
+}
+
+func consumeWebSocketPTYLease(path string, auth wsPTYAuthFrame) error {
+	wsLeaseMu.Lock()
+	defer wsLeaseMu.Unlock()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return errWSLeaseMissing
+		}
+		return err
+	}
+	var lease wsPTYLease
+	if err := json.Unmarshal(data, &lease); err != nil {
+		return errWSLeaseForbidden
+	}
+	if lease.Version != 1 {
+		return errWSLeaseForbidden
+	}
+	if lease.ExpiresAtUnix <= time.Now().Unix() {
+		return errWSLeaseExpired
+	}
+	if lease.SessionID != "" && lease.SessionID != auth.SessionID {
+		return errWSLeaseForbidden
+	}
+
+	expected, err := hex.DecodeString(strings.TrimSpace(lease.TokenSHA256))
+	if err != nil || len(expected) != sha256.Size {
+		return errWSLeaseForbidden
+	}
+	actualHash := sha256.Sum256([]byte(auth.Token))
+	if subtle.ConstantTimeCompare(expected, actualHash[:]) != 1 {
+		return errWSLeaseForbidden
+	}
+
+	if lease.SingleUse {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeWSJSON(ctx context.Context, conn *websocket.Conn, writeMu *sync.Mutex, payload any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	return conn.Write(ctx, websocket.MessageText, data)
+}
+
+func pumpPTYToWebSocket(ctx context.Context, conn *websocket.Conn, writeMu *sync.Mutex, ptyFile *os.File, done chan<- struct{}) {
+	defer close(done)
+	buffer := make([]byte, 32768)
+	for {
+		n, err := ptyFile.Read(buffer)
+		if n > 0 {
+			chunk := append([]byte(nil), buffer[:n]...)
+			writeMu.Lock()
+			writeErr := conn.Write(ctx, websocket.MessageBinary, chunk)
+			writeMu.Unlock()
+			if writeErr != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func pumpWebSocketToPTY(ctx context.Context, conn *websocket.Conn, ptyFile *os.File, done <-chan struct{}) {
+	for {
+		select {
+		case <-done:
+			return
+		default:
+		}
+
+		msgType, payload, err := conn.Read(ctx)
+		if err != nil {
+			return
+		}
+		switch msgType {
+		case websocket.MessageBinary:
+			_, _ = ptyFile.Write(payload)
+		case websocket.MessageText:
+			var control wsPTYControlFrame
+			if err := json.Unmarshal(payload, &control); err != nil {
+				continue
+			}
+			switch control.Type {
+			case "resize":
+				if control.Cols > 0 && control.Rows > 0 {
+					_ = pty.Setsize(ptyFile, &pty.Winsize{
+						Cols: uint16(control.Cols),
+						Rows: uint16(control.Rows),
+					})
+				}
+			case "close":
+				return
+			}
+		}
+	}
+}
+
+func resolvePTYShell(explicit string) string {
+	if strings.TrimSpace(explicit) != "" {
+		return explicit
+	}
+	if shell := strings.TrimSpace(os.Getenv("SHELL")); shell != "" {
+		if _, err := os.Stat(shell); err == nil {
+			return shell
+		}
+	}
+	for _, candidate := range []string{"/bin/bash", "/usr/bin/bash", "/bin/sh"} {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return filepath.Clean("/bin/sh")
+}
