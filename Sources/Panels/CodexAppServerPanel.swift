@@ -138,7 +138,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     }
 
     func start() async {
-        guard !isStarted else { return }
+        guard !isStarted, status != .starting else { return }
         status = .starting
         do {
             try await client.startAndInitialize()

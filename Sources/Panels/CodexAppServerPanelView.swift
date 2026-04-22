@@ -20,6 +20,9 @@ struct CodexAppServerPanelView: View {
                 promptFocused = true
             }
         }
+        .task {
+            await panel.start()
+        }
         .onChange(of: isFocused) { _, focused in
             if focused {
                 promptFocused = true

@@ -90,4 +90,58 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertEqual(error["message"] as? String, "unsupported")
         XCTAssertNotNil(error["code"] as? Int)
     }
+
+    func testAppServerEnvironmentIncludesNodeVersionManagerPaths() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-app-server-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let nvmNodeBin = tempDirectory
+            .appendingPathComponent(".nvm/versions/node/v25.8.1/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: nvmNodeBin, withIntermediateDirectories: true)
+
+        let environment = CodexAppServerClient.appServerEnvironment(
+            baseEnvironment: [
+                "HOME": tempDirectory.path,
+                "PATH": "/usr/bin:/bin",
+            ]
+        )
+
+        let pathComponents = try XCTUnwrap(environment["PATH"]).split(separator: ":").map(String.init)
+        XCTAssertTrue(pathComponents.contains(nvmNodeBin.path))
+    }
+
+    func testLaunchConfigurationRunsNodeBackedCodexScriptWithResolvedNode() throws {
+        let fileManager = FileManager.default
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-codex-launch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: tempDirectory) }
+
+        let codexBin = tempDirectory.appendingPathComponent("codex-bin", isDirectory: true)
+        let nodeBin = tempDirectory.appendingPathComponent(".nvm/versions/node/v25.8.1/bin", isDirectory: true)
+        try fileManager.createDirectory(at: codexBin, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: nodeBin, withIntermediateDirectories: true)
+
+        let codexPath = codexBin.appendingPathComponent("codex")
+        let nodePath = nodeBin.appendingPathComponent("node")
+        try "#!/usr/bin/env node\n".write(to: codexPath, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\n".write(to: nodePath, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: codexPath.path)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nodePath.path)
+
+        let configuration = CodexAppServerClient.appServerLaunchConfiguration(
+            baseEnvironment: [
+                "HOME": tempDirectory.path,
+                "PATH": codexBin.path,
+            ]
+        )
+
+        XCTAssertEqual(configuration.executablePath, nodePath.path)
+        XCTAssertEqual(configuration.arguments, [
+            codexPath.path,
+            "app-server",
+            "--listen",
+            "stdio://",
+        ])
+    }
 }

@@ -33,6 +33,12 @@ enum CodexAppServerEvent {
     case terminated(Int32)
 }
 
+struct CodexAppServerLaunchConfiguration: Equatable {
+    var executablePath: String
+    var arguments: [String]
+    var environment: [String: String]
+}
+
 enum CodexAppServerRequestFactory {
     static func request(id: Int, method: String, params: [String: Any]? = nil) -> [String: Any] {
         var object: [String: Any] = [
@@ -230,9 +236,10 @@ final class CodexAppServerClient: @unchecked Sendable {
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
 
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["codex", "app-server", "--listen", "stdio://"]
-        process.environment = Self.appServerEnvironment()
+        let configuration = Self.appServerLaunchConfiguration()
+        process.executableURL = URL(fileURLWithPath: configuration.executablePath)
+        process.arguments = configuration.arguments
+        process.environment = configuration.environment
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -282,19 +289,45 @@ final class CodexAppServerClient: @unchecked Sendable {
         failPending(CodexAppServerClientError.processExited)
     }
 
-    private static func appServerEnvironment() -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        let home = NSHomeDirectory()
-        let extraPaths = [
-            "\(home)/.bun/bin",
-            "\(home)/.local/bin",
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "/usr/bin",
-            "/bin",
-        ]
-        let existing = environment["PATH"] ?? ""
-        let merged = (extraPaths + existing.split(separator: ":").map(String.init))
+    static func appServerLaunchConfiguration(
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> CodexAppServerLaunchConfiguration {
+        let environment = appServerEnvironment(baseEnvironment: baseEnvironment)
+        let codexPath = resolvedExecutablePath("codex", environment: environment)
+        let nodePath = resolvedExecutablePath("node", environment: environment)
+
+        if let codexPath,
+           let nodePath,
+           executableUsesEnvNode(codexPath) {
+            return CodexAppServerLaunchConfiguration(
+                executablePath: nodePath,
+                arguments: [codexPath, "app-server", "--listen", "stdio://"],
+                environment: environment
+            )
+        }
+
+        if let codexPath {
+            return CodexAppServerLaunchConfiguration(
+                executablePath: codexPath,
+                arguments: ["app-server", "--listen", "stdio://"],
+                environment: environment
+            )
+        }
+
+        return CodexAppServerLaunchConfiguration(
+            executablePath: "/usr/bin/env",
+            arguments: ["codex", "app-server", "--listen", "stdio://"],
+            environment: environment
+        )
+    }
+
+    static func appServerEnvironment(
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        var environment = baseEnvironment
+        let paths = commandSearchDirectories(environment: environment)
+        let existing = environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+        let merged = (paths + existing)
             .reduce(into: [String]()) { paths, candidate in
                 guard !candidate.isEmpty, !paths.contains(candidate) else { return }
                 paths.append(candidate)
@@ -302,6 +335,128 @@ final class CodexAppServerClient: @unchecked Sendable {
             .joined(separator: ":")
         environment["PATH"] = merged
         return environment
+    }
+
+    static func resolvedExecutablePath(
+        _ executable: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        guard !executable.isEmpty else { return nil }
+        let fileManager = FileManager.default
+        if executable.contains("/") {
+            return fileManager.isExecutableFile(atPath: executable) ? executable : nil
+        }
+
+        for directory in commandSearchDirectories(environment: environment) {
+            let path = URL(fileURLWithPath: directory, isDirectory: true)
+                .appendingPathComponent(executable)
+                .path
+            if fileManager.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        return nil
+    }
+
+    private static func commandSearchDirectories(environment: [String: String]) -> [String] {
+        var paths: [String] = []
+        var seen: Set<String> = []
+
+        func append(_ path: String?) {
+            guard let path else { return }
+            for component in path.split(separator: ":").map(String.init) {
+                let trimmed = component.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty,
+                      seen.insert(trimmed).inserted else {
+                    continue
+                }
+                paths.append(trimmed)
+            }
+        }
+
+        let home = environment["HOME"]?.isEmpty == false ? environment["HOME"]! : NSHomeDirectory()
+        append(environment["PATH"])
+        if let resourceBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
+            append(resourceBinPath)
+        }
+        append((home as NSString).appendingPathComponent(".bun/bin"))
+        append((home as NSString).appendingPathComponent(".local/bin"))
+        append((home as NSString).appendingPathComponent("bin"))
+        append((home as NSString).appendingPathComponent(".volta/bin"))
+        append((home as NSString).appendingPathComponent(".asdf/shims"))
+        append((home as NSString).appendingPathComponent(".deno/bin"))
+        append((home as NSString).appendingPathComponent("Library/pnpm"))
+        appendNodeVersionManagerPaths(home: home, append: append)
+        append("/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin")
+        append("/usr/bin:/bin:/usr/sbin:/sbin")
+        return paths
+    }
+
+    private static func appendNodeVersionManagerPaths(home: String, append: (String?) -> Void) {
+        let fileManager = FileManager.default
+
+        append((home as NSString).appendingPathComponent(".nvm/current/bin"))
+        let nvmVersions = (home as NSString).appendingPathComponent(".nvm/versions/node")
+        for version in sortedNodeVersionDirectories(in: nvmVersions, fileManager: fileManager) {
+            append((nvmVersions as NSString).appendingPathComponent("\(version)/bin"))
+        }
+
+        let fnmVersions = (home as NSString).appendingPathComponent(".fnm/node-versions")
+        for version in sortedNodeVersionDirectories(in: fnmVersions, fileManager: fileManager) {
+            append((fnmVersions as NSString).appendingPathComponent("\(version)/installation/bin"))
+            append((fnmVersions as NSString).appendingPathComponent("\(version)/bin"))
+        }
+    }
+
+    private static func sortedNodeVersionDirectories(
+        in directory: String,
+        fileManager: FileManager
+    ) -> [String] {
+        guard let names = try? fileManager.contentsOfDirectory(atPath: directory) else {
+            return []
+        }
+        return names
+            .filter { name in
+                var isDirectory: ObjCBool = false
+                let path = (directory as NSString).appendingPathComponent(name)
+                return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+            }
+            .sorted { lhs, rhs in
+                compareNodeVersionsDescending(lhs, rhs)
+            }
+    }
+
+    private static func compareNodeVersionsDescending(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsComponents = nodeVersionComponents(lhs)
+        let rhsComponents = nodeVersionComponents(rhs)
+        for index in 0..<max(lhsComponents.count, rhsComponents.count) {
+            let lhsValue = index < lhsComponents.count ? lhsComponents[index] : 0
+            let rhsValue = index < rhsComponents.count ? rhsComponents[index] : 0
+            if lhsValue != rhsValue {
+                return lhsValue > rhsValue
+            }
+        }
+        return lhs > rhs
+    }
+
+    private static func nodeVersionComponents(_ version: String) -> [Int] {
+        version
+            .trimmingCharacters(in: CharacterSet(charactersIn: "v"))
+            .split(separator: ".")
+            .map { Int($0) ?? 0 }
+    }
+
+    private static func executableUsesEnvNode(_ path: String) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return false }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 256),
+              let text = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        return text.hasPrefix("#!/usr/bin/env node")
+            || text.hasPrefix("#! /usr/bin/env node")
+            || text.hasPrefix("#!/bin/env node")
+            || text.hasPrefix("#! /bin/env node")
     }
 
     private func sendRequestObject(_ object: [String: Any]) async throws -> [String: Any] {
