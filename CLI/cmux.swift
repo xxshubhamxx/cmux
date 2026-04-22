@@ -14432,6 +14432,7 @@ struct CMUXCLI {
           Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
 
         Socket Auth:
+          Local Unix sockets default to same-user automation access. Change Socket Control Mode in Settings > Automation to require cmux-only ancestry or password auth.
           --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then password saved in Settings.
 
         Commands:

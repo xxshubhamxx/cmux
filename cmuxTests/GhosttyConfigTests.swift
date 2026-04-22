@@ -1834,6 +1834,10 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
 }
 
 final class SocketControlSettingsTests: XCTestCase {
+    func testDefaultSocketModeSupportsExternalAutomation() {
+        XCTAssertEqual(SocketControlSettings.defaultMode, .automation)
+    }
+
     func testMigrateModeSupportsExpandedSocketModes() {
         XCTAssertEqual(SocketControlSettings.migrateMode("off"), .off)
         XCTAssertEqual(SocketControlSettings.migrateMode("cmuxOnly"), .cmuxOnly)
@@ -1854,6 +1858,16 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(SocketControlMode.allowAll.socketFilePermissions, 0o666)
     }
 
+    func testSocketEnableOverrideWithoutExplicitModeUsesDefaultMode() {
+        XCTAssertEqual(
+            SocketControlSettings.effectiveMode(
+                userMode: .off,
+                environment: ["CMUX_SOCKET_ENABLE": "1"]
+            ),
+            .automation
+        )
+    }
+
     func testInvalidEnvSocketModeDoesNotOverrideUserMode() {
         XCTAssertNil(
             SocketControlSettings.envOverrideMode(
@@ -1866,6 +1880,45 @@ final class SocketControlSettingsTests: XCTestCase {
                 environment: ["CMUX_SOCKET_MODE": "definitely-not-a-mode"]
             ),
             .password
+        )
+    }
+
+    func testPersistedCmuxOnlyMigratesToAutomationOnlyOnce() {
+        let suiteName = "cmux-socket-mode-migration-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Expected isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(SocketControlMode.cmuxOnly.rawValue, forKey: SocketControlSettings.appStorageKey)
+        SocketControlSettings.migratePersistedModeIfNeeded(defaults: defaults)
+        XCTAssertEqual(
+            defaults.string(forKey: SocketControlSettings.appStorageKey),
+            SocketControlMode.automation.rawValue
+        )
+
+        defaults.set(SocketControlMode.cmuxOnly.rawValue, forKey: SocketControlSettings.appStorageKey)
+        SocketControlSettings.migratePersistedModeIfNeeded(defaults: defaults)
+        XCTAssertEqual(
+            defaults.string(forKey: SocketControlSettings.appStorageKey),
+            SocketControlMode.cmuxOnly.rawValue
+        )
+    }
+
+    func testLegacyEnabledMigrationUsesAutomationDefault() {
+        let suiteName = "cmux-socket-mode-legacy-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Expected isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: SocketControlSettings.legacyEnabledKey)
+        SocketControlSettings.migratePersistedModeIfNeeded(defaults: defaults)
+        XCTAssertEqual(
+            defaults.string(forKey: SocketControlSettings.appStorageKey),
+            SocketControlMode.automation.rawValue
         )
     }
 
