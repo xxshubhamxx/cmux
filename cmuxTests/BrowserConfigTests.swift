@@ -2874,6 +2874,64 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
     }
 }
 
+final class BrowserTextInputKeyDownRoutingTests: XCTestCase {
+    func testRoutesPlainPrintableTextWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldDispatchBrowserTextInputViaFirstResponderKeyDown(
+                keyCode: 6,
+                characters: "z",
+                firstResponderIsBrowser: true,
+                flags: []
+            )
+        )
+    }
+
+    func testRoutesShiftPrintableTextWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldDispatchBrowserTextInputViaFirstResponderKeyDown(
+                keyCode: 6,
+                characters: "Z",
+                firstResponderIsBrowser: true,
+                flags: [.shift]
+            )
+        )
+    }
+
+    func testDoesNotRouteCommandShortcutAsTextInput() {
+        XCTAssertFalse(
+            shouldDispatchBrowserTextInputViaFirstResponderKeyDown(
+                keyCode: 6,
+                characters: "z",
+                firstResponderIsBrowser: true,
+                flags: [.command]
+            )
+        )
+    }
+
+    func testDoesNotRouteWhileBrowserResponderHasMarkedText() {
+        XCTAssertFalse(
+            shouldDispatchBrowserTextInputViaFirstResponderKeyDown(
+                keyCode: 6,
+                characters: "z",
+                firstResponderIsBrowser: true,
+                firstResponderHasMarkedText: true,
+                flags: []
+            )
+        )
+    }
+
+    func testDoesNotRouteEscapeAsTextInput() {
+        XCTAssertFalse(
+            shouldDispatchBrowserTextInputViaFirstResponderKeyDown(
+                keyCode: 53,
+                characters: "\u{1b}",
+                firstResponderIsBrowser: true,
+                flags: []
+            )
+        )
+    }
+}
+
 
 final class BrowserZoomShortcutActionTests: XCTestCase {
     func testZoomInSupportsEqualsAndPlusVariants() {

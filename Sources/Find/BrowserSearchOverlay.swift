@@ -219,6 +219,17 @@ private final class BrowserSearchNativeTextField: NSTextField {
         guard window != nil else { return }
         onWindowAttachment?(self)
     }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        if flags.contains(.command),
+           AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
