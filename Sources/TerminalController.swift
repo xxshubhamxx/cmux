@@ -2459,6 +2459,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugResetEmptyPanelCount())
         case "debug.notification.focus":
             return v2Result(id: id, self.v2DebugFocusNotification(params: params))
+        case "debug.window.snapshot":
+            return v2Result(id: id, self.v2DebugWindowSnapshot())
         case "debug.flash.count":
             return v2Result(id: id, self.v2DebugFlashCount(params: params))
         case "debug.flash.reset":
@@ -2665,6 +2667,7 @@ class TerminalController {
             "debug.empty_panel.count",
             "debug.empty_panel.reset",
             "debug.notification.focus",
+            "debug.window.snapshot",
             "debug.flash.count",
             "debug.flash.reset",
             "debug.panel_snapshot",
@@ -11259,6 +11262,17 @@ class TerminalController {
         let args = surfaceId != nil ? "\(wsId) \(surfaceId!)" : wsId
         let resp = focusFromNotification(args)
         return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugWindowSnapshot() -> V2CallResult {
+        let payload: [String: Any] = v2MainSync {
+            AppDelegate.shared?.debugWindowSnapshot() ?? [
+                "ns_window_count": NSApp.windows.count,
+                "main_window_context_count": 0,
+                "windows": [],
+            ]
+        }
+        return .ok(payload)
     }
 
     private func v2DebugFlashCount(params: [String: Any]) -> V2CallResult {

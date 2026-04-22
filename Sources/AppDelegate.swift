@@ -4920,6 +4920,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+#if DEBUG
+    func debugWindowSnapshot() -> [String: Any] {
+        let anyValue: (Any?) -> Any = { value in
+            value ?? NSNull()
+        }
+        let windows: [[String: Any]] = NSApp.windows.enumerated().map { index, window in
+            let context = contextForMainTerminalWindow(window, reindex: false)
+            return [
+                "index": index,
+                "window_number": window.windowNumber,
+                "identifier": anyValue(window.identifier?.rawValue),
+                "title": anyValue(window.title.isEmpty ? nil : window.title),
+                "class": String(describing: type(of: window)),
+                "visible": window.isVisible,
+                "key": window.isKeyWindow,
+                "main": window.isMainWindow,
+                "miniaturized": window.isMiniaturized,
+                "occluded": !window.occlusionState.contains(.visible),
+                "registered_main_window_id": anyValue(context?.windowId.uuidString),
+                "registered_workspace_count": anyValue(context?.tabManager.tabs.count),
+            ]
+        }
+
+        return [
+            "ns_window_count": NSApp.windows.count,
+            "main_window_context_count": mainWindowContexts.count,
+            "windows": windows,
+        ]
+    }
+#endif
+
     func windowMoveTargets(referenceWindowId: UUID?) -> [WindowMoveTarget] {
         let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
         let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
