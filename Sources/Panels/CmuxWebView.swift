@@ -670,9 +670,23 @@ final class CmuxWebView: WKWebView {
         }
     }
 
-    private static let restoredTextInputSnapshotScript = """
+    private static func restoredTextInputSnapshotScript(fallbackStateJSON: String?) -> String {
+        let fallbackStateLiteral = fallbackStateJSON ?? "null"
+        return """
     (() => {
       try {
+        const nativeFallbackState = \(fallbackStateLiteral);
+        const stateIsValid = (state) => !!state && typeof state.id === "string" && !!state.id;
+        const syncState = (state) => {
+          window.__cmuxAddressBarFocusState = state;
+          try {
+            if (window.top && window.top !== window) {
+              window.top.postMessage({ cmuxAddressBarFocusState: state }, "*");
+            } else if (window.top) {
+              window.top.__cmuxAddressBarFocusState = state;
+            }
+          } catch (_) {}
+        };
         const activeEditable = (doc) => {
           if (!doc) return null;
           const active = doc.activeElement;
@@ -687,12 +701,56 @@ final class CmuxWebView: WKWebView {
           if (tag === "input" || tag === "textarea") return active;
           return null;
         };
-        const target = activeEditable(document);
+        const readState = () => {
+          let state = window.__cmuxAddressBarFocusState;
+          try {
+            if (!stateIsValid(state) && window.top && window.top.__cmuxAddressBarFocusState) {
+              state = window.top.__cmuxAddressBarFocusState;
+            }
+          } catch (_) {}
+          if (!stateIsValid(state) && stateIsValid(nativeFallbackState)) {
+            state = nativeFallbackState;
+            syncState(state);
+          }
+          return state;
+        };
+        const isTextInput = (el) => {
+          if (!el) return false;
+          const tag = (el.tagName || "").toLowerCase();
+          const type = (el.type || "").toLowerCase();
+          return tag === "textarea" || (tag === "input" && type !== "hidden");
+        };
+        const targetFromStoredState = (doc) => {
+          const state = readState();
+          if (!doc || !state || typeof state.id !== "string" || !state.id) return null;
+          const selector = '[data-cmux-addressbar-focus-id="' + state.id + '"]';
+          const stateElementId = typeof state.elementId === "string" && state.elementId ? state.elementId : "";
+          const findTarget = (rootDoc) => {
+            if (!rootDoc) return null;
+            const direct = rootDoc.querySelector(selector);
+            if (direct && direct.isConnected && isTextInput(direct)) return direct;
+            if (stateElementId) {
+              const byElementId = rootDoc.getElementById(stateElementId);
+              if (byElementId && byElementId.isConnected && isTextInput(byElementId)) return byElementId;
+            }
+            const legacyByStateId = rootDoc.getElementById(state.id);
+            if (legacyByStateId && legacyByStateId.isConnected && isTextInput(legacyByStateId)) {
+              return legacyByStateId;
+            }
+            const frames = rootDoc.querySelectorAll("iframe,frame");
+            for (let i = 0; i < frames.length; i += 1) {
+              try {
+                const nested = findTarget(frames[i].contentDocument);
+                if (nested) return nested;
+              } catch (_) {}
+            }
+            return null;
+          };
+          return findTarget(doc);
+        };
+        const target = activeEditable(document) || targetFromStoredState(document);
         if (!target) return { ok: false, reason: "missing_active_editable" };
         const tag = (target.tagName || "").toLowerCase();
-        if (target.ownerDocument.activeElement !== target) {
-          return { ok: false, reason: "not_focused" };
-        }
         if (typeof target.selectionStart !== "number" || typeof target.selectionEnd !== "number") {
           return { ok: false, reason: "missing_selection" };
         }
@@ -708,6 +766,7 @@ final class CmuxWebView: WKWebView {
       }
     })();
     """
+    }
 
     private static func restorableTextInputFocusScript(fallbackStateJSON: String?) -> String {
         let fallbackStateLiteral = fallbackStateJSON ?? "null"
@@ -977,7 +1036,11 @@ final class CmuxWebView: WKWebView {
     }
 
     private func restoredTextInputSnapshot() -> RestoredTextInputSnapshot? {
-        let evaluation = evaluateJavaScriptSynchronously(Self.restoredTextInputSnapshotScript)
+        let evaluation = evaluateJavaScriptSynchronously(
+            Self.restoredTextInputSnapshotScript(
+                fallbackStateJSON: restoredWebContentTextInputFocusFallbackJSON
+            )
+        )
         guard evaluation.completed, evaluation.error == nil else { return nil }
         return RestoredTextInputSnapshot(evaluation.result)
     }
@@ -1014,21 +1077,12 @@ final class CmuxWebView: WKWebView {
         text: String
     ) -> String? {
         guard restoredWebContentTextInputRepairArmed else { return nil }
-        if window?.firstResponder === self {
-            return bridgeRestoredTextInputRepairToActiveElement(text: text)
-        }
-        guard let before = restoredTextInputSnapshot() else {
-            disarmRestoredWebContentTextInputRepair(reason: "snapshotMissing")
-            return nil
-        }
+        let before = restoredTextInputSnapshot()
 
         super.keyDown(with: event)
 
-        guard let after = restoredTextInputSnapshot() else {
-            disarmRestoredWebContentTextInputRepair(reason: "snapshotMissingAfterNative")
-            return "focusRepairNativeOnly"
-        }
-        if after != before {
+        let after = restoredTextInputSnapshot()
+        if let before, let after, after != before {
             disarmRestoredWebContentTextInputRepair(reason: "nativeInputObserved")
             return "focusRepairNative"
         }
@@ -1052,7 +1106,11 @@ final class CmuxWebView: WKWebView {
         )
 #endif
         if !inserted {
-            disarmRestoredWebContentTextInputRepair(reason: "insertFailed")
+            if hasRestorableWebContentTextInputFocus() {
+                restoredWebContentTextInputRepairLastReason = "insertRetained.\(reason)"
+            } else {
+                disarmRestoredWebContentTextInputRepair(reason: "insertFailed.\(reason)")
+            }
         }
         return inserted ? "focusRepairInserted" : "focusRepairInsertFailed"
     }
@@ -1086,29 +1144,12 @@ final class CmuxWebView: WKWebView {
         }
 
         if !insert.completed || insert.error != nil || !inserted {
-            let webIdentifier = ObjectIdentifier(self)
-            evaluateJavaScript(script) { [weak self] result, error in
-                let inserted = error == nil &&
-                    ((result as? [String: Any])?["inserted"] as? Bool == true)
-                let reason = ((result as? [String: Any])?["reason"] as? String) ?? "nil"
-#if DEBUG
-                let errorDescription = error?.localizedDescription ?? "nil"
-                dlog(
-                    "browser.focus.textRepair.bridgeAsync web=\(webIdentifier) " +
-                    "inserted=\(inserted ? 1 : 0) reason=\(reason) error=\(errorDescription)"
-                )
-#endif
-                if !inserted {
-                    if self?.hasRestorableWebContentTextInputFocus() == true {
-                        self?.restoredWebContentTextInputRepairLastReason = "bridgeAsyncRetained.\(reason)"
-                    } else {
-                        self?.disarmRestoredWebContentTextInputRepair(reason: "bridgeAsyncInsertFailed.\(reason)")
-                    }
-                } else {
-                    self?.restoredWebContentTextInputRepairLastReason = "bridgeAsyncInserted"
-                }
+            if hasRestorableWebContentTextInputFocus() {
+                restoredWebContentTextInputRepairLastReason = "bridgeRetained.\(reason)"
+            } else {
+                disarmRestoredWebContentTextInputRepair(reason: "bridgeInsertFailed.\(reason)")
             }
-            return "focusRepairBridgeScheduled"
+            return nil
         }
         return nil
     }
