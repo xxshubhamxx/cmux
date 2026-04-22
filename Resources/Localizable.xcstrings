@@ -597,6 +597,23 @@
         }
       }
     },
+    "splitButton.newCodex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規 Codex"
+          }
+        }
+      }
+    },
     "about.appName": {
       "extractionState": "manual",
       "localizations": {

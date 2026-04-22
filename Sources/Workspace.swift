@@ -7516,6 +7516,7 @@ final class Workspace: Identifiable, ObservableObject {
         BonsplitConfiguration.SplitButtonTooltips(
             newTerminal: KeyboardShortcutSettings.Action.newSurface.tooltip("New Terminal"),
             newBrowser: KeyboardShortcutSettings.Action.openBrowser.tooltip("New Browser"),
+            newCodex: String(localized: "splitButton.newCodex", defaultValue: "New Codex"),
             splitRight: KeyboardShortcutSettings.Action.splitRight.tooltip("Split Right"),
             splitDown: KeyboardShortcutSettings.Action.splitDown.tooltip("Split Down")
         )
@@ -13668,6 +13669,8 @@ extension Workspace: BonsplitDelegate {
             _ = newTerminalSurface(inPane: pane)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
+        case SurfaceKind.codexAppServer, "codex":
+            _ = newCodexAppServerSurface(inPane: pane)
         default:
             _ = newTerminalSurface(inPane: pane)
         }
