@@ -4067,7 +4067,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func reopenPreviousSession() -> Bool {
+    func reopenPreviousSession(shouldActivate: Bool = true) -> Bool {
         guard let snapshot = SessionPersistenceStore.loadReopenSessionSnapshot() else {
             return false
         }
@@ -4079,6 +4079,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let existingContexts = sortedMainWindowContextsForSessionSnapshot()
         isApplyingSessionRestore = true
+        startupSessionSnapshot = nil
+        didAttemptStartupSessionRestore = true
 
         if existingContexts.isEmpty {
             for windowSnapshot in snapshotWindows {
@@ -4098,11 +4100,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     _ = createMainWindow(sessionWindowSnapshot: windowSnapshot)
                 }
             }
+
+            if existingContexts.count > snapshotWindows.count {
+                for context in existingContexts.dropFirst(snapshotWindows.count) {
+                    _ = closeMainWindow(windowId: context.windowId)
+                }
+            }
         }
 
         completeSessionRestoreOperation()
 
-        if let primaryWindow = sortedMainWindowContextsForSessionSnapshot()
+        if shouldActivate,
+           let primaryWindow = sortedMainWindowContextsForSessionSnapshot()
             .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
             .first {
             primaryWindow.makeKeyAndOrderFront(nil)

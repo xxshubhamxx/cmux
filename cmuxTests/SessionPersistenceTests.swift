@@ -1166,16 +1166,23 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 arguments: [
                     "/Applications/cmux.app/Contents/Resources/bin/cmux",
                     "claude-teams",
+                    "--teammate-mode",
+                    "auto",
                     "--model",
                     "sonnet",
                     "--remote-control-session-name-prefix",
                     "cmux-team",
                     "--tmux",
                     "side effect should be dropped",
+                    "--permission-mode",
+                    "auto",
                     "initial team prompt"
                 ],
                 workingDirectory: "/tmp/team repo",
-                environment: nil,
+                environment: [
+                    "CMUX_CUSTOM_CLAUDE_PATH": "/opt/Claude Code/bin/claude",
+                    "PATH": "/opt/Claude Code/bin:/usr/bin"
+                ],
                 capturedAt: 123,
                 source: "environment"
             )
@@ -1183,8 +1190,49 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/tmp/team repo' && '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team'"
+            "cd '/tmp/team repo' && 'env' 'CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude' 'PATH=/opt/Claude Code/bin:/usr/bin' '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--teammate-mode' 'auto' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team' '--permission-mode' 'auto'"
         )
+    }
+
+    func testClaudeResumeCommandHandlesOptionalDebugValueAndFilteredEnvironment() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-debug",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: [
+                    "claude",
+                    "--debug",
+                    "api,mcp",
+                    "--model",
+                    "sonnet",
+                    "prompt should not replay"
+                ],
+                workingDirectory: nil,
+                environment: [
+                    "UNSAFE_TOKEN": "secret",
+                    "NODE_OPTIONS": "--max-old-space-size=4096"
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "'env' 'NODE_OPTIONS=--max-old-space-size=4096' 'claude' '--resume' 'claude-session-debug' '--debug' 'api,mcp' '--model' 'sonnet'"
+        )
+    }
+
+    func testHookStoreDirectoryCanBeOverriddenForTests() {
+        let url = RestorableAgentKind.codex.hookStoreFileURL(
+            homeDirectory: "/Users/example",
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": "/tmp/cmux hook state"]
+        )
+
+        XCTAssertEqual(url.path, "/tmp/cmux hook state/codex-hook-sessions.json")
     }
 
     func testOpenCodeWrapperResumeCommandAndUnsupportedOhMyLaunchers() {
@@ -1304,6 +1352,20 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 source: nil
             )
         )
+        let claudePrintEquals = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-456",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude", "--print=summarize this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
         let codexExec = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-session-123",
@@ -1348,6 +1410,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
 
         XCTAssertNil(claudePrint.resumeCommand)
+        XCTAssertNil(claudePrintEquals.resumeCommand)
         XCTAssertNil(codexExec.resumeCommand)
         XCTAssertNil(opencodeRun.resumeCommand)
         XCTAssertNil(opencodePR.resumeCommand)

@@ -177,22 +177,26 @@ def main() -> int:
     socket_path = Path(f"/tmp/cmux-restore-session-codex-{bundle_id.replace('.', '-')}.sock")
     snapshot = _snapshot_path(bundle_id)
     previous_snapshot = _snapshot_path(bundle_id, suffix="-previous")
-    hook_state = Path.home() / ".cmuxterm" / "codex-hook-sessions.json"
 
     failures: list[str] = []
 
     with tempfile.TemporaryDirectory(prefix="cmux-restore-session-codex-") as td:
         fake_bin_dir = Path(td) / "bin"
+        hook_state_dir = Path(td) / "hook-state"
+        hook_state = hook_state_dir / "codex-hook-sessions.json"
         _write_fake_codex(fake_bin_dir)
         launch_path = f"{fake_bin_dir}:{os.environ.get('PATH', '')}"
+        launch_env = {
+            "PATH": launch_path,
+            "CMUX_AGENT_HOOK_STATE_DIR": str(hook_state_dir),
+        }
 
         _kill_existing(app_path)
         snapshot.unlink(missing_ok=True)
         previous_snapshot.unlink(missing_ok=True)
-        hook_state.unlink(missing_ok=True)
 
         try:
-            _launch(app_path, socket_path, env_overrides={"PATH": launch_path})
+            _launch(app_path, socket_path, env_overrides=launch_env)
             client = _connect(socket_path)
             try:
                 original_workspace_id = client.current_workspace()
@@ -216,12 +220,13 @@ def main() -> int:
             finally:
                 client.close()
             _quit(bundle_id, socket_path)
+            hook_state.unlink(missing_ok=True)
 
             _launch(
                 app_path,
                 socket_path,
                 env_overrides={
-                    "PATH": launch_path,
+                    **launch_env,
                     "CMUX_DISABLE_SESSION_RESTORE": "1",
                 },
             )
@@ -237,6 +242,7 @@ def main() -> int:
 
                 restore_env = dict(os.environ)
                 restore_env["CMUX_SOCKET_PATH"] = str(socket_path)
+                restore_env["CMUX_AGENT_HOOK_STATE_DIR"] = str(hook_state_dir)
                 restore_proc = subprocess.run(
                     [str(cli_path), "restore-session"],
                     capture_output=True,

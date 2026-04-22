@@ -91097,6 +91097,23 @@
         }
       }
     },
+    "terminal.restore.no_snapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No previous session snapshot available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回のセッションスナップショットがありません"
+          }
+        }
+      }
+    },
     "settings.account.error.missingAccessToken": {
       "extractionState": "manual",
       "localizations": {

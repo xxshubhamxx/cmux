@@ -129,7 +129,6 @@ class TerminalController {
 
     private static let focusIntentV2Methods: Set<String> = [
         "window.focus",
-        "session.restore_previous",
         "workspace.select",
         "workspace.next",
         "workspace.previous",
@@ -7026,10 +7025,17 @@ class TerminalController {
     private func v2SessionRestorePrevious() -> V2CallResult {
         var restored = false
         DispatchQueue.main.sync {
-            restored = AppDelegate.shared?.reopenPreviousSession() ?? false
+            restored = AppDelegate.shared?.reopenPreviousSession(shouldActivate: false) ?? false
         }
         guard restored else {
-            return .err(code: "not_found", message: "No previous session snapshot available", data: nil)
+            return .err(
+                code: "not_found",
+                message: String(
+                    localized: "terminal.restore.no_snapshot",
+                    defaultValue: "No previous session snapshot available"
+                ),
+                data: nil
+            )
         }
         return .ok(["restored": true])
     }

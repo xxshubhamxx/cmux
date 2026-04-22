@@ -22,9 +22,20 @@ enum RestorableAgentKind: String, Codable, CaseIterable, Sendable {
         )
     }
 
-    func hookStoreFileURL(homeDirectory: String = NSHomeDirectory()) -> URL {
-        URL(fileURLWithPath: homeDirectory, isDirectory: true)
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
+    func hookStoreFileURL(
+        homeDirectory: String = NSHomeDirectory(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        let directory: URL
+        if let override = environment["CMUX_AGENT_HOOK_STATE_DIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            directory = URL(fileURLWithPath: NSString(string: override).expandingTildeInPath, isDirectory: true)
+        } else {
+            directory = URL(fileURLWithPath: homeDirectory, isDirectory: true)
+                .appendingPathComponent(".cmuxterm", isDirectory: true)
+        }
+        return directory
             .appendingPathComponent(hookStoreFilename, isDirectory: false)
     }
 }
@@ -48,13 +59,14 @@ private enum AgentResumeCommandBuilder {
         "--allowed-tools",
         "--append-system-prompt",
         "--betas",
-        "--debug",
         "--debug-file",
         "--disallowedTools",
         "--disallowed-tools",
         "--effort",
         "--fallback-model",
         "--file",
+        "--fork-session",
+        "--from-pr",
         "--input-format",
         "--json-schema",
         "--max-budget-usd",
@@ -66,10 +78,21 @@ private enum AgentResumeCommandBuilder {
         "--permission-mode",
         "--plugin-dir",
         "--remote-control-session-name-prefix",
+        "--resume",
+        "-r",
+        "--session-id",
         "--setting-sources",
         "--settings",
         "--system-prompt",
-        "--tools"
+        "--teammate-mode",
+        "--tmux",
+        "--tools",
+        "--worktree",
+        "-w"
+    ]
+
+    private static let claudeOptionalValueOptions: Set<String> = [
+        "--debug"
     ]
 
     private static let claudeVariadicOptions: Set<String> = [
@@ -88,11 +111,15 @@ private enum AgentResumeCommandBuilder {
         "agents",
         "auth",
         "auto-mode",
+        "api-key",
+        "config",
         "doctor",
         "install",
         "mcp",
         "plugin",
         "plugins",
+        "rc",
+        "remote-control",
         "setup-token",
         "update",
         "upgrade"
@@ -197,10 +224,14 @@ private enum AgentResumeCommandBuilder {
 
         var commandParts: [String] = []
         if let env = launchCommand?.environment, !env.isEmpty {
-            commandParts.append("env")
+            var environmentParts: [String] = []
             for key in env.keys.sorted() {
                 guard isSafeEnvironmentKey(key), let value = env[key] else { continue }
-                commandParts.append("\(key)=\(value)")
+                environmentParts.append("\(key)=\(value)")
+            }
+            if !environmentParts.isEmpty {
+                commandParts.append("env")
+                commandParts.append(contentsOf: environmentParts)
             }
         }
         commandParts.append(contentsOf: argv)
@@ -279,6 +310,7 @@ private enum AgentResumeCommandBuilder {
         preserveOptions(
             args,
             valueOptions: claudeValueOptions,
+            optionalValueOptions: claudeOptionalValueOptions,
             variadicOptions: claudeVariadicOptions,
             nonRestorableCommands: claudeNonRestorableCommands,
             droppedOptions: [
@@ -297,6 +329,7 @@ private enum AgentResumeCommandBuilder {
                 "-w"
             ],
             droppedOptionPrefixes: [
+                "--fork-session=",
                 "--from-pr=",
                 "--resume=",
                 "--session-id=",
@@ -317,6 +350,7 @@ private enum AgentResumeCommandBuilder {
         preserveOptions(
             args,
             valueOptions: codexValueOptions,
+            optionalValueOptions: [],
             variadicOptions: ["--image", "-i", "--add-dir"],
             nonRestorableCommands: codexNonRestorableCommands,
             droppedOptions: [
@@ -334,6 +368,7 @@ private enum AgentResumeCommandBuilder {
         preserveOptions(
             args,
             valueOptions: opencodeValueOptions,
+            optionalValueOptions: [],
             variadicOptions: ["--cors"],
             nonRestorableCommands: opencodeNonRestorableCommands,
             droppedOptions: [
@@ -358,6 +393,7 @@ private enum AgentResumeCommandBuilder {
     private static func preserveOptions(
         _ args: [String],
         valueOptions: Set<String>,
+        optionalValueOptions: Set<String>,
         variadicOptions: Set<String>,
         nonRestorableCommands: Set<String>,
         droppedOptions: Set<String>,
@@ -399,25 +435,44 @@ private enum AgentResumeCommandBuilder {
                 break
             }
 
-            if rejectOptions.contains(arg) || droppedOptionPrefixes.contains(where: { arg.hasPrefix($0) }) {
-                if rejectOptions.contains(arg) {
-                    return nil
-                }
+            if shouldDropOption(arg, droppedOptions: rejectOptions) {
+                return nil
+            }
+
+            if droppedOptionPrefixes.contains(where: { arg.hasPrefix($0) }) {
                 index += 1
                 continue
             }
 
             if shouldDropOption(arg, droppedOptions: droppedOptions) {
-                index += optionWidth(args, index: index, valueOptions: valueOptions, variadicOptions: variadicOptions)
+                index += optionWidth(
+                    args,
+                    index: index,
+                    valueOptions: valueOptions,
+                    optionalValueOptions: optionalValueOptions,
+                    variadicOptions: variadicOptions
+                )
                 continue
             }
 
             if skipHookSettings, isHookSettingsOption(args, index: index) {
-                index += optionWidth(args, index: index, valueOptions: valueOptions, variadicOptions: variadicOptions)
+                index += optionWidth(
+                    args,
+                    index: index,
+                    valueOptions: valueOptions,
+                    optionalValueOptions: optionalValueOptions,
+                    variadicOptions: variadicOptions
+                )
                 continue
             }
 
-            let width = optionWidth(args, index: index, valueOptions: valueOptions, variadicOptions: variadicOptions)
+            let width = optionWidth(
+                args,
+                index: index,
+                valueOptions: valueOptions,
+                optionalValueOptions: optionalValueOptions,
+                variadicOptions: variadicOptions
+            )
             result.append(contentsOf: args[index..<min(args.count, index + width)])
             index += width
         }
@@ -435,11 +490,22 @@ private enum AgentResumeCommandBuilder {
         _ args: [String],
         index: Int,
         valueOptions: Set<String>,
+        optionalValueOptions: Set<String>,
         variadicOptions: Set<String>
     ) -> Int {
         let arg = args[index]
         if arg.contains("=") {
             return 1
+        }
+        if optionalValueOptions.contains(arg) {
+            guard index + 1 < args.count,
+                  looksLikeOptionalValue(
+                    args[index + 1],
+                    following: index + 2 < args.count ? args[index + 2] : nil
+                  ) else {
+                return 1
+            }
+            return 2
         }
         guard valueOptions.contains(arg), index + 1 < args.count else {
             return 1
@@ -452,6 +518,15 @@ private enum AgentResumeCommandBuilder {
             return max(1, end - index)
         }
         return 2
+    }
+
+    private static func looksLikeOptionalValue(_ value: String, following: String?) -> Bool {
+        guard !value.isEmpty,
+              !value.hasPrefix("-"),
+              value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            return false
+        }
+        return value.contains(",") || (following?.hasPrefix("-") == true)
     }
 
     private static func isHookSettingsOption(_ args: [String], index: Int) -> Bool {
@@ -469,8 +544,11 @@ private enum AgentResumeCommandBuilder {
         switch key {
         case "ANTHROPIC_MODEL",
              "CLAUDE_CONFIG_DIR",
+             "CMUX_CUSTOM_CLAUDE_PATH",
              "CODEX_HOME",
+             "NODE_OPTIONS",
              "OPENCODE_CONFIG_DIR",
+             "PATH",
              "SHELL":
             return true
         default:

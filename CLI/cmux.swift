@@ -362,6 +362,11 @@ private final class ClaudeHookSessionStore {
         if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !overridePath.isEmpty {
             self.statePath = NSString(string: overridePath).expandingTildeInPath
+        } else if let overrideDirectory = processEnv["CMUX_AGENT_HOOK_STATE_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !overrideDirectory.isEmpty {
+            self.statePath = URL(fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath, isDirectory: true)
+                .appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+                .path
         } else {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
@@ -3286,17 +3291,17 @@ struct CMUXCLI {
             throw CLIError(message: "restore-session: unknown flag '\(unknown)'")
         }
 
-        let client = SocketClient(path: socketPath)
-        if (try? client.connect()) == nil {
-            client.close()
+        let initialClient = SocketClient(path: socketPath)
+        let client: SocketClient
+        let launched: Bool
+        if (try? initialClient.connect()) == nil {
+            initialClient.close()
             try launchApp()
-            try activateApp()
-            if jsonOutput {
-                print(jsonString(["restored": true, "launched": true]))
-            } else {
-                print("OK")
-            }
-            return
+            client = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
+            launched = true
+        } else {
+            client = initialClient
+            launched = false
         }
 
         defer { client.close() }
@@ -3308,7 +3313,9 @@ struct CMUXCLI {
 
         let response = try client.sendV2(method: "session.restore_previous")
         if jsonOutput {
-            print(jsonString(response))
+            var payload = response
+            payload["launched"] = launched
+            print(jsonString(payload))
         } else {
             print("OK")
         }
@@ -10788,7 +10795,7 @@ struct CMUXCLI {
         exportAgentLaunchCommandEnvironment(
             launcher: "claudeTeams",
             executablePath: executablePath,
-            arguments: [executablePath, "claude-teams"] + commandArgs,
+            arguments: [executablePath, "claude-teams"] + launchArguments,
             workingDirectory: launcherEnvironment["PWD"]
         )
         var argv = ([launchPath] + launchArguments).map { strdup($0) }
@@ -11319,7 +11326,7 @@ struct CMUXCLI {
         exportAgentLaunchCommandEnvironment(
             launcher: "omo",
             executablePath: executablePath,
-            arguments: [executablePath, "omo"] + commandArgs,
+            arguments: [executablePath, "omo"] + effectiveArgs,
             workingDirectory: launcherEnvironment["PWD"]
         )
         var argv = ([launchPath] + effectiveArgs).map { strdup($0) }
@@ -13772,8 +13779,8 @@ struct CMUXCLI {
 
         var argc: Int32 = 0
         withUnsafeMutableBytes(of: &argc) { argcBytes in
-            _ = buffer.withUnsafeBytes { bufferBytes in
-                bufferBytes.copyBytes(to: argcBytes, from: 0..<MemoryLayout<Int32>.size)
+            for offset in 0..<MemoryLayout<Int32>.size {
+                argcBytes[offset] = buffer[offset]
             }
         }
         guard argc > 0 else { return nil }
@@ -13820,13 +13827,21 @@ struct CMUXCLI {
         let workingDirectory = normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
+        let launcher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]) ?? fallbackKind
+        guard let sanitizedArguments = sanitizedAgentLaunchArguments(
+            arguments,
+            launcher: launcher,
+            fallbackKind: fallbackKind
+        ) else {
+            return nil
+        }
         let source = envArguments == nil ? "process" : "environment"
         let environment = selectedAgentLaunchEnvironment(from: env)
 
         return AgentHookLaunchCommandRecord(
-            launcher: normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]) ?? fallbackKind,
+            launcher: launcher,
             executablePath: executablePath,
-            arguments: arguments,
+            arguments: sanitizedArguments,
             workingDirectory: workingDirectory,
             environment: environment.isEmpty ? nil : environment,
             capturedAt: Date().timeIntervalSince1970,
@@ -13839,9 +13854,24 @@ struct CMUXCLI {
               let data = Data(base64Encoded: rawValue) else {
             return nil
         }
-        let parts = data.split(separator: 0).compactMap { bytes -> String? in
-            guard !bytes.isEmpty else { return nil }
-            return String(bytes: bytes, encoding: .utf8)
+        var parts: [String] = []
+        var start = data.startIndex
+        var index = data.startIndex
+        while index < data.endIndex {
+            if data[index] == 0 {
+                guard let value = String(data: data[start..<index], encoding: .utf8) else {
+                    return nil
+                }
+                parts.append(value)
+                start = data.index(after: index)
+            }
+            index = data.index(after: index)
+        }
+        if start < data.endIndex {
+            guard let value = String(data: data[start..<data.endIndex], encoding: .utf8) else {
+                return nil
+            }
+            parts.append(value)
         }
         return parts.isEmpty ? nil : parts
     }
@@ -13850,8 +13880,11 @@ struct CMUXCLI {
         let allowedKeys = [
             "ANTHROPIC_MODEL",
             "CLAUDE_CONFIG_DIR",
+            "CMUX_CUSTOM_CLAUDE_PATH",
             "CODEX_HOME",
+            "NODE_OPTIONS",
             "OPENCODE_CONFIG_DIR",
+            "PATH",
             "SHELL"
         ]
         var result: [String: String] = [:]
@@ -13869,6 +13902,446 @@ struct CMUXCLI {
         }
         return trimmed
     }
+
+    private func agentHookStatePath(sessionStoreSuffix: String, env: [String: String]) -> String {
+        let filename = "\(sessionStoreSuffix)-hook-sessions.json"
+        guard let overrideDirectory = normalizedHookValue(env["CMUX_AGENT_HOOK_STATE_DIR"]) else {
+            return "~/.cmuxterm/\(filename)"
+        }
+        return URL(fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath, isDirectory: true)
+            .appendingPathComponent(filename, isDirectory: false)
+            .path
+    }
+
+    private func sanitizedAgentLaunchArguments(
+        _ arguments: [String],
+        launcher: String,
+        fallbackKind: String
+    ) -> [String]? {
+        guard let executable = arguments.first, !executable.isEmpty else { return nil }
+        var tail = Array(arguments.dropFirst())
+
+        switch launcher {
+        case "claudeTeams":
+            if tail.first == "claude-teams" {
+                tail.removeFirst()
+            }
+            guard let preserved = sanitizedAgentOptions(
+                tail,
+                valueOptions: Self.claudeLaunchValueOptions,
+                optionalValueOptions: Self.claudeLaunchOptionalValueOptions,
+                variadicOptions: Self.claudeLaunchVariadicOptions,
+                nonRestorableCommands: Self.claudeLaunchNonRestorableCommands,
+                droppedOptions: Self.claudeLaunchDroppedOptions,
+                droppedOptionPrefixes: Self.claudeLaunchDroppedOptionPrefixes,
+                rejectOptions: Self.claudeLaunchRejectOptions,
+                preserveFirstPositional: false
+            ) else {
+                return nil
+            }
+            return [executable, "claude-teams"] + preserved
+        case "omo":
+            if tail.first == "omo" {
+                tail.removeFirst()
+            }
+            guard let preserved = sanitizedAgentOptions(
+                tail,
+                valueOptions: Self.openCodeLaunchValueOptions,
+                optionalValueOptions: [],
+                variadicOptions: ["--cors"],
+                nonRestorableCommands: Self.openCodeLaunchNonRestorableCommands,
+                droppedOptions: Self.openCodeLaunchDroppedOptions,
+                droppedOptionPrefixes: Self.openCodeLaunchDroppedOptionPrefixes,
+                rejectOptions: [],
+                preserveFirstPositional: true
+            ) else {
+                return nil
+            }
+            return [executable, "omo"] + preserved
+        case "omx", "omc":
+            return nil
+        default:
+            break
+        }
+
+        switch fallbackKind {
+        case "claude":
+            return sanitizedAgentOptions(
+                tail,
+                valueOptions: Self.claudeLaunchValueOptions,
+                optionalValueOptions: Self.claudeLaunchOptionalValueOptions,
+                variadicOptions: Self.claudeLaunchVariadicOptions,
+                nonRestorableCommands: Self.claudeLaunchNonRestorableCommands,
+                droppedOptions: Self.claudeLaunchDroppedOptions,
+                droppedOptionPrefixes: Self.claudeLaunchDroppedOptionPrefixes,
+                rejectOptions: Self.claudeLaunchRejectOptions,
+                preserveFirstPositional: false
+            ).map { [executable] + $0 }
+        case "codex":
+            return sanitizedAgentOptions(
+                tail,
+                valueOptions: Self.codexLaunchValueOptions,
+                optionalValueOptions: [],
+                variadicOptions: ["--image", "-i", "--add-dir"],
+                nonRestorableCommands: Self.codexLaunchNonRestorableCommands,
+                droppedOptions: ["--last", "--all"],
+                droppedOptionPrefixes: [],
+                rejectOptions: [],
+                resumeSubcommand: "resume",
+                preserveFirstPositional: false
+            ).map { [executable] + $0 }
+        case "opencode":
+            return sanitizedAgentOptions(
+                tail,
+                valueOptions: Self.openCodeLaunchValueOptions,
+                optionalValueOptions: [],
+                variadicOptions: ["--cors"],
+                nonRestorableCommands: Self.openCodeLaunchNonRestorableCommands,
+                droppedOptions: Self.openCodeLaunchDroppedOptions,
+                droppedOptionPrefixes: Self.openCodeLaunchDroppedOptionPrefixes,
+                rejectOptions: [],
+                preserveFirstPositional: true
+            ).map { [executable] + $0 }
+        default:
+            return nil
+        }
+    }
+
+    private func sanitizedAgentOptions(
+        _ args: [String],
+        valueOptions: Set<String>,
+        optionalValueOptions: Set<String>,
+        variadicOptions: Set<String>,
+        nonRestorableCommands: Set<String>,
+        droppedOptions: Set<String>,
+        droppedOptionPrefixes: [String],
+        rejectOptions: Set<String>,
+        resumeSubcommand: String? = nil,
+        preserveFirstPositional: Bool
+    ) -> [String]? {
+        var result: [String] = []
+        var index = 0
+        var consumedFirstPositional = false
+        var skippingResumePositionals = false
+
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--" {
+                break
+            }
+            if !arg.hasPrefix("-") || arg == "-" {
+                if let resumeSubcommand, arg == resumeSubcommand {
+                    skippingResumePositionals = true
+                    index += 1
+                    continue
+                }
+                if skippingResumePositionals {
+                    break
+                }
+                if nonRestorableCommands.contains(arg) {
+                    return nil
+                }
+                if preserveFirstPositional && !consumedFirstPositional {
+                    result.append(arg)
+                    consumedFirstPositional = true
+                    index += 1
+                    continue
+                }
+                break
+            }
+            if Self.shouldDropAgentOption(arg, droppedOptions: rejectOptions) {
+                return nil
+            }
+
+            if droppedOptionPrefixes.contains(where: { arg.hasPrefix($0) }) {
+                index += 1
+                continue
+            }
+            let width = Self.agentOptionWidth(
+                args,
+                index: index,
+                valueOptions: valueOptions,
+                optionalValueOptions: optionalValueOptions,
+                variadicOptions: variadicOptions
+            )
+            if Self.shouldDropAgentOption(arg, droppedOptions: droppedOptions) {
+                index += width
+                continue
+            }
+            if Self.isClaudeHookSettingsOption(args, index: index) {
+                index += width
+                continue
+            }
+            result.append(contentsOf: args[index..<min(args.count, index + width)])
+            index += width
+        }
+
+        return result
+    }
+
+    private static func shouldDropAgentOption(_ arg: String, droppedOptions: Set<String>) -> Bool {
+        if droppedOptions.contains(arg) { return true }
+        guard let equals = arg.firstIndex(of: "=") else { return false }
+        return droppedOptions.contains(String(arg[..<equals]))
+    }
+
+    private static func agentOptionWidth(
+        _ args: [String],
+        index: Int,
+        valueOptions: Set<String>,
+        optionalValueOptions: Set<String>,
+        variadicOptions: Set<String>
+    ) -> Int {
+        let arg = args[index]
+        if arg.contains("=") {
+            return 1
+        }
+        if optionalValueOptions.contains(arg) {
+            guard index + 1 < args.count,
+                  Self.looksLikeOptionalAgentOptionValue(
+                    args[index + 1],
+                    following: index + 2 < args.count ? args[index + 2] : nil
+                  ) else {
+                return 1
+            }
+            return 2
+        }
+        guard valueOptions.contains(arg), index + 1 < args.count else {
+            return 1
+        }
+        if variadicOptions.contains(arg) {
+            var end = index + 1
+            while end < args.count, !args[end].hasPrefix("-") {
+                end += 1
+            }
+            return max(1, end - index)
+        }
+        return 2
+    }
+
+    private static func looksLikeOptionalAgentOptionValue(_ value: String, following: String?) -> Bool {
+        guard !value.isEmpty,
+              !value.hasPrefix("-"),
+              value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            return false
+        }
+        return value.contains(",") || (following?.hasPrefix("-") == true)
+    }
+
+    private static func isClaudeHookSettingsOption(_ args: [String], index: Int) -> Bool {
+        let arg = args[index]
+        if arg.hasPrefix("--settings=") {
+            return arg.contains("claude-hook")
+        }
+        guard arg == "--settings", index + 1 < args.count else {
+            return false
+        }
+        return args[index + 1].contains("claude-hook")
+    }
+
+    private static let claudeLaunchValueOptions: Set<String> = [
+        "--add-dir",
+        "--agent",
+        "--agents",
+        "--allowedTools",
+        "--allowed-tools",
+        "--append-system-prompt",
+        "--betas",
+        "--debug-file",
+        "--disallowedTools",
+        "--disallowed-tools",
+        "--effort",
+        "--fallback-model",
+        "--file",
+        "--fork-session",
+        "--from-pr",
+        "--input-format",
+        "--json-schema",
+        "--max-budget-usd",
+        "--mcp-config",
+        "--model",
+        "--name",
+        "-n",
+        "--output-format",
+        "--permission-mode",
+        "--plugin-dir",
+        "--remote-control-session-name-prefix",
+        "--resume",
+        "-r",
+        "--session-id",
+        "--setting-sources",
+        "--settings",
+        "--system-prompt",
+        "--teammate-mode",
+        "--tmux",
+        "--tools",
+        "--worktree",
+        "-w"
+    ]
+
+    private static let claudeLaunchOptionalValueOptions: Set<String> = [
+        "--debug"
+    ]
+
+    private static let claudeLaunchVariadicOptions: Set<String> = [
+        "--add-dir",
+        "--allowedTools",
+        "--allowed-tools",
+        "--betas",
+        "--disallowedTools",
+        "--disallowed-tools",
+        "--file",
+        "--mcp-config",
+        "--tools"
+    ]
+
+    private static let claudeLaunchNonRestorableCommands: Set<String> = [
+        "agents",
+        "auth",
+        "auto-mode",
+        "api-key",
+        "config",
+        "doctor",
+        "install",
+        "mcp",
+        "plugin",
+        "plugins",
+        "rc",
+        "remote-control",
+        "setup-token",
+        "update",
+        "upgrade"
+    ]
+
+    private static let claudeLaunchDroppedOptions: Set<String> = [
+        "--continue",
+        "-c",
+        "--fork-session",
+        "--from-pr",
+        "--print",
+        "-p",
+        "--no-session-persistence",
+        "--resume",
+        "-r",
+        "--session-id",
+        "--tmux",
+        "--worktree",
+        "-w"
+    ]
+
+    private static let claudeLaunchDroppedOptionPrefixes = [
+        "--fork-session=",
+        "--from-pr=",
+        "--resume=",
+        "--session-id=",
+        "--tmux=",
+        "--worktree="
+    ]
+
+    private static let claudeLaunchRejectOptions: Set<String> = [
+        "--print",
+        "-p",
+        "--no-session-persistence"
+    ]
+
+    private static let codexLaunchValueOptions: Set<String> = [
+        "--config",
+        "-c",
+        "--remote",
+        "--remote-auth-token-env",
+        "--image",
+        "-i",
+        "--model",
+        "-m",
+        "--local-provider",
+        "--profile",
+        "-p",
+        "--sandbox",
+        "-s",
+        "--ask-for-approval",
+        "-a",
+        "--cd",
+        "-C",
+        "--add-dir",
+        "--enable",
+        "--disable"
+    ]
+
+    private static let codexLaunchNonRestorableCommands: Set<String> = [
+        "exec",
+        "e",
+        "review",
+        "login",
+        "logout",
+        "mcp",
+        "mcp-server",
+        "app-server",
+        "app",
+        "completion",
+        "sandbox",
+        "debug",
+        "apply",
+        "a",
+        "fork",
+        "cloud",
+        "exec-server",
+        "features",
+        "help"
+    ]
+
+    private static let openCodeLaunchValueOptions: Set<String> = [
+        "--log-level",
+        "--port",
+        "--hostname",
+        "--mdns-domain",
+        "--cors",
+        "--model",
+        "-m",
+        "--session",
+        "-s",
+        "--prompt",
+        "--agent"
+    ]
+
+    private static let openCodeLaunchNonRestorableCommands: Set<String> = [
+        "completion",
+        "acp",
+        "mcp",
+        "attach",
+        "run",
+        "debug",
+        "providers",
+        "auth",
+        "agent",
+        "upgrade",
+        "uninstall",
+        "serve",
+        "web",
+        "models",
+        "stats",
+        "export",
+        "import",
+        "pr",
+        "github",
+        "session",
+        "plugin",
+        "plug",
+        "db"
+    ]
+
+    private static let openCodeLaunchDroppedOptions: Set<String> = [
+        "--continue",
+        "-c",
+        "--fork",
+        "--session",
+        "-s",
+        "--prompt"
+    ]
+
+    private static let openCodeLaunchDroppedOptionPrefixes = [
+        "--session=",
+        "--prompt="
+    ]
 
     // MARK: - Generic agent hook system
 
@@ -14126,7 +14599,7 @@ function looksLikeOpenCodeScript(value) {
 }
 
 function normalizedLaunchArgv() {
-  const raw = Array.isArray(process.argv) ? process.argv.filter(Boolean) : [];
+  const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
   if (raw.length === 0) return [resolveExecutable("opencode")];
 
   const firstBase = path.basename(raw[0]).toLowerCase();
@@ -14140,7 +14613,12 @@ function normalizedLaunchArgv() {
 }
 
 function base64NulSeparated(values) {
-  return Buffer.from(values.join("\u0000"), "utf8").toString("base64");
+  const bytes = [];
+  for (const value of values) {
+    bytes.push(Buffer.from(String(value), "utf8"));
+    bytes.push(Buffer.from([0]));
+  }
+  return Buffer.concat(bytes).toString("base64");
 }
 
 function hookEnvironment(cwd) {
@@ -14454,7 +14932,7 @@ export const CMUXSessionRestore = async (ctx) => {
 
         let store = ClaudeHookSessionStore(
             processEnv: env.merging(
-                ["CMUX_CLAUDE_HOOK_STATE_PATH": "~/.cmuxterm/\(def.sessionStoreSuffix)-hook-sessions.json"],
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
                 uniquingKeysWith: { _, new in new }
             )
         )
