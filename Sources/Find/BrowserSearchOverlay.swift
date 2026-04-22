@@ -28,7 +28,8 @@ func browserSearchOverlayPanelId(for responder: NSResponder?) -> UUID? {
     guard let responder else { return nil }
     if let editor = responder as? NSTextView,
        editor.isFieldEditor {
-        return browserSearchOverlayPanelId(from: editor.delegate as? NSView)
+        return browserSearchOverlayPanelId(from: editor) ??
+            browserSearchOverlayPanelId(from: editor.delegate as? NSView)
     }
     return browserSearchOverlayPanelId(from: responder as? NSView)
 }

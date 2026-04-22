@@ -2874,65 +2874,6 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
     }
 }
 
-final class BrowserTextInputKeyDownRoutingTests: XCTestCase {
-    func testRoutesPlainPrintableTextWhenBrowserFirstResponder() {
-        XCTAssertTrue(
-            shouldDispatchBrowserTextInputViaFirstResponderKeyDown(
-                keyCode: 6,
-                characters: "z",
-                firstResponderIsBrowser: true,
-                flags: []
-            )
-        )
-    }
-
-    func testRoutesShiftPrintableTextWhenBrowserFirstResponder() {
-        XCTAssertTrue(
-            shouldDispatchBrowserTextInputViaFirstResponderKeyDown(
-                keyCode: 6,
-                characters: "Z",
-                firstResponderIsBrowser: true,
-                flags: [.shift]
-            )
-        )
-    }
-
-    func testDoesNotRouteCommandShortcutAsTextInput() {
-        XCTAssertFalse(
-            shouldDispatchBrowserTextInputViaFirstResponderKeyDown(
-                keyCode: 6,
-                characters: "z",
-                firstResponderIsBrowser: true,
-                flags: [.command]
-            )
-        )
-    }
-
-    func testDoesNotRouteWhileBrowserResponderHasMarkedText() {
-        XCTAssertFalse(
-            shouldDispatchBrowserTextInputViaFirstResponderKeyDown(
-                keyCode: 6,
-                characters: "z",
-                firstResponderIsBrowser: true,
-                firstResponderHasMarkedText: true,
-                flags: []
-            )
-        )
-    }
-
-    func testDoesNotRouteEscapeAsTextInput() {
-        XCTAssertFalse(
-            shouldDispatchBrowserTextInputViaFirstResponderKeyDown(
-                keyCode: 53,
-                characters: "\u{1b}",
-                firstResponderIsBrowser: true,
-                flags: []
-            )
-        )
-    }
-}
-
-
 final class BrowserZoomShortcutActionTests: XCTestCase {
     func testZoomInSupportsEqualsAndPlusVariants() {
         XCTAssertEqual(
@@ -3607,5 +3548,30 @@ final class BrowserFindOverlayPresentationTests: XCTestCase {
         let firstResponder = try XCTUnwrap(window.firstResponder)
         XCTAssertEqual(browserSearchOverlayPanelId(for: firstResponder), panelId)
         XCTAssertEqual(browserSearchOverlayPanelId(for: field), panelId)
+    }
+
+    func testBrowserSearchOverlayPanelIdResolvesFieldEditorItself() throws {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let field = NSTextField(frame: NSRect(x: 20, y: 40, width: 200, height: 24))
+        window.contentView?.addSubview(field)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+
+        let firstResponder = try XCTUnwrap(window.firstResponder as? NSTextView)
+        let panelId = UUID()
+        setBrowserSearchOverlayPanelId(panelId, on: firstResponder)
+
+        XCTAssertEqual(browserSearchOverlayPanelId(for: firstResponder), panelId)
     }
 }

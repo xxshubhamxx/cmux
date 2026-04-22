@@ -1616,34 +1616,6 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
-func shouldDispatchBrowserTextInputViaFirstResponderKeyDown(
-    keyCode: UInt16,
-    characters: String?,
-    firstResponderIsBrowser: Bool,
-    firstResponderHasMarkedText: Bool = false,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard firstResponderIsBrowser else { return false }
-    guard !firstResponderHasMarkedText else { return false }
-
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-    guard normalizedFlags.isEmpty || normalizedFlags == [.shift] else { return false }
-
-    // Return and plain up/down already have narrower forwarding paths above.
-    // Escape is app/page command intent, not text insertion.
-    switch keyCode {
-    case 36, 53, 76, 125, 126:
-        return false
-    default:
-        break
-    }
-
-    guard let characters, !characters.isEmpty else { return false }
-    return characters.unicodeScalars.contains(where: { !CharacterSet.controlCharacters.contains($0) })
-}
-
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,
@@ -14203,7 +14175,6 @@ private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
 private var cmuxBrowserArrowForwardingDepth = 0
-private var cmuxBrowserTextInputForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 
@@ -14641,32 +14612,6 @@ private extension NSWindow {
             defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
 #if DEBUG
             dlog("  → browser Up/Down routed to firstResponder.keyDown")
-#endif
-            self.firstResponder?.keyDown(with: event)
-            return true
-        }
-
-        // Plain browser text input should go straight to WebKit. Letting the
-        // full window key-equivalent walk run first can leave SwiftUI/AppKit
-        // claiming the key after a native overlay was dismissed, so the page's
-        // focused DOM input never receives keyDown.
-        if shouldDispatchBrowserTextInputViaFirstResponderKeyDown(
-            keyCode: event.keyCode,
-            characters: event.characters,
-            firstResponderIsBrowser: firstResponderWebView != nil,
-            firstResponderHasMarkedText: firstResponderHasMarkedText,
-            flags: event.modifierFlags
-        ) {
-            if cmuxBrowserTextInputForwardingDepth > 0 {
-#if DEBUG
-                dlog("  → browser text input reentry; using normal dispatch")
-#endif
-                return false
-            }
-            cmuxBrowserTextInputForwardingDepth += 1
-            defer { cmuxBrowserTextInputForwardingDepth = max(0, cmuxBrowserTextInputForwardingDepth - 1) }
-#if DEBUG
-            dlog("  → browser text input routed to firstResponder.keyDown")
 #endif
             self.firstResponder?.keyDown(with: event)
             return true
