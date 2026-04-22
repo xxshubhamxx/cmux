@@ -50,6 +50,7 @@ enum ShortcutHintModifierPolicy {
             )
     }
 }
+
 enum ShortcutHintDebugSettings {
     static let sidebarHintXKey = "shortcutHintSidebarXOffset"
     static let sidebarHintYKey = "shortcutHintSidebarYOffset"
