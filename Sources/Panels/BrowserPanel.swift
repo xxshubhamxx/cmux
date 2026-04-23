@@ -3350,8 +3350,7 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
 
-        if Self.responderChainContains(window.firstResponder, target: webView),
-           !webViewWrapperIsFirstResponder(in: window) {
+        if Self.responderChainContains(window.firstResponder, target: webView) {
             noteWebViewFocused()
             return
         }
@@ -3370,8 +3369,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
 
-        if Self.responderChainContains(window.firstResponder, target: webView),
-           !webViewWrapperIsFirstResponder(in: window) {
+        if Self.responderChainContains(window.firstResponder, target: webView) {
             suppressOmnibarAutofocusForExplicitWebViewFocus(reason: "alreadyFocused")
             noteWebViewFocused()
             return true
@@ -3407,10 +3405,6 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 #endif
         return focused
-    }
-
-    private func webViewWrapperIsFirstResponder(in window: NSWindow) -> Bool {
-        (window.firstResponder as? NSView) === webView
     }
 
     @discardableResult
