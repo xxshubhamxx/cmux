@@ -722,6 +722,17 @@ final class CmuxWebView: WKWebView {
             // receives the keyDown path used by form submission handlers.
             return false
         }
+        if event.keyCode == 49 {
+            let normalizedFlags = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function, .capsLock])
+            if normalizedFlags.isEmpty || normalizedFlags == [.shift] {
+                // Space is text input or page-scroll input in WebKit, not a cmux key equivalent.
+                // Returning false here covers responder-chain states where NSWindow did not
+                // classify the current first responder as browser-owned before asking WKWebView.
+                return false
+            }
+        }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Menu/app shortcut routing is only needed for Command equivalents
