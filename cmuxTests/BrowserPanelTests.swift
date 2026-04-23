@@ -388,6 +388,46 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         let refreshedToken = try await panel.evaluateJavaScript("window.__cmuxTestRoundTripToken") as? String
         XCTAssertEqual(refreshedToken, token)
     }
+
+    func testPastebackExtractorFormatsReadableContentFromSelectedElements() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let html = """
+        <div id="target" class="hero-module__heroCell">
+          <h1>Build and deploy on the AI Cloud.</h1>
+          <p>Vercel provides the developer tools and cloud infrastructure to build, scale, and secure a faster, more personalized web.</p>
+          <div class="actions">
+            <a href="/new">Deploy</a>
+            <a href="/contact/sales/demo">Get a Demo</a>
+          </div>
+        </div>
+        """
+        let fallback = """
+        <div class="hero-module__heroCell">
+          Build and deploy on the AI Cloud.
+          Vercel provides the developer tools and cloud infrastructure to bu...
+        </div>
+        """
+        let htmlLiteral = try XCTUnwrap(cmuxJavaScriptStringLiteral(html))
+        let fallbackLiteral = try XCTUnwrap(cmuxJavaScriptStringLiteral(fallback))
+        let heading = "Build and deploy on the AI Cloud."
+
+        let result = try await panel.evaluateJavaScript(
+            """
+            document.body.innerHTML = \(htmlLiteral);
+            \(ReactGrabPastebackContentExtractor.invocationScript(
+                elementsExpression: "[document.getElementById('target')]",
+                fallbackContentLiteral: fallbackLiteral
+            ))
+            """
+        ) as? String
+
+        XCTAssertEqual(
+            result,
+            "\(heading)\n\(String(repeating: "=", count: heading.count))\n\n" +
+                "Vercel provides the developer tools and cloud infrastructure to build, scale, and secure a faster, more personalized web.\n\n" +
+                "[Deploy](/new) [Get a Demo](/contact/sales/demo)"
+        )
+    }
 }
 
 
