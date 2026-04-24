@@ -1,6 +1,5 @@
-// Convenience REST facade over the VM actors. The authoritative path is `/api/rivet/*`; this
-// route exists so curl + tests can exercise the service without speaking the full RivetKit
-// protocol. Swift clients talk to /api/rivet/* directly and skip this file.
+// Authenticated REST facade over the VM actors. Native clients use this surface so raw Rivet
+// actor keys and provider credentials stay behind server-side ownership checks.
 
 import {
   DEFAULT_E2B_WS_TEMPLATE,
@@ -10,6 +9,7 @@ import {
 } from "../../../services/vms/drivers";
 import {
   jsonResponse,
+  userVmsHandle,
   withAuthedVmApiRoute,
 } from "../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../services/telemetry";
@@ -23,7 +23,7 @@ export async function GET(request: Request): Promise<Response> {
     { "cmux.vm.operation": "list" },
     "/api/vm GET failed",
     async ({ user, client, span }) => {
-      const entries = await client.userVmsActor.getOrCreate([user.id]).list();
+      const entries = await userVmsHandle(client, user.id).list();
       setSpanAttributes(span, { "cmux.vm.count": entries.length });
       // REST adapter: expose `id` at the top level so existing CLI + curl users don't need to
       // learn the new `providerVmId` field name. Swift CLI reads `vm["id"]`.
@@ -105,7 +105,7 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
 
-      const created = await client.userVmsActor.getOrCreate([user.id]).create({ image, provider, idempotencyKey });
+      const created = await userVmsHandle(client, user.id).create({ image, provider, idempotencyKey });
       setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
       return jsonResponse({
         id: created.providerVmId,

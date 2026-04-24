@@ -3,6 +3,7 @@ import {
   jsonResponse,
   notFoundVm,
   userOwnsVm,
+  vmHandle,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
@@ -53,7 +54,7 @@ export async function POST(
       // 404s instead of implicit-creating an uninitialised actor that 500s on every action
       // (Codex P2).
       try {
-        const result = await client.vmActor.get([id]).exec(body.command, timeoutMs);
+        const result = await vmHandle(client, user.id, id).exec(body.command, timeoutMs);
         setSpanAttributes(span, { "cmux.exec.exit_code": result.exitCode });
         return jsonResponse(result);
       } catch (err) {

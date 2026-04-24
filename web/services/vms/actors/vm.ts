@@ -1,6 +1,7 @@
 import { actor } from "rivetkit";
 import { getProvider, type ProviderId, type VMStatus } from "../drivers";
 import { isProviderNotFoundError } from "../providerErrors";
+import { requireActorAuth } from "../rivetSecurity";
 import {
   recordSpanError,
   setSpanAttributes,
@@ -65,6 +66,10 @@ export const vmActor = actor({
     sshIdentityHandles: [],
     snapshots: [],
   }),
+
+  createConnState: (c, params: unknown) => {
+    return requireActorAuth(params, c.state.userId);
+  },
 
   onDestroy: async (c) => {
     await withVmActorSpan(

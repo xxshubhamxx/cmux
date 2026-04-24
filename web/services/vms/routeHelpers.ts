@@ -6,76 +6,19 @@ import { getProvider } from "./drivers";
 import { isProviderNotFoundError } from "./providerErrors";
 import type { UserVmEntry } from "./actors/userVms";
 import type { Registry } from "./registry";
+import {
+  RIVET_INTERNAL_HEADER,
+  makeActorAuthParams,
+  rivetInternalSecret,
+} from "./rivetSecurity";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
 
 /**
- * Gate for `/api/rivet/*`. Our REST routes already authenticate and do ownership checks;
- * Rivet's catch-all then proxies into the actor system. Without a shared secret, any
- * authenticated user could point a raw RivetKit client at `/api/rivet/*` and call
- * `userVmsActor.getOrCreate([otherUserId]).list()` — the key is client-chosen, so auth
- * alone is not enough. With this header, the catch-all drops unauthenticated (i.e. non-
- * REST-originated) traffic before it reaches any actor. The REST layer supplies the value;
- * external clients cannot forge it.
+ * Gate for `/api/rivet/*`. REST routes authenticate and do ownership checks before
+ * forwarding actor calls with this server-only header and signed actor params.
  */
-export const RIVET_INTERNAL_HEADER = "x-cmux-rivet-internal";
-
-/**
- * Read the internal secret lazily so tests can override via process.env before the module
- * is loaded. In production we require the caller to set it explicitly so we don't degrade
- * into "any authenticated request is trusted".
- */
-const globalForRivetSecret = globalThis as typeof globalThis & {
-  __cmuxRivetInternalSecret?: string;
-};
-
-/**
- * Process-local fallback secret. Local dev route handlers can be compiled as separate
- * Turbopack bundles, so a module-level constant is not enough. Store the fallback on
- * globalThis so `/api/vm` and `/api/rivet` agree inside the same Next dev process.
- */
-function devFallbackSecret(): string {
-  if (!globalForRivetSecret.__cmuxRivetInternalSecret) {
-    // Lazy import so we don't pay the crypto cost on cold boot when the env is already set.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { randomBytes } = require("node:crypto") as typeof import("node:crypto");
-    globalForRivetSecret.__cmuxRivetInternalSecret = `cmux-dev-${randomBytes(24).toString("hex")}`;
-  }
-  return globalForRivetSecret.__cmuxRivetInternalSecret;
-}
-
-function rivetInternalSecret(): string {
-  const value = process.env.CMUX_RIVET_INTERNAL_SECRET?.trim();
-  if (value) return value;
-  // Fallback is safe only for a single-process `next dev` on a developer's laptop.
-  // Deployed previews (Vercel, anything serving multiple workers) are guaranteed to split
-  // requests across processes with independent random fallbacks — request signed by worker
-  // A would 401 on worker B. Detect those environments and fail loud instead.
-  const looksDeployed =
-    process.env.NODE_ENV === "production" ||
-    process.env.NODE_ENV === "test" ||
-    !!process.env.VERCEL ||
-    !!process.env.VERCEL_URL ||
-    !!process.env.VERCEL_ENV ||
-    !!process.env.CMUX_DEPLOY_ENV;
-  if (looksDeployed) {
-    throw new Error(
-      "CMUX_RIVET_INTERNAL_SECRET must be set in any deployed environment — " +
-        "the per-process dev fallback is incompatible with multi-worker setups.",
-    );
-  }
-  return devFallbackSecret();
-}
-
-export function assertRivetInternal(request: Request): boolean {
-  const header = request.headers.get(RIVET_INTERNAL_HEADER);
-  if (!header) return false;
-  const expected = rivetInternalSecret();
-  // Constant-time string compare wouldn't help much here (length is fixed, leak surface is
-  // bounded by the handful of dev/prod values), but we keep it simple and direct.
-  return header === expected;
-}
 
 /**
  * Authoritative base URL for the Rivet gateway. Explicit non-loopback
@@ -206,6 +149,14 @@ export type AuthedVmRouteContext = {
   span: Span;
 };
 
+export function userVmsHandle(client: Client<Registry>, userId: string) {
+  return client.userVmsActor.getOrCreate([userId], { params: makeActorAuthParams(userId) });
+}
+
+export function vmHandle(client: Client<Registry>, userId: string, vmId: string) {
+  return client.vmActor.get([vmId], { params: makeActorAuthParams(userId) });
+}
+
 export async function withAuthedVmApiRoute(
   request: Request,
   route: string,
@@ -253,7 +204,7 @@ export async function userVmEntry(
   userId: string,
   vmId: string,
 ): Promise<UserVmEntry | null> {
-  const list = await client.userVmsActor.getOrCreate([userId]).list();
+  const list = await userVmsHandle(client, userId).list();
   return list.find((v) => v.providerVmId === vmId) ?? null;
 }
 

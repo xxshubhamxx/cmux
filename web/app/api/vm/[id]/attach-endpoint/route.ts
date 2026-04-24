@@ -3,6 +3,7 @@ import {
   jsonResponse,
   notFoundVm,
   userOwnsVm,
+  vmHandle,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
@@ -26,7 +27,7 @@ export async function POST(
       setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });
       if (!(await userOwnsVm(client, user.id, id))) return notFoundVm(id);
       try {
-        const endpoint = await client.vmActor.get([id]).openAttach({ requireDaemon });
+        const endpoint = await vmHandle(client, user.id, id).openAttach({ requireDaemon });
         setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
         return jsonResponse(endpoint);
       } catch (err) {

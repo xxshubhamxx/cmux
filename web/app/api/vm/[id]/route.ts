@@ -4,6 +4,8 @@ import {
   jsonResponse,
   notFoundVm,
   userVmEntry,
+  userVmsHandle,
+  vmHandle,
   withAuthedVmApiRoute,
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
@@ -31,7 +33,7 @@ export async function DELETE(
       // DELETE path specifically we also forget() the coordinator entry regardless, so a
       // stale mapping can be cleaned up via retry.
       try {
-        await client.vmActor.get([id]).remove();
+        await vmHandle(client, user.id, id).remove();
       } catch (err) {
         // If the actor is genuinely missing, drop the coordinator reference so the user
         // isn't permanently stuck with an un-removable entry. This can happen when
@@ -45,7 +47,7 @@ export async function DELETE(
           throw err;
         }
       }
-      await client.userVmsActor.getOrCreate([user.id]).forget(id);
+      await userVmsHandle(client, user.id).forget(id);
       return jsonResponse({ ok: true });
     },
   );

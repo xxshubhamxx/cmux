@@ -1,16 +1,28 @@
 import { registry } from "../../../../services/vms/registry";
 import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
-import { assertRivetInternal } from "../../../../services/vms/routeHelpers";
+import {
+  assertRivetInternal,
+  requireRivetPrivateEndpointForPublicStart,
+} from "../../../../services/vms/rivetSecurity";
 import { setSpanAttributes, withApiRouteSpan } from "../../../../services/telemetry";
 
 export const dynamic = "force-dynamic";
 
-async function handle(request: Request): Promise<Response> {
+type RouteContext = { params: Promise<{ path?: string[] }> };
+
+async function handle(request: Request, context: RouteContext): Promise<Response> {
   return withApiRouteSpan(
     request,
     "/api/rivet/[...path]",
     { "cmux.runtime": "rivetkit", "cmux.rivet.gateway": true },
     async (span) => {
+      const path = (await context.params).path ?? [];
+      if (request.method === "GET" && path.length === 1 && path[0] === "start") {
+        requireRivetPrivateEndpointForPublicStart();
+        setSpanAttributes(span, { "cmux.rivet.public_start": true });
+        return registry.handler(request);
+      }
+
       // `/api/rivet/*` is the raw RivetKit protocol surface. Actor keys are client-chosen, so a
       // plain "is this user authenticated" check is not enough: a signed-in user could point a
       // raw Rivet client here and target another user's actor by keying with their id. Gate on

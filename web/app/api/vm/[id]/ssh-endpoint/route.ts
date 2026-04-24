@@ -3,6 +3,7 @@ import {
   jsonResponse,
   notFoundVm,
   userOwnsVm,
+  vmHandle,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
@@ -36,7 +37,7 @@ export async function POST(
       if (!(await userOwnsVm(client, user.id, id))) return notFoundVm(id);
       // `get` not `getOrCreate` — see the exec route for the rationale.
       try {
-        const endpoint = await client.vmActor.get([id]).openSSH();
+        const endpoint = await vmHandle(client, user.id, id).openSSH();
         setSpanAttributes(span, { "cmux.ssh.credential_kind": endpoint.credential.kind });
         return jsonResponse(endpoint);
       } catch (err) {

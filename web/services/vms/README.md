@@ -1,6 +1,6 @@
 # Cloud VMs service
 
-Backend for `cmux vm new/ls/rm/exec/attach` and the upcoming sidebar Cloud button. Stack Auth gated, manaflow-owned provider keys (no BYO). Freestyle attaches over its SSH gateway. E2B attaches over `cmuxd-remote` WebSocket PTY with a short-lived one-use lease because E2B sandboxes do not expose raw TCP.
+Backend for `cmux vm new/ls/rm/exec/attach` and the upcoming sidebar Cloud button. Stack Auth gated, manaflow-owned provider keys (no BYO). Freestyle and E2B prefer `cmuxd-remote` WebSocket PTY with a short-lived one-use lease; older Freestyle VMs can fall back to its SSH gateway.
 
 ## Layout
 
@@ -16,17 +16,25 @@ services/vms/
     userVms.ts     Coordinator per Stack Auth user. Lists/creates/forgets VMs.
   registry.ts      RivetKit setup({ use: { vmActor, userVmsActor } })
   routeHelpers.ts  Shared REST helpers: bearer parsing, server-controlled Rivet
-                   base URL, ownership check, internal-secret gate header.
+                   base URL, ownership checks, signed actor handles.
+  rivetSecurity.ts Internal Rivet gateway header, signed actor params, deploy checks.
   auth.ts          verifyRequest / unauthorized — Stack Auth bearer verification
 ```
 
 ## HTTP surface
 
-- `/api/rivet/*` — authoritative. `registry.handler(request)` speaks the native RivetKit
-  protocol (HTTP POST to action endpoints, WebSocket for attach). Swift client hits this directly.
-- `/api/vm` — REST facade for curl + debug: `GET` (list) / `POST` (create).
-- `/api/vm/:id` — REST facade for curl + debug: `DELETE` (destroy).
-- `/api/vm/:id/exec` — REST facade for curl + debug: `POST` (run a command).
+- `/api/vm` — authenticated REST facade: `GET` (list) / `POST` (create).
+- `/api/vm/:id` — authenticated REST facade: `DELETE` (destroy).
+- `/api/vm/:id/exec` — authenticated REST facade: `POST` (run a command).
+- `/api/vm/:id/attach-endpoint` — authenticated REST facade: `POST` (mint PTY/RPC attach leases).
+- `/api/vm/:id/ssh-endpoint` — authenticated REST facade: `POST` (legacy Freestyle SSH attach).
+- `/api/rivet/metadata` and raw actor action paths are server-internal. They require the
+  `x-cmux-rivet-internal` header and actor calls also require signed connection params scoped to
+  the Stack Auth user. This prevents a public Rivet token or client-chosen actor key from becoming
+  enough to list, create, or attach someone else's VM.
+- `/api/rivet/start` is the only public Rivet route. Rivet Cloud calls it in serverless mode, and
+  production must set `RIVET_ENDPOINT` (or `RIVET_TOKEN` + `RIVET_NAMESPACE`) so RivetKit validates
+  the caller as the trusted engine.
 
 All endpoints verify `Authorization: Bearer <stack access token>` plus `X-Stack-Refresh-Token:
 <refresh>` from the Mac client (matches the tokens the Mac app stashes in keychain after
@@ -45,6 +53,49 @@ See `web/.env.example`. The VM-specific vars:
 - `FREESTYLE_SANDBOX_SNAPSHOT` — Freestyle snapshot id for `vm new` / `vm attach`. Produced by
   `web/scripts/build-cloud-vm-images.ts`.
 - `CMUX_VM_DEFAULT_PROVIDER` — `freestyle` (default) or `e2b`.
+- `CMUX_RIVET_INTERNAL_SECRET` — server-only HMAC secret for raw Rivet gateway access and signed
+  actor params. Required in previews and production.
+- `RIVET_ENDPOINT` — private Rivet Cloud endpoint with `sk_` token. Required for deployed
+  serverless RivetKit.
+- `RIVET_PUBLIC_ENDPOINT` — public Rivet Cloud endpoint with `pk_` token. Needed if the Rivet
+  metadata flow is used by a client or the selected deployment tooling expects it.
+- `RIVET_RUNNER_VERSION` — monotonically increasing deployment version, for graceful actor upgrades.
+
+## Deployment
+
+Local dev uses RivetKit's local runtime through the same `/api/rivet/*` route. Production should use
+Rivet Cloud serverless behind Vercel:
+
+1. Deploy the Next app to Vercel with the catch-all route at `web/app/api/rivet/[...path]/route.ts`.
+2. Configure a Rivet namespace per environment: production gets a stable namespace, previews get
+   isolated namespaces via Rivet's `preview-namespace-action`.
+3. Set Vercel env:
+   - provider keys: `E2B_API_KEY`, `FREESTYLE_API_KEY`
+   - image ids: `E2B_CMUXD_WS_TEMPLATE`, `FREESTYLE_SANDBOX_SNAPSHOT`
+   - auth: Stack Auth vars plus `CMUX_RIVET_INTERNAL_SECRET`
+   - Rivet: `RIVET_ENDPOINT`, `RIVET_PUBLIC_ENDPOINT`, `RIVET_RUNNER_VERSION`
+   - telemetry: Axiom/OTel exporter vars
+4. Disable or bypass Vercel Deployment Protection for Rivet engine requests to `/api/rivet/start`,
+   using the Vercel bypass header configured in the Rivet provider if previews are protected.
+
+## Usage, limits, and pricing
+
+This PR records operational spans and authenticated ownership, but it should not be the billing PR.
+Usage tracking should be a follow-up with a persistent ledger keyed by Stack user id:
+
+- VM lifecycle events: create, destroy, pause, resume, provider, image, createdAt, destroyedAt.
+- Attach events: PTY lease minted, RPC lease minted/reused, transport, provider.
+- Exec events: count, timeout, exit code, duration.
+- Cost rollups: active VM wall time by provider/image, attach count, exec count, snapshot count.
+
+Initial rate limits can be conservative until billing is live:
+
+- free users: small concurrent VM cap, daily create cap, short max runtime
+- paid users: higher concurrent cap, higher daily create cap, longer max runtime
+- global provider guardrails: cap creates/minute and concurrent provisioning per provider
+
+Implement limits before each paid provider call, then record the accepted operation in the ledger
+with the idempotency key so retries do not double count.
 
 ## Provider matrix
 

@@ -1,6 +1,7 @@
 import { actor } from "rivetkit";
 import { defaultProviderId, getProvider, type ProviderId } from "../drivers";
 import type { registry } from "../registry";
+import { makeActorAuthParams, requireActorAuth } from "../rivetSecurity";
 import {
   setSpanAttributes,
   withRivetActorSpan,
@@ -39,6 +40,10 @@ export const userVmsActor = actor({
   },
 
   state: { vms: [] } as UserVmsState,
+
+  createConnState: (c, params: unknown) => {
+    return requireActorAuth(params, c.key[0] as string);
+  },
 
   actions: {
     list: async (c) => {
@@ -93,6 +98,7 @@ export const userVmsActor = actor({
           const client = c.client<typeof registry>();
           try {
             await client.vmActor.create([entry.providerVmId], {
+              params: makeActorAuthParams(c.key[0] as string),
               input: {
                 userId: c.key[0] as string,
                 provider,
