@@ -53,6 +53,14 @@ export type WebSocketPtyEndpoint = {
 
 export type AttachEndpoint = SSHEndpoint | WebSocketPtyEndpoint;
 
+export type AttachOptions = {
+  /**
+   * Workspace attaches need a cmuxd RPC endpoint so browser panels can proxy remote
+   * loopback URLs. PTY-only split attaches can omit it and only mint a terminal lease.
+   */
+  requireDaemon?: boolean;
+};
+
 export type ExecResult = {
   exitCode: number;
   stdout: string;
@@ -81,7 +89,7 @@ export interface VMProvider {
 
   // Returns a live attach endpoint the client can dial into. Providers prefer cmuxd-remote
   // WebSocket PTY with a short-lived one-use lease, with provider-specific fallbacks.
-  openAttach(vmId: string): Promise<AttachEndpoint>;
+  openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
 
   // Returns a live SSH endpoint the client can dial into. Drivers are responsible for ensuring
   // sshd is running (some providers need an explicit start step).

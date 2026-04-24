@@ -20,10 +20,13 @@ export async function POST(
     "/api/vm/[id]/attach-endpoint failed",
     async ({ user, client, span }) => {
       const { id } = await params;
+      const body = await parseAttachBody(request);
+      const requireDaemon = body.requireDaemon === true || body.require_daemon === true;
       setSpanAttributes(span, { "cmux.vm.id": id });
+      setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });
       if (!(await userOwnsVm(client, user.id, id))) return notFoundVm(id);
       try {
-        const endpoint = await client.vmActor.get([id]).openAttach();
+        const endpoint = await client.vmActor.get([id]).openAttach({ requireDaemon });
         setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
         return jsonResponse(endpoint);
       } catch (err) {
@@ -35,4 +38,15 @@ export async function POST(
       }
     },
   );
+}
+
+async function parseAttachBody(request: Request): Promise<Record<string, unknown>> {
+  try {
+    const body = await request.json();
+    return body && typeof body === "object" && !Array.isArray(body)
+      ? body as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
 }

@@ -1,6 +1,7 @@
 import { Freestyle } from "freestyle";
 import {
   ProviderError,
+  type AttachOptions,
   type CreateOptions,
   type ExecResult,
   type AttachEndpoint,
@@ -28,7 +29,7 @@ import {
 
 // Default cmux-sandbox snapshot. Produced by scratch/vm-experiments/images/build-freestyle.ts.
 // Override via FREESTYLE_SANDBOX_SNAPSHOT. Image bakes sshd + cmuxd-remote + mutagen-agent.
-export const DEFAULT_FREESTYLE_SNAPSHOT_ID = "sc-4t27vve1xgwyewhxtbzj";
+export const DEFAULT_FREESTYLE_SNAPSHOT_ID = "sc-5lqx827wp9a2lz0vb364";
 
 function defaultSnapshotId(): string {
   return process.env.FREESTYLE_SANDBOX_SNAPSHOT?.trim() || DEFAULT_FREESTYLE_SNAPSHOT_ID;
@@ -296,10 +297,20 @@ export class FreestyleProvider implements VMProvider {
    * Prefer the baked cmuxd WebSocket daemon. Older VMs without an exposed 443 -> 7777 port
    * still fall back to Freestyle SSH, but the mac client must treat that as shell-only.
    */
-  async openAttach(vmId: string): Promise<AttachEndpoint> {
+  async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
     try {
-      return await this.openWebSocketPty(vmId);
+      const endpoint = await this.openWebSocketPty(vmId);
+      if (options?.requireDaemon && !endpoint.daemon) {
+        throw new ProviderError(
+          "freestyle",
+          `openAttach(${vmId}) requires a cmuxd RPC endpoint, but this VM snapshot only exposes the PTY WebSocket. Rebuild it with the current cmuxd-remote snapshot.`,
+        );
+      }
+      return endpoint;
     } catch (err) {
+      if (options?.requireDaemon) {
+        throw err;
+      }
       return await withVmSpan(
         "cmux.vm.provider.open_attach_ssh_fallback",
         {
@@ -484,7 +495,7 @@ async function readFreestyleWebSocketService(vm: FreestyleVmRef): Promise<{
 }> {
   const result = await execFreestyleOrThrow(
     vm,
-    "systemctl cat cmuxd-ws 2>/dev/null || true",
+    "systemctl cat cmuxd-ws 2>/dev/null || true; ps auxww | grep cmuxd-remote | grep -v grep || true",
   );
   const stdout = result.stdout ?? "";
   const ptyLeasePath =

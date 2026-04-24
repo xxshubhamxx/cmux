@@ -5765,13 +5765,22 @@ struct CMUXCLI {
 
     private func vmOpenShell(id: String, workspaceName: String?, client: SocketClient, jsonOutput: Bool, idFormat: CLIIDFormat) throws {
         let attachInfoStartedAt = Date()
-        let response = try client.sendV2(method: "vm.attach_info", params: ["id": id], responseTimeout: 60)
+        let response = try client.sendV2(
+            method: "vm.attach_info",
+            params: ["id": id, "require_daemon": true],
+            responseTimeout: 60
+        )
         let transport = (response["transport"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? "ssh"
         logVMTiming("attach_info", vmID: id, transport: transport, startedAt: attachInfoStartedAt)
         if transport == "websocket" {
             let endpoint = try parseVMPtyWebSocketEndpoint(response)
+            guard endpoint.daemon != nil else {
+                throw CLIError(
+                    message: "vm.attach_info returned a WebSocket PTY without daemon/proxy support. Rebuild the cloud VM image or snapshot with the current cmuxd-remote."
+                )
+            }
             try runVMPtyWebSocketWorkspace(
                 id: id,
                 endpoint: endpoint,
@@ -5955,7 +5964,7 @@ struct CMUXCLI {
         let splitStartupCommand = "\(shellQuote(executablePath)) vm-pty-attach --id \(shellQuote(id))"
         var params: [String: Any] = [
             "initial_command": initialStartupCommand,
-            "description": "E2B WebSocket PTY",
+            "description": "VM WebSocket PTY",
         ]
         if let workspaceName = workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
            !workspaceName.isEmpty {

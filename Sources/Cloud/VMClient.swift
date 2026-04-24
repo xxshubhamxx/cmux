@@ -156,9 +156,13 @@ actor VMClient {
         return try decodeSSHEndpoint(obj)
     }
 
-    func openAttach(id: String) async throws -> VMAttachEndpoint {
+    func openAttach(id: String, requireDaemon: Bool = false) async throws -> VMAttachEndpoint {
         let encodedID = try pathSegment(id, fieldName: "vm id")
-        let (data, http) = try await request("POST", path: "/api/vm/\(encodedID)/attach-endpoint", jsonBody: [:])
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/attach-endpoint",
+            jsonBody: ["requireDaemon": requireDaemon]
+        )
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
         let transport = (obj["transport"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

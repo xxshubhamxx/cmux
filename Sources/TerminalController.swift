@@ -2159,8 +2159,9 @@ class TerminalController {
             guard let vmId = params["id"] as? String else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.attach_info requires `id`")
             }
+            let requireDaemon = v2Bool(params, "require_daemon") ?? v2Bool(params, "requireDaemon") ?? false
             return v2VmCall(id: id) {
-                let endpoint = try await VMClient.shared.openAttach(id: vmId)
+                let endpoint = try await VMClient.shared.openAttach(id: vmId, requireDaemon: requireDaemon)
                 switch endpoint {
                 case .ssh(let ep):
                     var credPayload: [String: Any] = [:]

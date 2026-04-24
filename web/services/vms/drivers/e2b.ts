@@ -2,6 +2,7 @@ import { Sandbox } from "e2b";
 import {
   ProviderError,
   type AttachEndpoint,
+  type AttachOptions,
   type CreateOptions,
   type ExecResult,
   type SSHEndpoint,
@@ -21,7 +22,7 @@ import {
   type ReusableRpcLease,
 } from "./wsLease";
 
-export const DEFAULT_E2B_WS_TEMPLATE = "cmuxd-ws:sudofix";
+export const DEFAULT_E2B_WS_TEMPLATE = "cmuxd-ws:proxy-20260424a";
 const CMUXD_WS_PORT = 7777;
 const CMUXD_WS_PTY_LEASE_PATH = "/tmp/cmux/attach-pty-lease.json";
 const CMUXD_WS_LEGACY_PTY_LEASE_PATH = "/tmp/cmux/attach-lease.json";
@@ -194,8 +195,15 @@ export class E2BProvider implements VMProvider {
     );
   }
 
-  async openAttach(vmId: string): Promise<AttachEndpoint> {
-    return await this.openWebSocketPty(vmId);
+  async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
+    const endpoint = await this.openWebSocketPty(vmId);
+    if (options?.requireDaemon && !endpoint.daemon) {
+      throw new ProviderError(
+        "e2b",
+        `openAttach(${vmId}) requires a cmuxd RPC endpoint, but this sandbox image only exposes the PTY WebSocket. Rebuild it with the current cmuxd-remote image.`,
+      );
+    }
+    return endpoint;
   }
 
   async openWebSocketPty(vmId: string): Promise<WebSocketPtyEndpoint> {
