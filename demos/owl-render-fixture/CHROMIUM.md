@@ -17,18 +17,21 @@ The Swift verifier expects a Chromium build with:
   publication.
 - `ui/accelerated_widget_mac/owl_fresh_context.*`, storing the latest
   browser-process portal `CAContext` id for the shell host to publish.
-- `ui/accelerated_widget_mac/display_ca_layer_tree.*`, exporting Chromium's
-  browser-process display layer subtree through that portal.
+- `ui/accelerated_widget_mac/display_ca_layer_tree.*`, presenting Chromium's
+  compositor `CAContext` inside that browser-process portal.
 
 The portal is important. Publishing the GPU-process context id directly produced
 blank Swift `CALayerHost` windows. The passing path publishes a browser-process
-portal context id and keeps that portal pointed at Chromium's display layer
-subtree, then Swift hosts the portal id in `CALayerHost`.
+portal context id, hosts Chromium's compositor `CAContext` inside that portal,
+then Swift hosts the portal id in `CALayerHost`.
 
 The verified gate now includes input. `run-layer-host-verifier-gui.sh` can run
-the real Chromium compositor input fixture with `OWL_LAYER_HOST_INPUT_CHECK=1`;
-the passing output shows `OWL_INPUT_READY` turning into `OWL_INPUT_CLICKED`
-through Mojo mouse/key forwarding, with no DevTools or remote debugging path.
+the real Chromium compositor input fixtures with `OWL_LAYER_HOST_INPUT_CHECK=1`;
+the passing output shows `OWL_INPUT_READY` turning into `OWL_INPUT_CLICKED`,
+then proves form input by typing `hello owl`, checking a checkbox, clicking
+submit, and asserting the post-input DOM state through Mojo. Mouse events use
+Chromium's routed input path so controls activate normally. The gate still
+rejects DevTools and remote debugging paths.
 
 The AWS build used for the current screenshots was rebuilt with:
 

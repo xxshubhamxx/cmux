@@ -23,12 +23,35 @@ private struct RenderTarget {
     let expected: Set<ExpectedPixel>
     let preInputScreenshotName: String?
     let preInputExpected: Set<ExpectedPixel>?
-    let inputClick: MouseClick?
+    let inputActions: [InputAction]
+    let postInputDiagnosticScript: String?
+    let postInputExpectations: [JavaScriptExpectation]
 }
 
 private struct MouseClick {
     let x: Float
     let y: Float
+}
+
+private struct KeyStroke {
+    let keyCode: UInt32
+    let text: String
+}
+
+private enum InputAction {
+    case mouseClick(MouseClick)
+    case key(KeyStroke)
+    case text(String)
+}
+
+private struct JavaScriptExpectation {
+    let key: String
+    let value: ExpectedJavaScriptValue
+}
+
+private enum ExpectedJavaScriptValue {
+    case string(String)
+    case bool(Bool)
 }
 
 private struct PixelStats: Codable {
@@ -95,6 +118,7 @@ private enum VerifierError: Error, CustomStringConvertible {
     case forbiddenPath(String)
     case pngWrite(String)
     case layerHost(String)
+    case input(String)
 
     var description: String {
         switch self {
@@ -106,7 +130,8 @@ private enum VerifierError: Error, CustomStringConvertible {
              .pixelCheck(let message),
              .forbiddenPath(let message),
              .pngWrite(let message),
-             .layerHost(let message):
+             .layerHost(let message),
+             .input(let message):
             return message
         }
     }
@@ -342,6 +367,11 @@ private final class LayerHostRunner {
             html: Fixtures.inputFixture,
             directory: fixtureDirectory
         )
+        let formFixture = try writeFixture(
+            name: "form-fixture",
+            html: Fixtures.formFixture,
+            directory: fixtureDirectory
+        )
         var targets: [RenderTarget] = []
         if options.includeCanvas {
             targets.append(RenderTarget(
@@ -351,7 +381,9 @@ private final class LayerHostRunner {
                 expected: [.red, .green, .blue, .dark],
                 preInputScreenshotName: nil,
                 preInputExpected: nil,
-                inputClick: nil
+                inputActions: [],
+                postInputDiagnosticScript: nil,
+                postInputExpectations: []
             ))
         }
         if options.includeExample {
@@ -363,7 +395,9 @@ private final class LayerHostRunner {
                     expected: [.dark, .light, .nonWhite],
                     preInputScreenshotName: nil,
                     preInputExpected: nil,
-                    inputClick: nil
+                    inputActions: [],
+                    postInputDiagnosticScript: nil,
+                    postInputExpectations: []
                 )
             )
         }
@@ -376,7 +410,45 @@ private final class LayerHostRunner {
                     expected: [.yellow, .dark],
                     preInputScreenshotName: "input-fixture-before-click.png",
                     preInputExpected: [.red, .dark],
-                    inputClick: MouseClick(x: 170, y: 180)
+                    inputActions: [
+                        .mouseClick(MouseClick(x: 170, y: 180)),
+                        .key(KeyStroke(keyCode: 88, text: "x")),
+                    ],
+                    postInputDiagnosticScript: "({className: document.body.className, status: document.getElementById('status')?.textContent || ''})",
+                    postInputExpectations: [
+                        JavaScriptExpectation(key: "status", value: .string("OWL_INPUT_CLICKED")),
+                    ]
+                )
+            )
+            targets.append(
+                RenderTarget(
+                    name: "form-fixture",
+                    url: formFixture.absoluteString,
+                    screenshotName: "form-fixture-after-submit.png",
+                    expected: [.green, .yellow, .dark],
+                    preInputScreenshotName: "form-fixture-before-input.png",
+                    preInputExpected: [.blue, .dark, .light],
+                    inputActions: [
+                        .mouseClick(MouseClick(x: 170, y: 152)),
+                        .text("hello owl"),
+                        .mouseClick(MouseClick(x: 68, y: 244)),
+                        .mouseClick(MouseClick(x: 151, y: 333)),
+                    ],
+                    postInputDiagnosticScript: """
+                    ({
+                      activeId: document.activeElement?.id || "",
+                      checked: document.getElementById("agree")?.checked === true,
+                      status: document.getElementById("status")?.textContent || "",
+                      submitted: document.body.classList.contains("submitted"),
+                      typed: document.getElementById("nameInput")?.value || ""
+                    })
+                    """,
+                    postInputExpectations: [
+                        JavaScriptExpectation(key: "checked", value: .bool(true)),
+                        JavaScriptExpectation(key: "status", value: .string("HELLO_OWL_SUBMITTED")),
+                        JavaScriptExpectation(key: "submitted", value: .bool(true)),
+                        JavaScriptExpectation(key: "typed", value: .string("hello owl")),
+                    ]
                 )
             )
         }
@@ -505,9 +577,11 @@ private final class LayerHostRunner {
         var lastError = "no capture attempted"
         var lastWindowID: UInt32?
         var lastStats: PixelStats?
-        var inputSent = target.inputClick == nil
+        var inputSent = target.inputActions.isEmpty
         var currentExpected = target.preInputExpected ?? target.expected
         var capturedPreInputPath: String?
+        var postInputStateVerified = false
+        var postInputDiagnosticsWritten = false
 
         while Date() < deadline {
             bridge.pollEvents(milliseconds: 50)
@@ -519,6 +593,27 @@ private final class LayerHostRunner {
                 contextID = snapshot.contextID
                 window.update(contextID: contextID)
                 pumpApp(app, for: 0.05)
+            }
+
+            if !target.inputActions.isEmpty, inputSent, !postInputStateVerified {
+                do {
+                    try verifyPostInputStateIfNeeded(target: target, bridge: bridge, session: session)
+                    postInputStateVerified = true
+                    bridge.setFocus(session, focused: true)
+                    bridge.pollEvents(milliseconds: 10)
+                } catch let error as VerifierError {
+                    lastError = error.description
+                    continue
+                } catch {
+                    lastError = String(describing: error)
+                    continue
+                }
+            }
+
+            if inputSent {
+                app.activate(ignoringOtherApps: true)
+                window.show()
+                pumpApp(app, for: 0.02)
             }
 
             guard let windowID = swiftHostWindowID(title: window.title, minimumSize: contentSize) else {
@@ -533,65 +628,25 @@ private final class LayerHostRunner {
                 let stats = analyze(image: capture.image)
                 lastStats = stats
                 if currentExpected.isSatisfied(by: stats) {
-                    if !inputSent, let click = target.inputClick {
+                    if !inputSent {
                         capturedPreInputPath = captureURL.path
                         bridge.setFocus(session, focused: true)
-                        if ProcessInfo.processInfo.environment["OWL_LAYER_HOST_KEY_ONLY"] != "1" {
-                            bridge.sendMouse(session, kind: 2, x: click.x, y: click.y, button: 0, clickCount: 0)
-                            bridge.pollEvents(milliseconds: 10)
-                            bridge.sendMouse(session, kind: 0, x: click.x, y: click.y, button: 0, clickCount: 1)
-                            bridge.pollEvents(milliseconds: 10)
-                            bridge.sendMouse(session, kind: 1, x: click.x, y: click.y, button: 0, clickCount: 1)
-                            bridge.pollEvents(milliseconds: 10)
-                        }
-                        bridge.sendKey(session, keyDown: true, keyCode: 88, text: "x")
-                        bridge.pollEvents(milliseconds: 10)
-                        bridge.sendKey(session, keyDown: false, keyCode: 88, text: "")
-                        bridge.pollEvents(milliseconds: 10)
+                        try performInputActions(target.inputActions, bridge: bridge, session: session)
                         pumpApp(app, for: 0.05)
                         if options.inputDiagnosticCapture {
-                            let stateURL = options.outputDirectory.appendingPathComponent(
-                                "\(target.name)-mojo-dom-state.json"
-                            )
-                            do {
-                                let domState = try bridge.executeJavaScript(
-                                    session,
-                                    script: "({className: document.body.className, status: document.getElementById('status')?.textContent || ''})"
-                                )
-                                try domState.write(to: stateURL, atomically: true, encoding: .utf8)
-                            } catch {
-                                try? String(describing: error).write(
-                                    to: stateURL,
-                                    atomically: true,
-                                    encoding: .utf8
-                                )
-                            }
-                            let diagnosticURL = options.outputDirectory.appendingPathComponent(
-                                "\(target.name)-mojo-after-click.png"
-                            )
-                            do {
-                                let diagnostic = try bridge.captureSurfacePNG(session, to: diagnosticURL)
-                                let infoURL = options.outputDirectory.appendingPathComponent(
-                                    "\(target.name)-mojo-after-click.json"
-                                )
-                                let payload = [
-                                    "path": diagnostic.path,
-                                    "mode": diagnostic.mode,
-                                    "width": String(diagnostic.width),
-                                    "height": String(diagnostic.height),
-                                ]
-                                try JSONEncoder.pretty.encode(payload).write(to: infoURL)
-                            } catch {
-                                let errorURL = options.outputDirectory.appendingPathComponent(
-                                    "\(target.name)-mojo-after-click-error.txt"
-                                )
-                                try? String(describing: error).write(to: errorURL, atomically: true, encoding: .utf8)
-                            }
+                            writePostInputDOMState(target: target, bridge: bridge, session: session)
                         }
                         inputSent = true
                         currentExpected = target.expected
-                        lastError = "input sent through Mojo; waiting for post-input pixels"
+                        lastError = "input actions sent through Mojo; waiting for post-input pixels"
                         continue
+                    }
+                    if !target.inputActions.isEmpty,
+                       inputSent,
+                       options.inputDiagnosticCapture,
+                       !postInputDiagnosticsWritten {
+                        writePostInputDiagnostics(target: target, bridge: bridge, session: session)
+                        postInputDiagnosticsWritten = true
                     }
                     let hostCommand = processCommandLine(pid: hostPID)
                     try rejectForbiddenRuntimePaths(
@@ -692,6 +747,172 @@ private final class LayerHostRunner {
         }
         if hasDevToolsActivePort(profileDirectory: profileDirectory) {
             throw VerifierError.forbiddenPath("\(name) profile created DevToolsActivePort")
+        }
+    }
+
+    private func performInputActions(
+        _ actions: [InputAction],
+        bridge: OwlFreshBridge,
+        session: OpaquePointer
+    ) throws {
+        for action in actions {
+            switch action {
+            case .mouseClick(let click):
+                if ProcessInfo.processInfo.environment["OWL_LAYER_HOST_KEY_ONLY"] == "1" {
+                    continue
+                }
+                bridge.sendMouse(session, kind: 2, x: click.x, y: click.y, button: 0, clickCount: 0)
+                bridge.pollEvents(milliseconds: 10)
+                bridge.sendMouse(session, kind: 0, x: click.x, y: click.y, button: 0, clickCount: 1)
+                bridge.pollEvents(milliseconds: 10)
+                bridge.sendMouse(session, kind: 1, x: click.x, y: click.y, button: 0, clickCount: 1)
+                bridge.pollEvents(milliseconds: 10)
+            case .key(let stroke):
+                sendKeyStroke(stroke, bridge: bridge, session: session)
+            case .text(let text):
+                for character in text {
+                    guard let stroke = KeyStroke.typing(character) else {
+                        throw VerifierError.input("unsupported typed character for \(character)")
+                    }
+                    sendKeyStroke(stroke, bridge: bridge, session: session)
+                }
+            }
+        }
+    }
+
+    private func sendKeyStroke(
+        _ stroke: KeyStroke,
+        bridge: OwlFreshBridge,
+        session: OpaquePointer
+    ) {
+        bridge.sendKey(session, keyDown: true, keyCode: stroke.keyCode, text: stroke.text)
+        bridge.pollEvents(milliseconds: 10)
+        bridge.sendKey(session, keyDown: false, keyCode: stroke.keyCode, text: "")
+        bridge.pollEvents(milliseconds: 10)
+    }
+
+    private func verifyPostInputStateIfNeeded(
+        target: RenderTarget,
+        bridge: OwlFreshBridge,
+        session: OpaquePointer
+    ) throws {
+        guard !target.postInputExpectations.isEmpty else {
+            return
+        }
+        guard let script = target.postInputDiagnosticScript else {
+            throw VerifierError.input("\(target.name) has post-input expectations but no diagnostic script")
+        }
+        let result = try bridge.executeJavaScript(session, script: script)
+        try verifyJavaScriptExpectations(
+            result: result,
+            expectations: target.postInputExpectations,
+            targetName: target.name
+        )
+    }
+
+    private func writePostInputDiagnostics(
+        target: RenderTarget,
+        bridge: OwlFreshBridge,
+        session: OpaquePointer
+    ) {
+        writePostInputDOMState(target: target, bridge: bridge, session: session)
+
+        let diagnosticURL = options.outputDirectory.appendingPathComponent(
+            "\(target.name)-mojo-after-input.png"
+        )
+        do {
+            let diagnostic = try bridge.captureSurfacePNG(session, to: diagnosticURL)
+            let infoURL = options.outputDirectory.appendingPathComponent(
+                "\(target.name)-mojo-after-input.json"
+            )
+            let payload = [
+                "path": diagnostic.path,
+                "mode": diagnostic.mode,
+                "width": String(diagnostic.width),
+                "height": String(diagnostic.height),
+            ]
+            try JSONEncoder.pretty.encode(payload).write(to: infoURL)
+        } catch {
+            let errorURL = options.outputDirectory.appendingPathComponent(
+                "\(target.name)-mojo-after-input-error.txt"
+            )
+            try? String(describing: error).write(to: errorURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func writePostInputDOMState(
+        target: RenderTarget,
+        bridge: OwlFreshBridge,
+        session: OpaquePointer
+    ) {
+        if let script = target.postInputDiagnosticScript {
+            let stateURL = options.outputDirectory.appendingPathComponent(
+                "\(target.name)-mojo-dom-state.json"
+            )
+            do {
+                let domState = try bridge.executeJavaScript(session, script: script)
+                try domState.write(to: stateURL, atomically: true, encoding: .utf8)
+            } catch {
+                try? String(describing: error).write(
+                    to: stateURL,
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+        }
+    }
+}
+
+private extension KeyStroke {
+    static func typing(_ character: Character) -> KeyStroke? {
+        let scalars = String(character).unicodeScalars
+        guard scalars.count == 1, let scalar = scalars.first else {
+            return nil
+        }
+        switch scalar.value {
+        case 32:
+            return KeyStroke(keyCode: 32, text: " ")
+        case 48...57, 65...90:
+            return KeyStroke(keyCode: scalar.value, text: String(character))
+        case 97...122:
+            return KeyStroke(keyCode: scalar.value - 32, text: String(character))
+        default:
+            return KeyStroke(keyCode: scalar.value, text: String(character))
+        }
+    }
+}
+
+private func verifyJavaScriptExpectations(
+    result: String,
+    expectations: [JavaScriptExpectation],
+    targetName: String
+) throws {
+    guard let data = result.data(using: .utf8) else {
+        throw VerifierError.input("\(targetName) post-input JavaScript returned non-UTF8 data")
+    }
+    let object: Any
+    do {
+        object = try JSONSerialization.jsonObject(with: data)
+    } catch {
+        throw VerifierError.input("\(targetName) post-input JavaScript returned invalid JSON: \(result)")
+    }
+    guard let dictionary = object as? [String: Any] else {
+        throw VerifierError.input("\(targetName) post-input JavaScript did not return an object: \(result)")
+    }
+
+    for expectation in expectations {
+        guard let actual = dictionary[expectation.key] else {
+            throw VerifierError.input("\(targetName) missing post-input field \(expectation.key): \(result)")
+        }
+        switch expectation.value {
+        case .string(let expected):
+            guard let actualString = actual as? String, actualString == expected else {
+                throw VerifierError.input("\(targetName) expected \(expectation.key)=\(expected), got \(actual)")
+            }
+        case .bool(let expected):
+            guard let actualBool = actual as? Bool, actualBool == expected else {
+                throw VerifierError.input("\(targetName) expected \(expectation.key)=\(expected), got \(actual)")
+            }
         }
     }
 }
@@ -1067,19 +1288,29 @@ private func windowNumber(from window: [String: Any]) -> UInt32? {
 
 private func captureWindow(windowID: UInt32, to url: URL) throws -> CapturedWindow {
     do {
-        return try captureWindowWithScreencapture(windowID: windowID, to: url)
-    } catch {
-        guard let image = CGWindowListCreateImage(
-            .null,
-            [.optionIncludingWindow],
-            CGWindowID(windowID),
-            [.bestResolution, .boundsIgnoreFraming]
-        ) else {
-            throw error
+        let capture = try captureWindowWithScreencapture(windowID: windowID, to: url)
+        if isMostlyBlack(capture.image),
+           let fallback = try? captureWindowWithCoreGraphics(windowID: windowID, to: url),
+           !isMostlyBlack(fallback.image) {
+            return fallback
         }
-        try pngData(from: image).write(to: url)
-        return CapturedWindow(image: image)
+        return capture
+    } catch {
+        return try captureWindowWithCoreGraphics(windowID: windowID, to: url)
     }
+}
+
+private func captureWindowWithCoreGraphics(windowID: UInt32, to url: URL) throws -> CapturedWindow {
+    guard let image = CGWindowListCreateImage(
+        .null,
+        [.optionIncludingWindow],
+        CGWindowID(windowID),
+        [.bestResolution, .boundsIgnoreFraming]
+    ) else {
+        throw VerifierError.capture("CGWindowListCreateImage returned nil for windowID=\(windowID)")
+    }
+    try pngData(from: image).write(to: url)
+    return CapturedWindow(image: image)
 }
 
 private func captureWindowWithScreencapture(windowID: UInt32, to url: URL) throws -> CapturedWindow {
@@ -1231,6 +1462,11 @@ private func analyze(image: CGImage) -> PixelStats {
     )
 }
 
+private func isMostlyBlack(_ image: CGImage) -> Bool {
+    let stats = analyze(image: image)
+    return stats.darkPixels > (stats.width * stats.height * 95 / 100)
+}
+
 private func loadImage(from data: Data) -> CGImage? {
     guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
         return nil
@@ -1361,6 +1597,167 @@ private enum Fixtures {
         document.addEventListener("keydown", markInput);
         document.body.classList.add("ready");
         status.textContent = "OWL_INPUT_READY";
+      </script>
+    </body>
+    </html>
+    """
+
+    static let formFixture = """
+    <!doctype html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>OWL LayerHost form fixture</title>
+      <style>
+        html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: rgb(248,248,248); }
+        body { font: 30px -apple-system, BlinkMacSystemFont, sans-serif; color: rgb(20,20,20); }
+        #banner {
+          position: absolute;
+          left: 48px;
+          top: 40px;
+          width: 864px;
+          height: 58px;
+          background: rgb(0, 89, 255);
+          color: white;
+          display: flex;
+          align-items: center;
+          padding-left: 22px;
+          box-sizing: border-box;
+          font-weight: 700;
+        }
+        #nameInput {
+          position: absolute;
+          left: 48px;
+          top: 116px;
+          width: 380px;
+          height: 64px;
+          box-sizing: border-box;
+          border: 4px solid rgb(20,20,20);
+          border-radius: 0;
+          font: 30px -apple-system, BlinkMacSystemFont, sans-serif;
+          padding: 0 16px;
+          color: rgb(20,20,20);
+          background: white;
+        }
+        #typed {
+          position: absolute;
+          left: 456px;
+          top: 127px;
+          width: 420px;
+          height: 48px;
+          font-weight: 700;
+        }
+        #agreeLabel {
+          position: absolute;
+          left: 48px;
+          top: 218px;
+          height: 58px;
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          font-weight: 700;
+        }
+        #agree {
+          width: 32px;
+          height: 32px;
+        }
+        #submit {
+          position: absolute;
+          left: 48px;
+          top: 298px;
+          width: 220px;
+          height: 72px;
+          border: 4px solid rgb(20,20,20);
+          background: rgb(255, 210, 0);
+          color: rgb(20,20,20);
+          font: 30px -apple-system, BlinkMacSystemFont, sans-serif;
+          font-weight: 800;
+        }
+        #status {
+          position: absolute;
+          left: 300px;
+          top: 314px;
+          width: 560px;
+          height: 42px;
+          font-weight: 800;
+        }
+        #result {
+          position: absolute;
+          left: 48px;
+          top: 408px;
+          width: 864px;
+          height: 144px;
+          box-sizing: border-box;
+          border: 4px solid rgb(20,20,20);
+          background: rgb(238,238,238);
+          display: flex;
+          align-items: center;
+          padding-left: 28px;
+          font-size: 40px;
+          font-weight: 900;
+        }
+        body.submitted #result {
+          background: rgb(0, 204, 82);
+        }
+        body.submitted #nameInput,
+        body.submitted #typed,
+        body.submitted #agreeLabel,
+        body.submitted #submit {
+          display: none;
+        }
+        body.submitted #status {
+          left: 48px;
+          top: 128px;
+          width: 864px;
+          height: 72px;
+          display: flex;
+          align-items: center;
+          box-sizing: border-box;
+          padding-left: 28px;
+          background: rgb(255, 210, 0);
+          font-size: 46px;
+        }
+        body.submitted #result {
+          top: 220px;
+          height: 250px;
+        }
+      </style>
+    </head>
+    <body class="ready">
+      <div id="banner">HELLO_OWL_FORM_READY</div>
+      <input id="nameInput" aria-label="Hello OWL input" autocomplete="off" spellcheck="false" autofocus>
+      <div id="typed">typed: EMPTY</div>
+      <label id="agreeLabel"><input id="agree" type="checkbox">check path active</label>
+      <button id="submit" type="button">Submit</button>
+      <div id="status">HELLO_OWL_WAITING</div>
+      <div id="result">HELLO_OWL_NOT_SUBMITTED</div>
+      <script>
+        const input = document.getElementById("nameInput");
+        const agree = document.getElementById("agree");
+        const submit = document.getElementById("submit");
+        const typed = document.getElementById("typed");
+        const status = document.getElementById("status");
+        const result = document.getElementById("result");
+
+        const updateTyped = () => {
+          typed.textContent = "typed: " + (input.value || "EMPTY");
+        };
+        const submitForm = () => {
+          if (input.value === "hello owl" && agree.checked) {
+            input.blur();
+            submit.blur();
+            document.body.classList.add("submitted");
+            status.textContent = "HELLO_OWL_SUBMITTED";
+            result.textContent = "HELLO_OWL_SUBMITTED: " + input.value;
+          } else {
+            status.textContent = "HELLO_OWL_INCOMPLETE";
+          }
+        };
+
+        input.addEventListener("input", updateTyped);
+        submit.addEventListener("click", submitForm);
+        input.focus();
+        updateTyped();
       </script>
     </body>
     </html>

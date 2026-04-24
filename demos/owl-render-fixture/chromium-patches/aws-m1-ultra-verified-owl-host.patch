@@ -118,6 +118,36 @@ index 76ba15e7f8..f4c221edad 100644
    InitializeMessageLoopContext();
    return 0;
  }
+diff --git a/content/shell/browser/shell_content_browser_client.cc b/content/shell/browser/shell_content_browser_client.cc
+index a926ca5c57..b89573bbab 100644
+--- a/content/shell/browser/shell_content_browser_client.cc
++++ b/content/shell/browser/shell_content_browser_client.cc
+@@ -3,6 +3,9 @@
+ // found in the LICENSE file.
+ 
+ #include "content/shell/browser/shell_content_browser_client.h"
++#if BUILDFLAG(IS_MAC)
++#include "content/shell/browser/owl_fresh_host_mac.h"
++#endif
+ 
+ #include <stddef.h>
+ 
+@@ -189,6 +192,15 @@ class ShellControllerImpl : public mojom::ShellController {
+   }
+ 
+   void ShutDown() override { Shell::Shutdown(); }
++
++  void BindOwlFreshHost(
++      mojo::PendingReceiver<mojom::OwlFreshHost> receiver) override {
++#if BUILDFLAG(IS_MAC)
++    BindOwlFreshHostForCurrentShell(std::move(receiver));
++#else
++    receiver.reset();
++#endif
++  }
+ };
+ 
+ void BindNetworkHintsHandler(
 diff --git a/content/shell/browser/shell_platform_delegate_mac.mm b/content/shell/browser/shell_platform_delegate_mac.mm
 index 274dffa179..1cc5a230f0 100644
 --- a/content/shell/browser/shell_platform_delegate_mac.mm
@@ -244,6 +274,84 @@ index 53b2a8b770..b9fa891fd3 100644
 +  // uses typed Mojo messages, never sockets or DevTools.
 +  BindOwlFreshHost(pending_receiver<OwlFreshHost> receiver);
  };
+diff --git a/content/shell/common/shell_switches.h b/content/shell/common/shell_switches.h
+index 8757fa418d..b9d7d028b7 100644
+--- a/content/shell/common/shell_switches.h
++++ b/content/shell/common/shell_switches.h
+@@ -40,6 +40,8 @@ inline constexpr char kContentShellHostWindowSize[] =
+ // Hides toolbar from content_shell's host window.
+ inline constexpr char kContentShellHideToolbar[] = "content-shell-hide-toolbar";
+ 
++inline constexpr char kFreshOwlEmbed[] = "fresh-owl-embed";
++
+ // Enables APIs guarded with the [IsolatedContext] IDL attribute for the given
+ // comma-separated list of origins.
+ inline constexpr char kIsolatedContextOrigins[] = "isolated-context-origins";
+diff --git a/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm b/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm
+index 65f6c9b457..3bda6ceb05 100644
+--- a/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm
++++ b/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm
+@@ -53,7 +53,7 @@ void ComputeColorComponents(CGImageRef cgImage,
+     *blue = 3;
+   }
+ 
+-  if (byteOrder != kCGImageByteOrder32Host) {
++  if (byteOrder != kCGBitmapByteOrder32Host) {
+     int lastChannel = (CGImageGetBitsPerPixel(cgImage) == 24) ? 2 : 3;
+     *red = lastChannel - *red;
+     *green = lastChannel - *green;
+diff --git a/services/shape_detection/text_detection_impl_mac_unittest.mm b/services/shape_detection/text_detection_impl_mac_unittest.mm
+index f5797e9d31..8c9028c8b2 100644
+--- a/services/shape_detection/text_detection_impl_mac_unittest.mm
++++ b/services/shape_detection/text_detection_impl_mac_unittest.mm
+@@ -59,7 +59,7 @@ void DetectCallback(std::vector<mojom::TextDetectionResultPtr> results) {
+       nullptr, width, height, /*bitsPerComponent=*/8,
+       /*bytesPerRow=*/width * 4, rgb_colorspace.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+ 
+   // Draw a white background.
+   CGContextSetRGBFillColor(context.get(), 1.0, 1.0, 1.0, 1.0);
+diff --git a/skia/ext/skia_utils_ios.mm b/skia/ext/skia_utils_ios.mm
+index 1b202bf6f3..6b11ce44b0 100644
+--- a/skia/ext/skia_utils_ios.mm
++++ b/skia/ext/skia_utils_ios.mm
+@@ -52,7 +52,7 @@ SkBitmap CGImageToSkBitmap(CGImageRef image, CGSize size, bool is_opaque) {
+   base::apple::ScopedCFTypeRef<CGContextRef> context(CGBitmapContextCreate(
+       data, size.width, size.height, 8, size.width * 4, color_space.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+ #else
+ #error We require that Skia's and CoreGraphics's recommended \
+        image memory layout match.
+diff --git a/skia/ext/skia_utils_mac.mm b/skia/ext/skia_utils_mac.mm
+index 07e7f51fc7..e621aa1000 100644
+--- a/skia/ext/skia_utils_mac.mm
++++ b/skia/ext/skia_utils_mac.mm
+@@ -81,7 +81,7 @@ SkBitmap NSImageOrNSImageRepToSkBitmap(NSImage* image,
+   base::apple::ScopedCFTypeRef<CGContextRef> context(CGBitmapContextCreate(
+       data, size.width, size.height, 8, size.width * 4, cg_color_space.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+ #else
+ #error We require that Skia's and CoreGraphics's recommended \
+        image memory layout match.
+diff --git a/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm b/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
+index 9234de2adf..46e143f458 100644
+--- a/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
++++ b/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
+@@ -64,7 +64,7 @@
+   cg_context_.reset(CGBitmapContextCreate(
+       offscreen_.getPixels(), offscreen_.width(), offscreen_.height(), 8,
+       offscreen_.rowBytes(), color_space.get(),
+-      kCGImageByteOrder32Host |
++      kCGBitmapByteOrder32Host |
+           static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst)));
+   DCHECK(cg_context_);
+ 
 diff --git a/ui/accelerated_widget_mac/BUILD.gn b/ui/accelerated_widget_mac/BUILD.gn
 index 0f8a6f75b7..c5e8a19224 100644
 --- a/ui/accelerated_widget_mac/BUILD.gn
@@ -266,7 +374,7 @@ index 0f8a6f75b7..c5e8a19224 100644
    }
  
 diff --git a/ui/accelerated_widget_mac/display_ca_layer_tree.mm b/ui/accelerated_widget_mac/display_ca_layer_tree.mm
-index dcf493d629..b9732d8456 100644
+index dcf493d629..8648983f2b 100644
 --- a/ui/accelerated_widget_mac/display_ca_layer_tree.mm
 +++ b/ui/accelerated_widget_mac/display_ca_layer_tree.mm
 @@ -3,6 +3,7 @@
@@ -282,8 +390,8 @@ index dcf493d629..b9732d8456 100644
    // Early-out if the remote layer has not changed.
    if (remote_layer_.contextId == ca_context_id) {
 +#if BUILDFLAG(IS_MAC)
-+    ui::OwlFreshDisplayPortalPresentLayer(maybe_flipped_layer_,
-+                                          root_layer_.bounds);
++    ui::OwlFreshDisplayPortalPresentCAContext(ca_context_id,
++                                              root_layer_.bounds);
 +#endif
      return;
    }
@@ -294,8 +402,8 @@ index dcf493d629..b9732d8456 100644
    }
 +
 +#if BUILDFLAG(IS_MAC)
-+  ui::OwlFreshDisplayPortalPresentLayer(maybe_flipped_layer_,
-+                                        root_layer_.bounds);
++  ui::OwlFreshDisplayPortalPresentCAContext(ca_context_id,
++                                            root_layer_.bounds);
 +#endif
  }
  
@@ -312,6 +420,77 @@ index dcf493d629..b9732d8456 100644
  }
  
  }  // namespace ui
+diff --git a/ui/base/resource/resource_bundle_ios.mm b/ui/base/resource/resource_bundle_ios.mm
+index bd4b5cc84e..5322109a15 100644
+--- a/ui/base/resource/resource_bundle_ios.mm
++++ b/ui/base/resource/resource_bundle_ios.mm
+@@ -127,7 +127,7 @@
+           /*data=*/nullptr, target_size.width, target_size.height, 8,
+           target_size.width * 4, color_space.get(),
+           static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-              kCGImageByteOrder32Host));
++              kCGBitmapByteOrder32Host));
+ 
+       CGRect target_rect = CGRectMake(0, 0,
+                                       target_size.width, target_size.height);
+diff --git a/ui/display/mac/screen_utils_mac.mm b/ui/display/mac/screen_utils_mac.mm
+index eace771c4b..b2f5debb14 100644
+--- a/ui/display/mac/screen_utils_mac.mm
++++ b/ui/display/mac/screen_utils_mac.mm
+@@ -9,12 +9,8 @@
+ NSScreen* GetNSScreenFromDisplayID(CGDirectDisplayID display_id) {
+   for (NSScreen* screen in NSScreen.screens) {
+     CGDirectDisplayID screen_display_id = kCGNullDirectDisplay;
+-    if (@available(macOS 26, *)) {
+-      screen_display_id = screen.CGDirectDisplayID;
+-    } else {
+-      screen_display_id =
+-          [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
+-    }
++    screen_display_id =
++        [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
+     if (screen_display_id == display_id) {
+       return screen;
+     }
+diff --git a/ui/gfx/image/image_ios.mm b/ui/gfx/image/image_ios.mm
+index 676998a61f..cc7ec3d592 100644
+--- a/ui/gfx/image/image_ios.mm
++++ b/ui/gfx/image/image_ios.mm
+@@ -34,7 +34,7 @@
+       /*bitsPerComponent=*/8,
+       /*bytesPerRow=*/0, color_space.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+   CGContextSetRGBFillColor(context.get(), 1.0, 0.0, 0.0, 1.0);
+   CGContextFillRect(context.get(), CGRectMake(0.0, 0.0, 16, 16));
+   base::apple::ScopedCFTypeRef<CGImageRef> cg_image(
+diff --git a/ui/gfx/image/image_ios_unittest.mm b/ui/gfx/image/image_ios_unittest.mm
+index fe3ea09bf4..2756dd475a 100644
+--- a/ui/gfx/image/image_ios_unittest.mm
++++ b/ui/gfx/image/image_ios_unittest.mm
+@@ -33,7 +33,7 @@
+       nullptr, target_size.width, target_size.height, 8, target_size.width * 4,
+       color_space.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+ 
+   CGRect target_rect = CGRectMake(0, 0,
+                                   target_size.width, target_size.height);
+diff --git a/ui/gfx/image/image_unittest_util_apple.mm b/ui/gfx/image/image_unittest_util_apple.mm
+index 4a6e3016b0..74e4544015 100644
+--- a/ui/gfx/image/image_unittest_util_apple.mm
++++ b/ui/gfx/image/image_unittest_util_apple.mm
+@@ -48,7 +48,7 @@ SkColor GetPlatformImageColor(PlatformImage image, int x, int y) {
+           /*bitsPerComponent=*/8,
+           /*bytesPerRow=*/4, color_space.get(),
+           static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-              kCGImageByteOrder32Host));
++              kCGBitmapByteOrder32Host));
+   CGContextDrawImage(bitmap_context.get(), CGRectMake(0, 0, 1, 1),
+                      pixel_image.get());
+ 
 diff --git a/content/shell/browser/owl_fresh_host_mac.h b/content/shell/browser/owl_fresh_host_mac.h
 new file mode 100644
 index 0000000000..09928bd888
@@ -335,10 +514,10 @@ index 0000000000..09928bd888
 +
 diff --git a/content/shell/browser/owl_fresh_host_mac.mm b/content/shell/browser/owl_fresh_host_mac.mm
 new file mode 100644
-index 0000000000..75dc3306de
+index 0000000000..246b41c4e3
 --- /dev/null
 +++ b/content/shell/browser/owl_fresh_host_mac.mm
-@@ -0,0 +1,1004 @@
+@@ -0,0 +1,957 @@
 +#include "content/shell/browser/owl_fresh_host_mac.h"
 +
 +#import <Cocoa/Cocoa.h>
@@ -798,53 +977,6 @@ index 0000000000..75dc3306de
 +    int modifiers = BlinkModifiersFromCocoa(event->modifiers);
 +    base::TimeTicks now = base::TimeTicks::Now();
 +
-+    if (event->kind != mojom::OwlFreshMouseKind::kWheel) {
-+      NSView* native_view = contents->GetNativeView().GetNativeNSView();
-+      NSWindow* window = native_view.window;
-+      if (!native_view || !window) {
-+        Log("SendMouse dropped: no native view/window");
-+        return;
-+      }
-+      [window makeFirstResponder:native_view];
-+
-+      NSEventType native_type = NSEventTypeMouseMoved;
-+      if (event->kind == mojom::OwlFreshMouseKind::kDown) {
-+        native_type = NSEventTypeLeftMouseDown;
-+      } else if (event->kind == mojom::OwlFreshMouseKind::kUp) {
-+        native_type = NSEventTypeLeftMouseUp;
-+      }
-+
-+      NSPoint view_point =
-+          NSMakePoint(event->x, native_view.bounds.size.height - event->y);
-+      NSPoint window_point = [native_view convertPoint:view_point toView:nil];
-+      NSEvent* native_event =
-+          [NSEvent mouseEventWithType:native_type
-+                             location:window_point
-+                        modifierFlags:0
-+                            timestamp:[[NSProcessInfo processInfo]
-+                                          systemUptime]
-+                         windowNumber:window.windowNumber
-+                              context:nil
-+                          eventNumber:0
-+                           clickCount:event->click_count > 0
-+                                          ? event->click_count
-+                                          : 1
-+                             pressure:native_type == NSEventTypeLeftMouseUp
-+                                          ? 0
-+                                          : 1];
-+      if (native_type == NSEventTypeLeftMouseDown) {
-+        [native_view mouseDown:native_event];
-+      } else if (native_type == NSEventTypeLeftMouseUp) {
-+        [native_view mouseUp:native_event];
-+      } else {
-+        [native_view mouseMoved:native_event];
-+      }
-+      EnsureRenderWidgetProducingFramesForOwlFresh();
-+      MarkLayerFixtureInput();
-+      Log("SendMouse forwarded native mouse");
-+      return;
-+    }
-+
 +    if (event->kind == mojom::OwlFreshMouseKind::kWheel) {
 +      blink::WebMouseWheelEvent wheel(
 +          blink::WebInputEvent::Type::kMouseWheel, modifiers, now);
@@ -904,7 +1036,7 @@ index 0000000000..75dc3306de
 +        view_base, &mouse, ui::LatencyInfo());
 +    EnsureRenderWidgetProducingFramesForOwlFresh();
 +    MarkLayerFixtureInput();
-+    Log("SendMouse forwarded mouse");
++    Log("SendMouse forwarded routed mouse");
 +  }
 +
 +  void SendKey(mojom::OwlFreshKeyEventPtr event) override {
@@ -1343,101 +1475,29 @@ index 0000000000..75dc3306de
 +}
 +
 +}  // namespace content
-diff --git a/fresh_owl/owl_fresh_bridge.h b/fresh_owl/owl_fresh_bridge.h
+diff --git a/fresh_owl/BUILD.gn b/fresh_owl/BUILD.gn
 new file mode 100644
-index 0000000000..8c4103de12
+index 0000000000..1bf493f610
 --- /dev/null
-+++ b/fresh_owl/owl_fresh_bridge.h
-@@ -0,0 +1,89 @@
-+#ifndef FRESH_OWL_OWL_FRESH_BRIDGE_H_
-+#define FRESH_OWL_OWL_FRESH_BRIDGE_H_
-+
-+#include <stdbool.h>
-+#include <stdint.h>
-+
-+#ifdef __cplusplus
-+extern "C" {
-+#endif
-+
-+#if defined(__GNUC__)
-+#define OWL_FRESH_EXPORT __attribute__((visibility("default")))
-+#else
-+#define OWL_FRESH_EXPORT
-+#endif
-+
-+typedef struct OwlFreshSession OwlFreshSession;
-+
-+typedef enum OwlFreshEventKind {
-+  kOwlFreshEventLog = 1,
-+  kOwlFreshEventReady = 2,
-+  kOwlFreshEventCompositor = 3,
-+  kOwlFreshEventNavigation = 4,
-+  kOwlFreshEventDisconnected = 5,
-+} OwlFreshEventKind;
-+
-+typedef struct OwlFreshEvent {
-+  OwlFreshEventKind kind;
-+  uint32_t context_id;
-+  int32_t host_pid;
-+  bool loading;
-+  const char* url;
-+  const char* title;
-+  const char* message;
-+} OwlFreshEvent;
-+
-+typedef void (*OwlFreshEventCallback)(const OwlFreshEvent* event,
-+                                      void* user_data);
-+
-+OWL_FRESH_EXPORT int owl_fresh_global_init(void);
-+OWL_FRESH_EXPORT OwlFreshSession* owl_fresh_session_create(
-+    const char* content_shell_path,
-+    const char* initial_url,
-+    const char* user_data_dir,
-+    OwlFreshEventCallback callback,
-+    void* user_data);
-+OWL_FRESH_EXPORT void owl_fresh_session_destroy(OwlFreshSession* session);
-+OWL_FRESH_EXPORT int32_t owl_fresh_session_host_pid(OwlFreshSession* session);
-+OWL_FRESH_EXPORT void owl_fresh_navigate(OwlFreshSession* session,
-+                                         const char* url);
-+OWL_FRESH_EXPORT void owl_fresh_resize(OwlFreshSession* session,
-+                                       uint32_t width,
-+                                       uint32_t height,
-+                                       float scale);
-+OWL_FRESH_EXPORT void owl_fresh_set_focus(OwlFreshSession* session,
-+                                          bool focused);
-+OWL_FRESH_EXPORT void owl_fresh_send_mouse(OwlFreshSession* session,
-+                                           uint32_t kind,
-+                                           float x,
-+                                           float y,
-+                                           uint32_t button,
-+                                           uint32_t click_count,
-+                                           float delta_x,
-+                                           float delta_y,
-+                                           uint32_t modifiers);
-+OWL_FRESH_EXPORT void owl_fresh_send_key(OwlFreshSession* session,
-+                                         bool key_down,
-+                                         uint32_t key_code,
-+                                         const char* text,
-+                                         uint32_t modifiers);
-+OWL_FRESH_EXPORT int owl_fresh_capture_surface_png(OwlFreshSession* session,
-+                                                   uint8_t** png_bytes,
-+                                                   uintptr_t* png_length,
-+                                                   uint32_t* width,
-+                                                   uint32_t* height,
-+                                                   char** capture_mode,
-+                                                   char** error);
-+OWL_FRESH_EXPORT int owl_fresh_execute_javascript(OwlFreshSession* session,
-+                                                  const char* script,
-+                                                  char** result_json,
-+                                                  char** error);
-+OWL_FRESH_EXPORT void owl_fresh_poll_events(uint32_t timeout_ms);
-+OWL_FRESH_EXPORT void owl_fresh_free_buffer(void* buffer);
-+
-+#ifdef __cplusplus
++++ b/fresh_owl/BUILD.gn
+@@ -0,0 +1,17 @@
++shared_library("owl_fresh_bridge") {
++  testonly = true
++  sources = [
++    "owl_fresh_bridge.cc",
++    "owl_fresh_bridge.h",
++  ]
++  deps = [
++    "//base",
++    "//content/shell:shell_controller_mojom",
++    "//mojo/core/embedder",
++    "//mojo/public/cpp/bindings",
++    "//mojo/public/cpp/platform",
++    "//mojo/public/cpp/system",
++  ]
++  ldflags = [ "-Wl,-install_name,@rpath/libowl_fresh_bridge.dylib" ]
 +}
-+#endif
 +
-+#endif
 diff --git a/fresh_owl/owl_fresh_bridge.cc b/fresh_owl/owl_fresh_bridge.cc
 new file mode 100644
 index 0000000000..fedb14f9fe
@@ -1967,6 +2027,101 @@ index 0000000000..fedb14f9fe
 +extern "C" void owl_fresh_free_buffer(void* buffer) {
 +  std::free(buffer);
 +}
+diff --git a/fresh_owl/owl_fresh_bridge.h b/fresh_owl/owl_fresh_bridge.h
+new file mode 100644
+index 0000000000..8c4103de12
+--- /dev/null
++++ b/fresh_owl/owl_fresh_bridge.h
+@@ -0,0 +1,89 @@
++#ifndef FRESH_OWL_OWL_FRESH_BRIDGE_H_
++#define FRESH_OWL_OWL_FRESH_BRIDGE_H_
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#if defined(__GNUC__)
++#define OWL_FRESH_EXPORT __attribute__((visibility("default")))
++#else
++#define OWL_FRESH_EXPORT
++#endif
++
++typedef struct OwlFreshSession OwlFreshSession;
++
++typedef enum OwlFreshEventKind {
++  kOwlFreshEventLog = 1,
++  kOwlFreshEventReady = 2,
++  kOwlFreshEventCompositor = 3,
++  kOwlFreshEventNavigation = 4,
++  kOwlFreshEventDisconnected = 5,
++} OwlFreshEventKind;
++
++typedef struct OwlFreshEvent {
++  OwlFreshEventKind kind;
++  uint32_t context_id;
++  int32_t host_pid;
++  bool loading;
++  const char* url;
++  const char* title;
++  const char* message;
++} OwlFreshEvent;
++
++typedef void (*OwlFreshEventCallback)(const OwlFreshEvent* event,
++                                      void* user_data);
++
++OWL_FRESH_EXPORT int owl_fresh_global_init(void);
++OWL_FRESH_EXPORT OwlFreshSession* owl_fresh_session_create(
++    const char* content_shell_path,
++    const char* initial_url,
++    const char* user_data_dir,
++    OwlFreshEventCallback callback,
++    void* user_data);
++OWL_FRESH_EXPORT void owl_fresh_session_destroy(OwlFreshSession* session);
++OWL_FRESH_EXPORT int32_t owl_fresh_session_host_pid(OwlFreshSession* session);
++OWL_FRESH_EXPORT void owl_fresh_navigate(OwlFreshSession* session,
++                                         const char* url);
++OWL_FRESH_EXPORT void owl_fresh_resize(OwlFreshSession* session,
++                                       uint32_t width,
++                                       uint32_t height,
++                                       float scale);
++OWL_FRESH_EXPORT void owl_fresh_set_focus(OwlFreshSession* session,
++                                          bool focused);
++OWL_FRESH_EXPORT void owl_fresh_send_mouse(OwlFreshSession* session,
++                                           uint32_t kind,
++                                           float x,
++                                           float y,
++                                           uint32_t button,
++                                           uint32_t click_count,
++                                           float delta_x,
++                                           float delta_y,
++                                           uint32_t modifiers);
++OWL_FRESH_EXPORT void owl_fresh_send_key(OwlFreshSession* session,
++                                         bool key_down,
++                                         uint32_t key_code,
++                                         const char* text,
++                                         uint32_t modifiers);
++OWL_FRESH_EXPORT int owl_fresh_capture_surface_png(OwlFreshSession* session,
++                                                   uint8_t** png_bytes,
++                                                   uintptr_t* png_length,
++                                                   uint32_t* width,
++                                                   uint32_t* height,
++                                                   char** capture_mode,
++                                                   char** error);
++OWL_FRESH_EXPORT int owl_fresh_execute_javascript(OwlFreshSession* session,
++                                                  const char* script,
++                                                  char** result_json,
++                                                  char** error);
++OWL_FRESH_EXPORT void owl_fresh_poll_events(uint32_t timeout_ms);
++OWL_FRESH_EXPORT void owl_fresh_free_buffer(void* buffer);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
 diff --git a/ui/accelerated_widget_mac/owl_fresh_context.h b/ui/accelerated_widget_mac/owl_fresh_context.h
 new file mode 100644
 index 0000000000..97a4794039

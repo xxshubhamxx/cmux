@@ -2,7 +2,7 @@
 
 This verifier is the first visual gate for the OWL effort. It launches a Chromium host executable on macOS, renders deterministic HTML fixtures, writes PNG artifacts, and checks pixel colors in the captured images.
 
-`OwlLayerHostVerifier` is the current first architecture gate. Swift loads the OWL bridge dylib, launches Content Shell through Mojo, waits for Chromium to publish a browser-process portal `CAContext` id over Mojo, hosts that id in a native `CALayerHost`, screenshots the Swift-owned host window, and checks the pixels. `Scripts/run-layer-host-fixture-verifier-gui.sh` uses a Chromium-owned layer fixture context to prove the Mojo plus native display plumbing. `Scripts/run-layer-host-verifier-gui.sh` uses the real Chromium compositor portal and runs a deterministic canvas fixture plus `https://example.com/` by default. Set `OWL_LAYER_HOST_INPUT_CHECK=1` to also verify real mouse/key input changes web content from `OWL_INPUT_READY` to `OWL_INPUT_CLICKED`.
+`OwlLayerHostVerifier` is the current first architecture gate. Swift loads the OWL bridge dylib, launches Content Shell through Mojo, waits for Chromium to publish a browser-process portal `CAContext` id over Mojo, hosts that id in a native `CALayerHost`, screenshots the Swift-owned host window, and checks the pixels. `Scripts/run-layer-host-fixture-verifier-gui.sh` uses a Chromium-owned layer fixture context to prove the Mojo plus native display plumbing. `Scripts/run-layer-host-verifier-gui.sh` uses the real Chromium compositor portal and runs a deterministic canvas fixture plus `https://example.com/` by default. Set `OWL_LAYER_HOST_INPUT_CHECK=1` to also verify real mouse/key input changes web content from `OWL_INPUT_READY` to `OWL_INPUT_CLICKED`, then types into a form field, checks a checkbox, clicks submit, and verifies the post-input DOM state.
 
 `OwlLayerHostSelfTest` is the smallest local rendering gate. Direct mode draws deterministic red, green, blue, and text layers into a normal Swift layer-backed `NSWindow`, proving the window capture environment. Layer-host mode creates a private `CAContext` in Swift, draws the same layers into it, hosts that context in the same Swift `CALayerHost` window path, screenshots the window, and checks the pixels. This isolates whether `CAContext` plus `CALayerHost` plus screenshot capture works before involving Chromium.
 
@@ -44,5 +44,8 @@ cd ~/cmux-owl-render-fixture
 OWL_LAYER_HOST_INPUT_CHECK=1 ./Scripts/run-layer-host-verifier-gui.sh
 ```
 
-The input run writes both `input-fixture-before-click.png` and
-`input-fixture-after-click.png`.
+The input run writes `input-fixture-before-click.png`,
+`input-fixture-after-click.png`, `form-fixture-before-input.png`, and
+`form-fixture-after-submit.png`. With
+`OWL_LAYER_HOST_INPUT_DIAGNOSTIC_CAPTURE=1`, it also writes post-input Mojo
+surface captures and DOM-state JSON for both input fixtures.
