@@ -845,7 +845,9 @@ private struct FilePreviewPDFZoomChromeView: View {
 }
 
 private struct FilePreviewPDFLiquidGlassButtonModifier: ViewModifier {
+    @ViewBuilder
     func body(content: Content) -> some View {
+        #if compiler(>=6.3)
         if #available(macOS 26.0, *) {
             GlassEffectContainer(spacing: 0) {
                 content
@@ -853,14 +855,21 @@ private struct FilePreviewPDFLiquidGlassButtonModifier: ViewModifier {
                     .controlSize(.regular)
             }
         } else {
-            content
-                .buttonStyle(.borderless)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay {
-                    Capsule()
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 0.5)
-                }
+            fallbackChrome(content: content)
         }
+        #else
+        fallbackChrome(content: content)
+        #endif
+    }
+
+    private func fallbackChrome(content: Content) -> some View {
+        content
+            .buttonStyle(.borderless)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 0.5)
+            }
     }
 }
 
