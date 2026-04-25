@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# cmux web
 
-## Getting Started
+Next.js app deployed as the existing Vercel `manaflow/cmux` project. The app serves the website,
+Stack Auth handlers, feedback endpoint, and Cloud VM backend routes.
 
-First, run the development server:
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+bun install
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`bun dev` listens on `CMUX_PORT` when it is set, otherwise `PORT`, otherwise `3777`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Local Postgres
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Local Postgres is isolated per worktree by deriving its port and Docker names from `CMUX_PORT` and
+the git branch.
 
-## Learn More
+```bash
+CMUX_PORT=10180 bun db:up
+CMUX_PORT=10180 bun db:migrate
+CMUX_PORT=10180 bun db:status
+```
 
-To learn more about Next.js, take a look at the following resources:
+With `CMUX_PORT=10180`, Postgres listens on `localhost:20180`. A second worktree with
+`CMUX_PORT=10181` listens on `localhost:20181`, so multiple dev environments can run on one
+machine.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Useful commands:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+bun db:up       # start this worktree's Postgres
+bun db:migrate  # apply Drizzle migrations
+bun db:test     # start an isolated test DB on CMUX_PORT+11000 and run DB behavior tests
+bun db:status   # print container, volume, port, and redacted DATABASE_URL
+bun db:reset    # delete and recreate this worktree's DB volume
+bun db:down     # stop this worktree's DB
+```
 
-## Deploy on Vercel
+The local default URL shape is:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```text
+postgres://cmux:cmux@localhost:${CMUX_PORT + 10000}/cmux
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Database
+
+Schema lives in `db/schema.ts`. SQL migrations live in `db/migrations`.
+
+Generate a migration after schema edits:
+
+```bash
+bunx drizzle-kit generate --config drizzle.config.ts
+```
+
+Apply migrations:
+
+```bash
+bun db:migrate
+```
+
+CI applies migrations twice against a real Postgres service and runs `tests/db-schema.test.ts` to
+verify the runtime behavior we rely on, including per-user create idempotency.

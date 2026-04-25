@@ -19,6 +19,9 @@ services/vms/
                    base URL, ownership checks, signed actor handles.
   rivetSecurity.ts Internal Rivet gateway header, signed actor params, deploy checks.
   auth.ts          verifyRequest / unauthorized — Stack Auth bearer verification
+db/
+  schema.ts        Drizzle schema for the upcoming DB-backed VM control plane.
+  migrations/      SQL migrations applied by `bun db:migrate`.
 ```
 
 ## HTTP surface
@@ -73,6 +76,9 @@ The auth regression tests live in `web/tests`:
 
 See `web/.env.example`. The VM-specific vars:
 
+- `DATABASE_URL` — Postgres connection string for DB-backed Cloud VM state and usage.
+- `DIRECT_DATABASE_URL` — direct Postgres connection string for migrations when runtime pooling is
+  introduced. Local dev defaults to the same value as `DATABASE_URL`.
 - `E2B_API_KEY` — manaflow's key, used by E2BProvider.
 - `FREESTYLE_API_KEY` — manaflow's key, used by FreestyleProvider.
 - `E2B_CMUXD_WS_TEMPLATE` — E2B template alias/name for interactive WebSocket PTY sandboxes.
@@ -108,13 +114,13 @@ Rivet Cloud serverless behind Vercel:
 
 ## Usage, limits, and pricing
 
-This PR records operational spans and authenticated ownership, but it should not be the billing PR.
-Usage tracking should be a follow-up with a persistent ledger keyed by Stack user id:
+This PR records operational spans and authenticated ownership. The first database migration adds the
+tables that will replace Rivet for Cloud VM state and give us a persistent ledger keyed by Stack
+user id:
 
-- VM lifecycle events: create, destroy, pause, resume, provider, image, createdAt, destroyedAt.
-- Attach events: PTY lease minted, RPC lease minted/reused, transport, provider.
-- Exec events: count, timeout, exit code, duration.
-- Cost rollups: active VM wall time by provider/image, attach count, exec count, snapshot count.
+- `cloud_vms` — VM lifecycle state, provider ids, image ids, and per-user idempotency keys.
+- `cloud_vm_leases` — hashed short-lived PTY/RPC/SSH lease tokens.
+- `cloud_vm_usage_events` — lifecycle, attach, and exec events for billing and audit rollups.
 
 Initial rate limits can be conservative until billing is live:
 
@@ -170,6 +176,25 @@ handlers backed by a persistent database table for users, VMs, leases, usage led
 idempotency keys. That version would still need a separate background cleanup path for orphaned VMs
 and expired leases. Rivet is most justified if we keep per-VM lifecycle coordination in actors or add
 live VM status/progress subscriptions.
+
+Target direction: remove Rivet completely for this feature once the DB-backed route handlers land.
+Create retries do not require Rivet; the database owns correctness through a unique
+`(user_id, idempotency_key)` constraint, persisted `provisioning | running | failed | destroyed`
+status, and retry-safe route behavior.
+
+## Local database development
+
+Use `CMUX_PORT` to run multiple isolated web/DB dev environments on one machine:
+
+```bash
+CMUX_PORT=10180 bun db:up
+CMUX_PORT=10180 bun db:migrate
+CMUX_PORT=10180 bun db:status
+```
+
+The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to
+`localhost:20180`. `bun db:test` starts a separate test DB on `CMUX_PORT + 11000`, applies
+migrations twice, and runs behavior tests against a real Postgres database.
 
 ## Next steps
 
