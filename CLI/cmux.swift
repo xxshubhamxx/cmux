@@ -3350,19 +3350,12 @@ struct CMUXCLI {
         }
         arguments.append(contentsOf: commandArgs)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: helperPath)
-        process.arguments = arguments
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            throw CLIError(message: "agent-launcher: failed to start Charm TUI at \(helperPath): \(error.localizedDescription)")
-        }
-        guard process.terminationStatus == 0 else {
-            throw CLIError(message: "agent-launcher: Charm TUI exited with status \(process.terminationStatus)")
-        }
-        return true
+        try execInteractiveHelper(
+            executablePath: helperPath,
+            arguments: arguments,
+            environment: ProcessInfo.processInfo.environment,
+            failureDescription: "agent launcher Charm TUI"
+        )
     }
 
     private func agentLauncherTUIExecutablePath() -> String? {
@@ -9485,7 +9478,8 @@ struct CMUXCLI {
     private func execInteractiveHelper(
         executablePath: String,
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        failureDescription: String = "interactive helper"
     ) throws -> Never {
         var argv = ([executablePath] + arguments).map { strdup($0) }
         defer {
@@ -9506,7 +9500,7 @@ struct CMUXCLI {
 
         execve(executablePath, &argv, &envp)
         let code = errno
-        throw CLIError(message: "Failed to launch interactive theme picker: \(String(cString: strerror(code)))")
+        throw CLIError(message: "Failed to launch \(failureDescription): \(String(cString: strerror(code)))")
     }
 
     private func bundledGhosttyResourcesURL() -> URL? {

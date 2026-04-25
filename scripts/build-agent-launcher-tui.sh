@@ -47,7 +47,11 @@ build_arch() {
   local out="$2"
   (
     cd "$SRC_DIR"
-    GOOS=darwin GOARCH="$goarch" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$out" .
+    GOOS=darwin GOARCH="$goarch" CGO_ENABLED=0 go build \
+      -trimpath \
+      -buildvcs=false \
+      -ldflags="-s -w" \
+      -o "$out" .
   )
 }
 
