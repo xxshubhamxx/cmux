@@ -12069,7 +12069,7 @@ extension Workspace: BonsplitDelegate {
 #if DEBUG
         if explicitUserClose && panels.count <= 1 {
             cmuxDebugLog(
-                "surface.close.explicit tab=\(tab.id.uuidString.prefix(5)) " +
+                "surface.close.explicit tab=\(tab.id.uuid.uuidString.prefix(5)) " +
                 "workspace=\(id.uuidString.prefix(5)) closeWorkspace=\(closesWorkspaceOnLastSurface ? 1 : 0) " +
                 "preference=\(LastSurfaceCloseShortcutSettings.closesWorkspace() ? 1 : 0)"
             )
