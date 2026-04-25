@@ -123,7 +123,9 @@ jobs:
           CMUX_DB_TEST: "1"
           DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bun test tests/db-schema.test.ts
+        run: |
+          bun test tests/db-schema.test.ts
+          bun test tests/vm-db-health-route.test.ts
 
   tests:
     runs-on: warp-macos-15-arm64-6x

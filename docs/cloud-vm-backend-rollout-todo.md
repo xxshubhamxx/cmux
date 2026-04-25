@@ -240,6 +240,7 @@ after the Vercel REST handshake. Rivet is only a temporary stateful control-plan
 - [x] Use Drizzle for TypeScript schema and migrations.
 - [x] Add CMUX_PORT-derived local Postgres so parallel worktrees do not collide.
 - [x] Add CI migration verification against a real Postgres service.
+- [x] Add the first authenticated DB-backed VM route and real Postgres route test.
 - [ ] Keep app runtime DB user separate from migration DB user.
 - [ ] Run migrations through protected GitHub Actions, never during Vercel build/startup.
 - [ ] Replace `userVmsActor` and `vmActor` with Vercel route handlers plus database tables:

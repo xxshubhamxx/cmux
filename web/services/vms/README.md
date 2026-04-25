@@ -197,6 +197,11 @@ volume. The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps 
 `localhost:20180`. `bun db:test` starts a separate test DB on `CMUX_PORT + 11000`, applies
 migrations twice, and runs behavior tests against a real Postgres database.
 
+`GET /api/vm/db-health` is the first DB-backed VM API checkpoint. It requires the same Stack Auth
+verification as the VM REST routes and returns per-user counts from `cloud_vms` and
+`cloud_vm_usage_events`. It proves the Vercel route handler can use the Postgres control-plane
+schema before the create/list/attach routes move off Rivet.
+
 ## Next steps
 
 - Keep Freestyle SSH and E2B WebSocket attach paths sharing the same `POST /api/vm/:id/attach-endpoint`

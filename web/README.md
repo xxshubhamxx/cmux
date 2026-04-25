@@ -83,5 +83,11 @@ Apply migrations:
 bun db:migrate
 ```
 
-CI applies migrations twice against a real Postgres service and runs `tests/db-schema.test.ts` to
-verify the runtime behavior we rely on, including per-user create idempotency.
+CI applies migrations twice against a real Postgres service and runs the DB behavior tests to
+verify the runtime behavior we rely on, including per-user create idempotency and authenticated
+route access to the database.
+
+The first DB-backed VM route is `GET /api/vm/db-health`. It requires Stack Auth and returns
+per-user counts from `cloud_vms` and `cloud_vm_usage_events`. It exists as a narrow migration
+checkpoint while the production VM create/list/attach routes still use the Rivet-backed control
+plane.

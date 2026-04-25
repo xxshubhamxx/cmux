@@ -127,6 +127,7 @@ case "$command" in
     bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts"
     bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts"
     bun test tests/db-schema.test.ts
+    bun test tests/vm-db-health-route.test.ts
     ;;
   url)
     printf '%s\n' "$DATABASE_URL"
