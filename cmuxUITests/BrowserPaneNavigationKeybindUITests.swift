@@ -1114,24 +1114,23 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return
         }
 
-        assertBrowserFindPaneRoundTripRestoresPageInput(
-            app,
-            expectedTerminalPaneId: expectedTerminalPaneId,
-            route: .cmdOptionArrows,
-            findNeedle: "seed1",
-            typedTextAfterEscape: "z",
-            expectedInputValueAfterTyping: "cmux-ui-focus-primaryz",
-            iteration: 1
-        )
-        assertBrowserFindPaneRoundTripRestoresPageInput(
-            app,
-            expectedTerminalPaneId: expectedTerminalPaneId,
-            route: .cmdOptionArrows,
-            findNeedle: "seed2",
-            typedTextAfterEscape: "y",
-            expectedInputValueAfterTyping: "cmux-ui-focus-primaryzy",
-            iteration: 2
-        )
+        let iterationMarkers = Array("abcdefghijklmnopqrstuvwxyzabcd")
+        var expectedInputValueAfterTyping = "cmux-ui-focus-primary"
+
+        for iteration in 1...30 {
+            let marker = String(iterationMarkers[iteration - 1])
+            let typedTextAfterEscape = " \(marker)"
+            expectedInputValueAfterTyping += typedTextAfterEscape
+            assertBrowserFindPaneRoundTripRestoresPageInput(
+                app,
+                expectedTerminalPaneId: expectedTerminalPaneId,
+                route: .cmdOptionArrows,
+                findNeedle: "seed\(iteration)",
+                typedTextAfterEscape: typedTextAfterEscape,
+                expectedInputValueAfterTyping: expectedInputValueAfterTyping,
+                iteration: iteration
+            )
+        }
     }
 
     func testWorkspaceRoundTripPreservesFocusedTerminalFindWhenBrowserFindIsAlsoOpen() {
