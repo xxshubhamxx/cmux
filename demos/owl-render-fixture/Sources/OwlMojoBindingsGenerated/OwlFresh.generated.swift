@@ -186,6 +186,7 @@ public protocol OwlFreshHostMojoInterface {
     func setFocus(_ focused: Bool)
     func sendMouse(_ event: OwlFreshMouseEvent)
     func sendKey(_ event: OwlFreshKeyEvent)
+    func flush() async throws -> Bool
     func captureSurface() async throws -> OwlFreshCaptureResult
 }
 
@@ -208,6 +209,7 @@ public protocol OwlFreshHostMojoSink: AnyObject {
     func setFocus(_ focused: Bool)
     func sendMouse(_ event: OwlFreshMouseEvent)
     func sendKey(_ event: OwlFreshKeyEvent)
+    func flush() async throws -> Bool
     func captureSurface() async throws -> OwlFreshCaptureResult
 }
 
@@ -262,6 +264,11 @@ public final class GeneratedOwlFreshHostMojoTransport: OwlFreshHostMojoInterface
         sink.sendKey(event)
     }
 
+    public func flush() async throws -> Bool {
+        record(method: "flush", payloadType: "Void", payloadSummary: "")
+        return try await sink.flush()
+    }
+
     public func captureSurface() async throws -> OwlFreshCaptureResult {
         record(method: "captureSurface", payloadType: "Void", payloadSummary: "")
         return try await sink.captureSurface()
@@ -275,7 +282,7 @@ public struct MojoSchemaDeclaration: Equatable, Codable {
 
 public enum OwlFreshMojoSchema {
     public static let module = "content.mojom"
-    public static let sourceChecksum = "fnv1a64:c4fce6de1665527c"
+    public static let sourceChecksum = "fnv1a64:f1267ac781dd95f0"
     public static let declarations: [MojoSchemaDeclaration] = [
         MojoSchemaDeclaration(kind: "enum", name: "OwlFreshMouseKind"),
         MojoSchemaDeclaration(kind: "struct", name: "OwlFreshMouseEvent"),

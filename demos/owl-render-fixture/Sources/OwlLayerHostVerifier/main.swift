@@ -8,12 +8,13 @@ import QuartzCore
 
 private struct Options {
     var chromiumHost: String
-    var bridgePath: String
+    var mojoRuntimePath: String
     var outputDirectory: URL
     var timeout: TimeInterval
     var includeCanvas: Bool
     var includeExample: Bool
     var includeInput: Bool
+    var includeResize: Bool
     var inputDiagnosticCapture: Bool
     var onlyTargets: Set<String>
 }
@@ -39,7 +40,7 @@ private enum InputAction {
     case mouseClick(MouseClick)
     case mouseWheel(OwlFreshMouseEvent)
     case key(OwlFreshKeyEvent)
-    case resize(OwlFreshHostResizeRequest)
+    case resize(OwlFreshHostResizeRequest, waitForMode: String)
     case text(String)
 }
 
@@ -103,13 +104,13 @@ private struct MojoSurfaceCapture {
 
 private struct Summary: Codable {
     let chromiumHost: String
-    let bridgePath: String
+    let mojoRuntimePath: String
     let outputDirectory: String
     let displayPath: String
     let contextSource: String
     let controlTransport: String
     let swiftHostTransport: String
-    let bridgeShim: String
+    let mojoRuntime: String
     let mojoBindingSourceChecksum: String
     let mojoBindingDeclarationCount: Int
     let devToolsActivePortFound: Bool
@@ -263,27 +264,33 @@ private let owlFreshEventCallback: OwlFreshEventCallback = { eventPointer, userD
 
 struct OwlLayerHostVerifier {
     static func main() {
+        var outputDirectory: URL?
         do {
             let options = try parseOptions(arguments: Array(CommandLine.arguments.dropFirst()))
+            outputDirectory = options.outputDirectory
             try LayerHostRunner(options: options).run()
         } catch let error as VerifierError {
+            writeFatalError(error.description, outputDirectory: outputDirectory)
             fputs("error: \(error.description)\n", stderr)
             exit(1)
         } catch {
-            fputs("error: \(error)\n", stderr)
+            let message = String(describing: error)
+            writeFatalError(message, outputDirectory: outputDirectory)
+            fputs("error: \(message)\n", stderr)
             exit(1)
         }
     }
 
     private static func parseOptions(arguments: [String]) throws -> Options {
         var chromiumHost = ProcessInfo.processInfo.environment["OWL_CHROMIUM_HOST"] ?? ""
-        var bridgePath = ProcessInfo.processInfo.environment["OWL_BRIDGE_PATH"] ?? ""
+        var mojoRuntimePath = ProcessInfo.processInfo.environment["OWL_MOJO_RUNTIME_PATH"] ?? ""
         var outputDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("artifacts/layer-host-latest", isDirectory: true)
         var timeout: TimeInterval = 30
         var includeCanvas = true
         var includeExample = true
         var includeInput = false
+        var includeResize = ProcessInfo.processInfo.environment["OWL_LAYER_HOST_RESIZE_CHECK"] == "1"
         var inputDiagnosticCapture = false
         var onlyTargets = Set(
             (ProcessInfo.processInfo.environment["OWL_LAYER_HOST_ONLY_TARGETS"] ?? "")
@@ -302,12 +309,12 @@ struct OwlLayerHostVerifier {
                     throw VerifierError.usage("missing value for --chromium-host")
                 }
                 chromiumHost = arguments[index]
-            case "--bridge":
+            case "--mojo-runtime":
                 index += 1
                 guard index < arguments.count else {
-                    throw VerifierError.usage("missing value for --bridge")
+                    throw VerifierError.usage("missing value for \(argument)")
                 }
-                bridgePath = arguments[index]
+                mojoRuntimePath = arguments[index]
             case "--output-dir":
                 index += 1
                 guard index < arguments.count else {
@@ -326,6 +333,8 @@ struct OwlLayerHostVerifier {
                 includeCanvas = false
             case "--input-check":
                 includeInput = true
+            case "--resize-check":
+                includeResize = true
             case "--input-diagnostic-capture":
                 inputDiagnosticCapture = true
             case "--only-target":
@@ -336,7 +345,7 @@ struct OwlLayerHostVerifier {
                 onlyTargets.insert(arguments[index])
             case "--help":
                 print("""
-                Usage: OwlLayerHostVerifier --chromium-host <path> --bridge <path> [--output-dir <dir>] [--timeout <seconds>] [--skip-canvas] [--skip-example] [--input-check] [--input-diagnostic-capture] [--only-target <name>]
+                Usage: OwlLayerHostVerifier --chromium-host <path> --mojo-runtime <path> [--output-dir <dir>] [--timeout <seconds>] [--skip-canvas] [--skip-example] [--input-check] [--resize-check] [--input-diagnostic-capture] [--only-target <name>]
                 """)
                 exit(0)
             default:
@@ -348,22 +357,35 @@ struct OwlLayerHostVerifier {
         guard !chromiumHost.isEmpty else {
             throw VerifierError.usage("missing --chromium-host or OWL_CHROMIUM_HOST")
         }
-        guard !bridgePath.isEmpty else {
-            throw VerifierError.usage("missing --bridge or OWL_BRIDGE_PATH")
+        guard !mojoRuntimePath.isEmpty else {
+            throw VerifierError.usage("missing --mojo-runtime or OWL_MOJO_RUNTIME_PATH")
         }
 
         return Options(
             chromiumHost: chromiumHost,
-            bridgePath: bridgePath,
+            mojoRuntimePath: mojoRuntimePath,
             outputDirectory: outputDirectory,
             timeout: timeout,
             includeCanvas: includeCanvas,
             includeExample: includeExample,
             includeInput: includeInput,
+            includeResize: includeResize,
             inputDiagnosticCapture: inputDiagnosticCapture,
             onlyTargets: onlyTargets
         )
     }
+}
+
+private func writeFatalError(_ message: String, outputDirectory: URL?) {
+    guard let outputDirectory else {
+        return
+    }
+    try? FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+    try? "error: \(message)\n".write(
+        to: outputDirectory.appendingPathComponent("fatal-error.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
 }
 
 OwlLayerHostVerifier.main()
@@ -381,8 +403,8 @@ private final class LayerHostRunner {
         guard fileManager.isExecutableFile(atPath: options.chromiumHost) else {
             throw VerifierError.usage("Chromium host is not executable: \(options.chromiumHost)")
         }
-        guard fileManager.fileExists(atPath: options.bridgePath) else {
-            throw VerifierError.usage("OWL bridge dylib does not exist: \(options.bridgePath)")
+        guard fileManager.fileExists(atPath: options.mojoRuntimePath) else {
+            throw VerifierError.usage("OWL Mojo runtime dylib does not exist: \(options.mojoRuntimePath)")
         }
 
         try fileManager.createDirectory(at: options.outputDirectory, withIntermediateDirectories: true)
@@ -539,53 +561,59 @@ private final class LayerHostRunner {
                     ]
                 )
             )
-            targets.append(
-                RenderTarget(
-                    name: "resize-small-fixture",
-                    url: resizeFixture.absoluteString,
-                    screenshotName: "resize-small-after.png",
-                    expected: [.green, .yellow, .dark],
-                    preInputScreenshotName: "resize-small-before.png",
-                    preInputExpected: [.blue, .dark, .light],
-                    inputActions: [
-                        .resize(OwlFreshHostResizeRequest(width: 720, height: 480, scale: 1.0)),
-                    ],
-                    postInputDiagnosticScript: """
-                    ({
-                      mode: window.owlResizeState?.mode || "",
-                      status: document.getElementById("status")?.textContent || ""
-                    })
-                    """,
-                    postInputExpectations: [
-                        JavaScriptExpectation(key: "mode", value: .string("small")),
-                        JavaScriptExpectation(key: "status", value: .string("OWL_RESIZE_SMALL_OK")),
-                    ]
+            let requestedResizeTargets = !options.onlyTargets.isDisjoint(with: [
+                "resize-small-fixture",
+                "resize-roundtrip-fixture",
+            ])
+            if options.includeResize || requestedResizeTargets {
+                targets.append(
+                    RenderTarget(
+                        name: "resize-small-fixture",
+                        url: resizeFixture.absoluteString,
+                        screenshotName: "resize-small-after.png",
+                        expected: [.green, .yellow, .dark],
+                        preInputScreenshotName: "resize-small-before.png",
+                        preInputExpected: [.blue, .dark, .light],
+                        inputActions: [
+                            .resize(OwlFreshHostResizeRequest(width: 720, height: 480, scale: 1.0), waitForMode: "small"),
+                        ],
+                        postInputDiagnosticScript: """
+                        ({
+                          mode: window.owlResizeState?.mode || "",
+                          status: document.getElementById("status")?.textContent || ""
+                        })
+                        """,
+                        postInputExpectations: [
+                            JavaScriptExpectation(key: "mode", value: .string("small")),
+                            JavaScriptExpectation(key: "status", value: .string("OWL_RESIZE_SMALL_OK")),
+                        ]
+                    )
                 )
-            )
-            targets.append(
-                RenderTarget(
-                    name: "resize-roundtrip-fixture",
-                    url: resizeFixture.absoluteString,
-                    screenshotName: "resize-roundtrip-after.png",
-                    expected: [.green, .yellow, .dark],
-                    preInputScreenshotName: "resize-roundtrip-before.png",
-                    preInputExpected: [.blue, .dark, .light],
-                    inputActions: [
-                        .resize(OwlFreshHostResizeRequest(width: 720, height: 480, scale: 1.0)),
-                        .resize(OwlFreshHostResizeRequest(width: 960, height: 640, scale: 1.0)),
-                    ],
-                    postInputDiagnosticScript: """
-                    ({
-                      mode: window.owlResizeState?.mode || "",
-                      status: document.getElementById("status")?.textContent || ""
-                    })
-                    """,
-                    postInputExpectations: [
-                        JavaScriptExpectation(key: "mode", value: .string("restored")),
-                        JavaScriptExpectation(key: "status", value: .string("OWL_RESIZE_ROUNDTRIP_OK")),
-                    ]
+                targets.append(
+                    RenderTarget(
+                        name: "resize-roundtrip-fixture",
+                        url: resizeFixture.absoluteString,
+                        screenshotName: "resize-roundtrip-after.png",
+                        expected: [.green, .yellow, .dark],
+                        preInputScreenshotName: "resize-roundtrip-before.png",
+                        preInputExpected: [.blue, .dark, .light],
+                        inputActions: [
+                            .resize(OwlFreshHostResizeRequest(width: 720, height: 480, scale: 1.0), waitForMode: "small"),
+                            .resize(OwlFreshHostResizeRequest(width: 960, height: 640, scale: 1.0), waitForMode: "restored"),
+                        ],
+                        postInputDiagnosticScript: """
+                        ({
+                          mode: window.owlResizeState?.mode || "",
+                          status: document.getElementById("status")?.textContent || ""
+                        })
+                        """,
+                        postInputExpectations: [
+                            JavaScriptExpectation(key: "mode", value: .string("restored")),
+                            JavaScriptExpectation(key: "status", value: .string("OWL_RESIZE_ROUNDTRIP_OK")),
+                        ]
+                    )
                 )
-            )
+            }
             targets.append(
                 RenderTarget(
                     name: "scroll-fixture",
@@ -684,17 +712,17 @@ private final class LayerHostRunner {
         app.setActivationPolicy(.regular)
         app.finishLaunching()
 
-        let bridge = try OwlFreshBridge(path: options.bridgePath)
-        try bridge.initialize()
+        let runtime = try OwlFreshMojoRuntime(path: options.mojoRuntimePath)
+        try runtime.initialize()
 
         var captures: [CaptureResult] = []
         for target in targets {
-            captures.append(try runCapture(target: target, bridge: bridge, app: app))
+            captures.append(try runCapture(target: target, runtime: runtime, app: app))
         }
 
         let summary = Summary(
             chromiumHost: options.chromiumHost,
-            bridgePath: options.bridgePath,
+            mojoRuntimePath: options.mojoRuntimePath,
             outputDirectory: options.outputDirectory.path,
             displayPath: "Mojo-published CAContext id hosted by Swift CALayerHost",
             contextSource: ProcessInfo.processInfo.environment["OWL_FRESH_LAYER_FIXTURE"] == nil
@@ -702,7 +730,7 @@ private final class LayerHostRunner {
                 : "chromium-layer-fixture-ca-context",
             controlTransport: "mojo",
             swiftHostTransport: OwlFreshGeneratedMojoTransport.name,
-            bridgeShim: "owl_fresh C ABI dylib shim",
+            mojoRuntime: "owl_fresh generic Mojo invoke runtime",
             mojoBindingSourceChecksum: OwlFreshMojoSchema.sourceChecksum,
             mojoBindingDeclarationCount: OwlFreshMojoSchema.declarations.count,
             devToolsActivePortFound: captures.contains(where: \.profileHadDevToolsActivePort),
@@ -748,7 +776,7 @@ private final class LayerHostRunner {
 
     private func runCapture(
         target: RenderTarget,
-        bridge: OwlFreshBridge,
+        runtime: OwlFreshMojoRuntime,
         app: NSApplication
     ) throws -> CaptureResult {
         let profileDirectory = options.outputDirectory
@@ -759,7 +787,7 @@ private final class LayerHostRunner {
         let useLayerFixture = ProcessInfo.processInfo.environment["OWL_FRESH_LAYER_FIXTURE"] != nil
         let initialURL = useLayerFixture ? target.url : "about:blank"
         let sessionEvents = SessionEvents()
-        let session = try bridge.createSession(
+        let session = try runtime.createSession(
             chromiumHost: options.chromiumHost,
             initialURL: initialURL,
             userDataDirectory: profileDirectory.path,
@@ -767,38 +795,39 @@ private final class LayerHostRunner {
         )
         var hostPID: Int32 = -1
         defer {
-            bridge.destroy(session)
+            runtime.destroy(session)
             terminateHostProcessIfNeeded(pid: hostPID)
         }
-        let hostTransport = GeneratedOwlFreshHostMojoTransport(
-            sink: OwlFreshSessionBridgeSink(bridge: bridge, session: session)
+        let hostController = OwlFreshMojoHostController(
+            runtime: runtime,
+            session: session
         )
 
-        hostTransport.resize(
+        try hostController.resize(
             OwlFreshHostResizeRequest(
                 width: UInt32(contentSize.width),
                 height: UInt32(contentSize.height),
                 scale: 1.0
             )
         )
-        hostTransport.setFocus(true)
+        try hostController.setFocus(true)
 
-        hostPID = bridge.hostPID(session)
+        hostPID = runtime.hostPID(session)
         guard hostPID > 0 else {
-            throw VerifierError.launch("bridge did not report a valid host PID for \(target.name)")
+            throw VerifierError.launch("Mojo runtime did not report a valid host PID for \(target.name)")
         }
 
-        try waitForReady(name: target.name, events: sessionEvents, bridge: bridge, app: app)
+        try waitForReady(name: target.name, events: sessionEvents, runtime: runtime, app: app)
         let baseline = sessionEvents.snapshot()
         var contextID: UInt32
         if useLayerFixture, baseline.contextID != 0 {
             contextID = baseline.contextID
         } else {
-            hostTransport.navigate(target.url)
+            try hostController.navigate(target.url)
             contextID = try waitForContextID(
                 name: target.name,
                 events: sessionEvents,
-                bridge: bridge,
+                runtime: runtime,
                 app: app,
                 afterGeneration: baseline.contextGeneration,
                 rejectingContextID: nil
@@ -835,7 +864,7 @@ private final class LayerHostRunner {
         var postInputDiagnosticsWritten = false
 
         while Date() < deadline {
-            bridge.pollEvents(milliseconds: 50)
+            runtime.pollEvents(milliseconds: 50)
             pumpApp(app, for: 0.05)
             window.flushHostedLayer()
 
@@ -848,10 +877,10 @@ private final class LayerHostRunner {
 
             if !target.inputActions.isEmpty, inputSent, !postInputStateVerified {
                 do {
-                    try verifyPostInputStateIfNeeded(target: target, bridge: bridge, session: session)
+                    try verifyPostInputStateIfNeeded(target: target, runtime: runtime, session: session)
                     postInputStateVerified = true
-                    hostTransport.setFocus(true)
-                    bridge.pollEvents(milliseconds: 10)
+                    try hostController.setFocus(true)
+                    runtime.pollEvents(milliseconds: 10)
                 } catch let error as VerifierError {
                     lastError = error.description
                     continue
@@ -881,18 +910,20 @@ private final class LayerHostRunner {
                 if currentExpected.isSatisfied(by: stats) {
                     if !inputSent {
                         capturedPreInputPath = captureURL.path
-                        hostTransport.setFocus(true)
+                        try hostController.setFocus(true)
                         try performInputActions(
                             target.inputActions,
-                            bridge: bridge,
-                            hostTransport: hostTransport,
+                            runtime: runtime,
+                            hostController: hostController,
+                            session: session,
+                            events: sessionEvents,
                             window: window,
                             app: app,
                             currentSize: &currentSize
                         )
                         pumpApp(app, for: 0.05)
                         if options.inputDiagnosticCapture {
-                            writePostInputDOMState(target: target, bridge: bridge, session: session)
+                            writePostInputDOMState(target: target, runtime: runtime, session: session)
                         }
                         inputSent = true
                         currentExpected = target.expected
@@ -903,7 +934,7 @@ private final class LayerHostRunner {
                        inputSent,
                        options.inputDiagnosticCapture,
                        !postInputDiagnosticsWritten {
-                        writePostInputDiagnostics(target: target, bridge: bridge, session: session)
+                        writePostInputDiagnostics(target: target, runtime: runtime, session: session)
                         postInputDiagnosticsWritten = true
                     }
                     let hostCommand = processCommandLine(pid: hostPID)
@@ -915,7 +946,7 @@ private final class LayerHostRunner {
                     let traceURL = options.outputDirectory.appendingPathComponent(
                         "\(target.name)-generated-transport-trace.json"
                     )
-                    try JSONEncoder.pretty.encode(hostTransport.recordedCalls).write(to: traceURL)
+                    try JSONEncoder.pretty.encode(hostController.recordedCalls).write(to: traceURL)
                     return CaptureResult(
                         name: target.name,
                         url: target.url,
@@ -929,11 +960,15 @@ private final class LayerHostRunner {
                         profileHadDevToolsActivePort: hasDevToolsActivePort(profileDirectory: profileDirectory),
                         sessionEvents: sessionEvents.snapshot(),
                         generatedTransportTracePath: traceURL.path,
-                        generatedTransportCallCount: hostTransport.recordedCalls.count
+                        generatedTransportCallCount: hostController.recordedCalls.count
                     )
                 }
                 lastError = "pixel stats did not match expected set \(currentExpected): \(stats)"
             } catch let error as VerifierError {
+                if case .input(let message) = error,
+                   message.hasPrefix("expected resize mode ") {
+                    throw error
+                }
                 lastError = error.description
             } catch {
                 lastError = String(describing: error)
@@ -957,14 +992,14 @@ private final class LayerHostRunner {
     private func waitForContextID(
         name: String,
         events: SessionEvents,
-        bridge: OwlFreshBridge,
+        runtime: OwlFreshMojoRuntime,
         app: NSApplication,
         afterGeneration: UInt64,
         rejectingContextID: UInt32?
     ) throws -> UInt32 {
         let deadline = Date().addingTimeInterval(min(15, options.timeout))
         while Date() < deadline {
-            bridge.pollEvents(milliseconds: 50)
+            runtime.pollEvents(milliseconds: 50)
             pumpApp(app, for: 0.01)
             let snapshot = events.snapshot()
             if snapshot.ready,
@@ -983,12 +1018,12 @@ private final class LayerHostRunner {
     private func waitForReady(
         name: String,
         events: SessionEvents,
-        bridge: OwlFreshBridge,
+        runtime: OwlFreshMojoRuntime,
         app: NSApplication
     ) throws {
         let deadline = Date().addingTimeInterval(min(10, options.timeout))
         while Date() < deadline {
-            bridge.pollEvents(milliseconds: 50)
+            runtime.pollEvents(milliseconds: 50)
             pumpApp(app, for: 0.01)
             let snapshot = events.snapshot()
             if snapshot.ready {
@@ -1016,8 +1051,10 @@ private final class LayerHostRunner {
 
     private func performInputActions(
         _ actions: [InputAction],
-        bridge: OwlFreshBridge,
-        hostTransport: GeneratedOwlFreshHostMojoTransport,
+        runtime: OwlFreshMojoRuntime,
+        hostController: OwlFreshMojoHostController,
+        session: OpaquePointer,
+        events: SessionEvents,
         window: LayerHostWindow,
         app: NSApplication,
         currentSize: inout CGSize
@@ -1028,7 +1065,7 @@ private final class LayerHostRunner {
                 if ProcessInfo.processInfo.environment["OWL_LAYER_HOST_KEY_ONLY"] == "1" {
                     continue
                 }
-                hostTransport.sendMouse(OwlFreshMouseEvent(
+                try hostController.sendMouse(OwlFreshMouseEvent(
                     kind: .move,
                     x: click.x,
                     y: click.y,
@@ -1038,8 +1075,8 @@ private final class LayerHostRunner {
                     deltaY: 0,
                     modifiers: 0
                 ))
-                bridge.pollEvents(milliseconds: 10)
-                hostTransport.sendMouse(OwlFreshMouseEvent(
+                runtime.pollEvents(milliseconds: 10)
+                try hostController.sendMouse(OwlFreshMouseEvent(
                     kind: .down,
                     x: click.x,
                     y: click.y,
@@ -1049,8 +1086,8 @@ private final class LayerHostRunner {
                     deltaY: 0,
                     modifiers: 0
                 ))
-                bridge.pollEvents(milliseconds: 10)
-                hostTransport.sendMouse(OwlFreshMouseEvent(
+                runtime.pollEvents(milliseconds: 10)
+                try hostController.sendMouse(OwlFreshMouseEvent(
                     kind: .up,
                     x: click.x,
                     y: click.y,
@@ -1060,49 +1097,116 @@ private final class LayerHostRunner {
                     deltaY: 0,
                     modifiers: 0
                 ))
-                bridge.pollEvents(milliseconds: 10)
+                runtime.pollEvents(milliseconds: 10)
             case .mouseWheel(let wheel):
-                hostTransport.sendMouse(wheel)
-                bridge.pollEvents(milliseconds: 20)
+                try hostController.sendMouse(wheel)
+                runtime.pollEvents(milliseconds: 20)
+                try waitForHostFlush(runtime: runtime, session: session, app: app)
             case .key(let stroke):
-                sendKeyStroke(stroke, bridge: bridge, hostTransport: hostTransport)
-            case .resize(let resize):
-                currentSize = CGSize(width: CGFloat(resize.width), height: CGFloat(resize.height))
-                hostTransport.resize(resize)
-                window.resize(to: currentSize)
+                try sendKeyStroke(stroke, runtime: runtime, hostController: hostController)
+            case .resize(let resize, let expectedMode):
+                try hostController.resize(resize)
                 pumpApp(app, for: 0.2)
-                bridge.pollEvents(milliseconds: 50)
+                runtime.pollEvents(milliseconds: 50)
                 window.flushHostedLayer()
+                try waitForHostFlush(runtime: runtime, session: session, app: app)
+                try waitForResizeMode(
+                    expectedMode,
+                    runtime: runtime,
+                    session: session,
+                    events: events,
+                    app: app
+                )
             case .text(let text):
                 for character in text {
                     guard let stroke = OwlFreshKeyEvent.typing(character) else {
                         throw VerifierError.input("unsupported typed character for \(character)")
                     }
-                    sendKeyStroke(stroke, bridge: bridge, hostTransport: hostTransport)
+                    try sendKeyStroke(stroke, runtime: runtime, hostController: hostController)
                 }
             }
         }
     }
 
+    private func waitForHostFlush(
+        runtime: OwlFreshMojoRuntime,
+        session: OpaquePointer,
+        app: NSApplication
+    ) throws {
+        let deadline = Date().addingTimeInterval(5)
+        var lastError = "host flush was not requested"
+        while Date() < deadline {
+            runtime.pollEvents(milliseconds: 20)
+            pumpApp(app, for: 0.02)
+            do {
+                try runtime.flushHost(session)
+                return
+            } catch {
+                lastError = String(describing: error)
+            }
+        }
+        throw VerifierError.bridge("timed out waiting for host Mojo flush: \(lastError)")
+    }
+
+    private func waitForResizeMode(
+        _ expectedMode: String,
+        runtime: OwlFreshMojoRuntime,
+        session: OpaquePointer,
+        events: SessionEvents,
+        app: NSApplication
+    ) throws {
+        let script = """
+        ({
+          height: window.innerHeight,
+          mode: window.owlResizeState?.mode || "",
+          sawSmall: window.owlResizeState?.sawSmall === true,
+          status: document.getElementById("status")?.textContent || "",
+          width: window.innerWidth
+        })
+        """
+        let deadline = Date().addingTimeInterval(5)
+        var lastMode = ""
+        var lastResult = ""
+        var lastError = ""
+        while Date() < deadline {
+            runtime.pollEvents(milliseconds: 50)
+            pumpApp(app, for: 0.02)
+            do {
+                let result = try runtime.executeJavaScript(session, script: script)
+                lastResult = result
+                let mode = try result.jsonObjectStringValue(for: "mode")
+                lastMode = mode
+                if mode == expectedMode {
+                    return
+                }
+            } catch {
+                lastError = String(describing: error)
+            }
+        }
+        throw VerifierError.input(
+            "expected resize mode \(expectedMode), got \(lastMode); lastResult=\(lastResult); lastError=\(lastError); logs=\(events.snapshot().logs)"
+        )
+    }
+
     private func sendKeyStroke(
         _ stroke: OwlFreshKeyEvent,
-        bridge: OwlFreshBridge,
-        hostTransport: GeneratedOwlFreshHostMojoTransport
-    ) {
-        hostTransport.sendKey(stroke)
-        bridge.pollEvents(milliseconds: 10)
-        hostTransport.sendKey(OwlFreshKeyEvent(
+        runtime: OwlFreshMojoRuntime,
+        hostController: OwlFreshMojoHostController
+    ) throws {
+        try hostController.sendKey(stroke)
+        runtime.pollEvents(milliseconds: 10)
+        try hostController.sendKey(OwlFreshKeyEvent(
             keyDown: false,
             keyCode: stroke.keyCode,
             text: "",
             modifiers: stroke.modifiers
         ))
-        bridge.pollEvents(milliseconds: 10)
+        runtime.pollEvents(milliseconds: 10)
     }
 
     private func verifyPostInputStateIfNeeded(
         target: RenderTarget,
-        bridge: OwlFreshBridge,
+        runtime: OwlFreshMojoRuntime,
         session: OpaquePointer
     ) throws {
         guard !target.postInputExpectations.isEmpty else {
@@ -1111,7 +1215,7 @@ private final class LayerHostRunner {
         guard let script = target.postInputDiagnosticScript else {
             throw VerifierError.input("\(target.name) has post-input expectations but no diagnostic script")
         }
-        let result = try bridge.executeJavaScript(session, script: script)
+        let result = try runtime.executeJavaScript(session, script: script)
         try verifyJavaScriptExpectations(
             result: result,
             expectations: target.postInputExpectations,
@@ -1121,16 +1225,16 @@ private final class LayerHostRunner {
 
     private func writePostInputDiagnostics(
         target: RenderTarget,
-        bridge: OwlFreshBridge,
+        runtime: OwlFreshMojoRuntime,
         session: OpaquePointer
     ) {
-        writePostInputDOMState(target: target, bridge: bridge, session: session)
+        writePostInputDOMState(target: target, runtime: runtime, session: session)
 
         let diagnosticURL = options.outputDirectory.appendingPathComponent(
             "\(target.name)-mojo-after-input.png"
         )
         do {
-            let diagnostic = try bridge.captureSurfacePNG(session, to: diagnosticURL)
+            let diagnostic = try runtime.captureSurfacePNG(session, to: diagnosticURL)
             let infoURL = options.outputDirectory.appendingPathComponent(
                 "\(target.name)-mojo-after-input.json"
             )
@@ -1151,7 +1255,7 @@ private final class LayerHostRunner {
 
     private func writePostInputDOMState(
         target: RenderTarget,
-        bridge: OwlFreshBridge,
+        runtime: OwlFreshMojoRuntime,
         session: OpaquePointer
     ) {
         if let script = target.postInputDiagnosticScript {
@@ -1159,7 +1263,7 @@ private final class LayerHostRunner {
                 "\(target.name)-mojo-dom-state.json"
             )
             do {
-                let domState = try bridge.executeJavaScript(session, script: script)
+                let domState = try runtime.executeJavaScript(session, script: script)
                 try domState.write(to: stateURL, atomically: true, encoding: .utf8)
             } catch {
                 try? String(describing: error).write(
@@ -1326,7 +1430,7 @@ private func makeCALayerHost(contextID: UInt32) throws -> CALayer {
     return layer
 }
 
-private final class OwlFreshBridge {
+private final class OwlFreshMojoRuntime {
     private typealias GlobalInit = @convention(c) () -> Int32
     private typealias SessionCreate = @convention(c) (
         UnsafePointer<CChar>,
@@ -1337,38 +1441,10 @@ private final class OwlFreshBridge {
     ) -> OpaquePointer?
     private typealias SessionDestroy = @convention(c) (OpaquePointer?) -> Void
     private typealias HostPID = @convention(c) (OpaquePointer?) -> Int32
-    private typealias Navigate = @convention(c) (OpaquePointer?, UnsafePointer<CChar>?) -> Void
-    private typealias Resize = @convention(c) (OpaquePointer?, UInt32, UInt32, Float) -> Void
-    private typealias SetFocus = @convention(c) (OpaquePointer?, Bool) -> Void
-    private typealias SendMouse = @convention(c) (
+    private typealias InvokeJSON = @convention(c) (
         OpaquePointer?,
-        UInt32,
-        Float,
-        Float,
-        UInt32,
-        UInt32,
-        Float,
-        Float,
-        UInt32
-    ) -> Void
-    private typealias SendKey = @convention(c) (
-        OpaquePointer?,
-        Bool,
-        UInt32,
         UnsafePointer<CChar>?,
-        UInt32
-    ) -> Void
-    private typealias CaptureSurfacePNG = @convention(c) (
-        OpaquePointer?,
-        UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>?,
-        UnsafeMutablePointer<UInt>?,
-        UnsafeMutablePointer<UInt32>?,
-        UnsafeMutablePointer<UInt32>?,
-        UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?,
-        UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-    ) -> Int32
-    private typealias ExecuteJavaScript = @convention(c) (
-        OpaquePointer?,
+        UnsafePointer<CChar>?,
         UnsafePointer<CChar>?,
         UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?,
         UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
@@ -1381,13 +1457,7 @@ private final class OwlFreshBridge {
     private let sessionCreate: SessionCreate
     private let sessionDestroy: SessionDestroy
     private let sessionHostPID: HostPID
-    private let sessionNavigate: Navigate
-    private let sessionResize: Resize
-    private let sessionSetFocus: SetFocus
-    private let sessionSendMouse: SendMouse
-    private let sessionSendKey: SendKey
-    private let sessionCaptureSurfacePNG: CaptureSurfacePNG
-    private let sessionExecuteJavaScript: ExecuteJavaScript
+    private let sessionInvokeJSON: InvokeJSON
     private let eventPoll: PollEvents
     private let freeBuffer: FreeBuffer
 
@@ -1396,27 +1466,13 @@ private final class OwlFreshBridge {
             throw VerifierError.bridge("dlopen failed for \(path): \(dlerrorString())")
         }
         self.handle = handle
-        self.globalInit = try loadSymbol(handle, "owl_fresh_global_init", as: GlobalInit.self)
-        self.sessionCreate = try loadSymbol(handle, "owl_fresh_session_create", as: SessionCreate.self)
-        self.sessionDestroy = try loadSymbol(handle, "owl_fresh_session_destroy", as: SessionDestroy.self)
-        self.sessionHostPID = try loadSymbol(handle, "owl_fresh_session_host_pid", as: HostPID.self)
-        self.sessionNavigate = try loadSymbol(handle, "owl_fresh_navigate", as: Navigate.self)
-        self.sessionResize = try loadSymbol(handle, "owl_fresh_resize", as: Resize.self)
-        self.sessionSetFocus = try loadSymbol(handle, "owl_fresh_set_focus", as: SetFocus.self)
-        self.sessionSendMouse = try loadSymbol(handle, "owl_fresh_send_mouse", as: SendMouse.self)
-        self.sessionSendKey = try loadSymbol(handle, "owl_fresh_send_key", as: SendKey.self)
-        self.sessionCaptureSurfacePNG = try loadSymbol(
-            handle,
-            "owl_fresh_capture_surface_png",
-            as: CaptureSurfacePNG.self
-        )
-        self.sessionExecuteJavaScript = try loadSymbol(
-            handle,
-            "owl_fresh_execute_javascript",
-            as: ExecuteJavaScript.self
-        )
-        self.eventPoll = try loadSymbol(handle, "owl_fresh_poll_events", as: PollEvents.self)
-        self.freeBuffer = try loadSymbol(handle, "owl_fresh_free_buffer", as: FreeBuffer.self)
+        self.globalInit = try loadSymbol(handle, "owl_fresh_mojo_global_init", as: GlobalInit.self)
+        self.sessionCreate = try loadSymbol(handle, "owl_fresh_mojo_session_create", as: SessionCreate.self)
+        self.sessionDestroy = try loadSymbol(handle, "owl_fresh_mojo_session_destroy", as: SessionDestroy.self)
+        self.sessionHostPID = try loadSymbol(handle, "owl_fresh_mojo_session_host_pid", as: HostPID.self)
+        self.sessionInvokeJSON = try loadSymbol(handle, "owl_fresh_mojo_session_invoke_json", as: InvokeJSON.self)
+        self.eventPoll = try loadSymbol(handle, "owl_fresh_mojo_poll_events", as: PollEvents.self)
+        self.freeBuffer = try loadSymbol(handle, "owl_fresh_mojo_free_buffer", as: FreeBuffer.self)
     }
 
     deinit {
@@ -1426,7 +1482,7 @@ private final class OwlFreshBridge {
     func initialize() throws {
         let status = globalInit()
         guard status == 0 else {
-            throw VerifierError.bridge("owl_fresh_global_init failed with status \(status)")
+            throw VerifierError.bridge("owl_fresh_mojo_global_init failed with status \(status)")
         }
     }
 
@@ -1445,7 +1501,7 @@ private final class OwlFreshBridge {
             }
         }
         guard let session else {
-            throw VerifierError.launch("owl_fresh_session_create returned null")
+            throw VerifierError.launch("owl_fresh_mojo_session_create returned null")
         }
         return session
     }
@@ -1458,90 +1514,31 @@ private final class OwlFreshBridge {
         sessionHostPID(session)
     }
 
-    func navigate(_ session: OpaquePointer?, url: String) {
-        url.withCString { urlPointer in
-            sessionNavigate(session, urlPointer)
-        }
-    }
-
-    func resize(_ session: OpaquePointer?, request: OwlFreshHostResizeRequest) {
-        sessionResize(session, request.width, request.height, request.scale)
-    }
-
-    func setFocus(_ session: OpaquePointer?, focused: Bool) {
-        sessionSetFocus(session, focused)
-    }
-
-    func sendMouse(_ session: OpaquePointer?, event: OwlFreshMouseEvent) {
-        sessionSendMouse(
-            session,
-            event.kind.rawValue,
-            event.x,
-            event.y,
-            event.button,
-            event.clickCount,
-            event.deltaX,
-            event.deltaY,
-            event.modifiers
-        )
-    }
-
-    func sendKey(_ session: OpaquePointer?, event: OwlFreshKeyEvent) {
-        event.text.withCString { textPointer in
-            sessionSendKey(session, event.keyDown, event.keyCode, textPointer, event.modifiers)
-        }
-    }
-
     func pollEvents(milliseconds: UInt32) {
         eventPoll(milliseconds)
     }
 
-    func captureSurfacePNG(_ session: OpaquePointer?, to url: URL) throws -> MojoSurfaceCapture {
-        var bytes: UnsafeMutablePointer<UInt8>?
-        var length: UInt = 0
-        var width: UInt32 = 0
-        var height: UInt32 = 0
-        var modePointer: UnsafeMutablePointer<CChar>?
-        var errorPointer: UnsafeMutablePointer<CChar>?
-        let status = sessionCaptureSurfacePNG(
-            session,
-            &bytes,
-            &length,
-            &width,
-            &height,
-            &modePointer,
-            &errorPointer
-        )
-        defer {
-            if let bytes {
-                freeBuffer(UnsafeMutableRawPointer(bytes))
-            }
-            if let modePointer {
-                freeBuffer(UnsafeMutableRawPointer(modePointer))
-            }
-            if let errorPointer {
-                freeBuffer(UnsafeMutableRawPointer(errorPointer))
-            }
-        }
-
-        let mode = modePointer.map { String(cString: $0) } ?? ""
-        if status != 0 {
-            let message = errorPointer.map { String(cString: $0) } ?? "unknown CaptureSurface error"
-            throw VerifierError.capture("CaptureSurface failed: \(message)")
-        }
-        guard let bytes, length > 0 else {
-            throw VerifierError.capture("CaptureSurface returned no PNG bytes")
-        }
-        let data = Data(bytes: bytes, count: Int(length))
-        try data.write(to: url)
-        return MojoSurfaceCapture(path: url.path, mode: mode, width: width, height: height)
-    }
-
-    func executeJavaScript(_ session: OpaquePointer?, script: String) throws -> String {
+    func invokeJSON(
+        session: OpaquePointer?,
+        interface: String,
+        method: String,
+        payload: String = "{}"
+    ) throws -> String {
         var resultPointer: UnsafeMutablePointer<CChar>?
         var errorPointer: UnsafeMutablePointer<CChar>?
-        let status = script.withCString { scriptPointer in
-            sessionExecuteJavaScript(session, scriptPointer, &resultPointer, &errorPointer)
+        let status = interface.withCString { interfacePointer in
+            method.withCString { methodPointer in
+                payload.withCString { payloadPointer in
+                    sessionInvokeJSON(
+                        session,
+                        interfacePointer,
+                        methodPointer,
+                        payloadPointer,
+                        &resultPointer,
+                        &errorPointer
+                    )
+                }
+            }
         }
         defer {
             if let resultPointer {
@@ -1552,47 +1549,235 @@ private final class OwlFreshBridge {
             }
         }
         if status != 0 {
-            let message = errorPointer.map { String(cString: $0) } ?? "unknown ExecuteJavaScript error"
-            throw VerifierError.bridge("ExecuteJavaScript failed: \(message)")
+            let message = errorPointer.map { String(cString: $0) } ?? "unknown Mojo runtime error"
+            throw VerifierError.bridge("\(interface).\(method) failed: \(message)")
         }
-        return resultPointer.map { String(cString: $0) } ?? "null"
+        return resultPointer.map { String(cString: $0) } ?? "{}"
+    }
+
+    func invokeVoid(
+        session: OpaquePointer?,
+        interface: String,
+        method: String,
+        payload: [String: Any]
+    ) throws {
+        _ = try invokeJSON(
+            session: session,
+            interface: interface,
+            method: method,
+            payload: try runtimePayloadJSON(payload)
+        )
+    }
+
+    func captureSurfacePNG(_ session: OpaquePointer?, to url: URL) throws -> MojoSurfaceCapture {
+        let result = try captureSurface(session)
+        guard result.error.isEmpty else {
+            throw VerifierError.capture("CaptureSurface failed: \(result.error)")
+        }
+        guard let data = Data(base64Encoded: result.pngBase64), !data.isEmpty else {
+            throw VerifierError.capture("CaptureSurface returned invalid PNG base64")
+        }
+        try data.write(to: url)
+        return MojoSurfaceCapture(path: url.path, mode: result.captureMode, width: result.width, height: result.height)
+    }
+
+    func executeJavaScript(_ session: OpaquePointer?, script: String) throws -> String {
+        try invokeJSON(
+            session: session,
+            interface: "ShellController",
+            method: "executeJavaScript",
+            payload: runtimePayloadJSON(["script": script])
+        )
+    }
+
+    func flushHost(_ session: OpaquePointer?) throws {
+        let result = try invokeJSON(session: session, interface: "OwlFreshHost", method: "flush")
+        guard try result.jsonObjectBoolValue(for: "ok") else {
+            throw VerifierError.bridge("OwlFreshHost.flush returned false")
+        }
+    }
+
+    func captureSurface(_ session: OpaquePointer?) throws -> RuntimeCaptureSurfaceResult {
+        let json = try invokeJSON(session: session, interface: "OwlFreshHost", method: "captureSurface")
+        let data = Data(json.utf8)
+        return try JSONDecoder().decode(RuntimeCaptureSurfaceResult.self, from: data)
     }
 }
 
-private final class OwlFreshSessionBridgeSink: OwlFreshHostMojoSink {
-    private let bridge: OwlFreshBridge
-    private let session: OpaquePointer
+private struct RuntimeCaptureSurfaceResult: Decodable {
+    let pngBase64: String
+    let width: UInt32
+    let height: UInt32
+    let captureMode: String
+    let error: String
+}
 
-    init(bridge: OwlFreshBridge, session: OpaquePointer) {
-        self.bridge = bridge
-        self.session = session
+private final class OwlFreshMojoHostController {
+    private let sink: OwlFreshMojoRuntimeHostSink
+    private let transport: GeneratedOwlFreshHostMojoTransport
+
+    init(runtime: OwlFreshMojoRuntime, session: OpaquePointer) {
+        self.sink = OwlFreshMojoRuntimeHostSink(runtime: runtime, session: session)
+        self.transport = GeneratedOwlFreshHostMojoTransport(sink: sink)
     }
 
-    func setClient(_ client: OwlFreshClientRemote) {
+    var recordedCalls: [OwlFreshMojoTransportCall] {
+        transport.recordedCalls
     }
 
-    func navigate(_ url: String) {
-        bridge.navigate(session, url: url)
+    func navigate(_ url: String) throws {
+        transport.navigate(url)
+        try sink.throwIfFailed()
     }
 
-    func resize(_ request: OwlFreshHostResizeRequest) {
-        bridge.resize(session, request: request)
+    func resize(_ request: OwlFreshHostResizeRequest) throws {
+        transport.resize(request)
+        try sink.throwIfFailed()
     }
 
-    func setFocus(_ focused: Bool) {
-        bridge.setFocus(session, focused: focused)
+    func setFocus(_ focused: Bool) throws {
+        transport.setFocus(focused)
+        try sink.throwIfFailed()
     }
 
-    func sendMouse(_ event: OwlFreshMouseEvent) {
-        bridge.sendMouse(session, event: event)
+    func sendMouse(_ event: OwlFreshMouseEvent) throws {
+        transport.sendMouse(event)
+        try sink.throwIfFailed()
     }
 
-    func sendKey(_ event: OwlFreshKeyEvent) {
-        bridge.sendKey(session, event: event)
+    func sendKey(_ event: OwlFreshKeyEvent) throws {
+        transport.sendKey(event)
+        try sink.throwIfFailed()
+    }
+
+    func flush() async throws -> Bool {
+        let result = try await transport.flush()
+        try sink.throwIfFailed()
+        return result
     }
 
     func captureSurface() async throws -> OwlFreshCaptureResult {
-        throw VerifierError.bridge("CaptureSurface is exposed through the PNG diagnostic shim in this verifier")
+        let result = try await transport.captureSurface()
+        try sink.throwIfFailed()
+        return result
+    }
+}
+
+private final class OwlFreshMojoRuntimeHostSink: OwlFreshHostMojoSink {
+    private let runtime: OwlFreshMojoRuntime
+    private let session: OpaquePointer
+    private var lastError: VerifierError?
+
+    init(runtime: OwlFreshMojoRuntime, session: OpaquePointer) {
+        self.runtime = runtime
+        self.session = session
+    }
+
+    func throwIfFailed() throws {
+        if let error = lastError {
+            lastError = nil
+            throw error
+        }
+    }
+
+    func setClient(_ client: OwlFreshClientRemote) {
+        lastError = VerifierError.bridge("Swift cannot synthesize pending_remote handles yet")
+    }
+
+    func navigate(_ url: String) {
+        invoke(method: "navigate", payload: ["url": url])
+    }
+
+    func resize(_ request: OwlFreshHostResizeRequest) {
+        invoke(method: "resize", payload: [
+            "width": Int(request.width),
+            "height": Int(request.height),
+            "scale": Double(request.scale),
+        ])
+    }
+
+    func setFocus(_ focused: Bool) {
+        invoke(method: "setFocus", payload: ["focused": focused])
+    }
+
+    func sendMouse(_ event: OwlFreshMouseEvent) {
+        invoke(method: "sendMouse", payload: [
+            "kind": Int(event.kind.rawValue),
+            "x": Double(event.x),
+            "y": Double(event.y),
+            "button": Int(event.button),
+            "clickCount": Int(event.clickCount),
+            "deltaX": Double(event.deltaX),
+            "deltaY": Double(event.deltaY),
+            "modifiers": Int(event.modifiers),
+        ])
+    }
+
+    func sendKey(_ event: OwlFreshKeyEvent) {
+        invoke(method: "sendKey", payload: [
+            "keyDown": event.keyDown,
+            "keyCode": Int(event.keyCode),
+            "text": event.text,
+            "modifiers": Int(event.modifiers),
+        ])
+    }
+
+    func flush() async throws -> Bool {
+        try runtime.flushHost(session)
+        return true
+    }
+
+    func captureSurface() async throws -> OwlFreshCaptureResult {
+        let result = try runtime.captureSurface(session)
+        guard result.error.isEmpty else {
+            throw VerifierError.capture("CaptureSurface failed: \(result.error)")
+        }
+        let data = Data(base64Encoded: result.pngBase64) ?? Data()
+        return OwlFreshCaptureResult(
+            png: Array(data),
+            width: result.width,
+            height: result.height,
+            captureMode: result.captureMode,
+            error: result.error
+        )
+    }
+
+    private func invoke(method: String, payload: [String: Any]) {
+        do {
+            try runtime.invokeVoid(session: session, interface: "OwlFreshHost", method: method, payload: payload)
+        } catch let error as VerifierError {
+            lastError = error
+        } catch {
+            lastError = VerifierError.bridge(String(describing: error))
+        }
+    }
+}
+
+private func runtimePayloadJSON(_ payload: [String: Any]) throws -> String {
+    let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+    guard let json = String(data: data, encoding: .utf8) else {
+        throw VerifierError.bridge("failed to encode runtime JSON payload")
+    }
+    return json
+}
+
+private extension String {
+    func jsonObjectStringValue(for key: String) throws -> String {
+        let data = Data(utf8)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = object[key] as? String else {
+            throw VerifierError.bridge("expected JSON object string field \(key), got \(self)")
+        }
+        return value
+    }
+
+    func jsonObjectBoolValue(for key: String) throws -> Bool {
+        let data = Data(utf8)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = object[key] as? Bool else {
+            throw VerifierError.bridge("expected JSON object bool field \(key), got \(self)")
+        }
+        return value
     }
 }
 
@@ -1616,7 +1801,6 @@ private func swiftHostWindowID(title: String, minimumSize: CGSize) -> UInt32? {
         return nil
     }
 
-    var fallback: (id: UInt32, area: Double)?
     for window in windows {
         guard (window[kCGWindowOwnerPID as String] as? Int32) == getpid(),
               let bounds = window[kCGWindowBounds as String] as? [String: Any],
@@ -1633,13 +1817,9 @@ private func swiftHostWindowID(title: String, minimumSize: CGSize) -> UInt32? {
         if (window[kCGWindowName as String] as? String) == title {
             return id
         }
-        let area = width.doubleValue * height.doubleValue
-        if fallback == nil || area > fallback!.area {
-            fallback = (id, area)
-        }
     }
 
-    return fallback?.id
+    return nil
 }
 
 private func windowNumber(from window: [String: Any]) -> UInt32? {
@@ -1940,7 +2120,7 @@ private func renderGeneratedTransportReport(summary: Summary) -> String {
         <div class="grid">
           <div class="label">Control transport</div><div><code>\(escapeHTML(summary.controlTransport))</code></div>
           <div class="label">Swift host transport</div><div><code>\(escapeHTML(summary.swiftHostTransport))</code></div>
-          <div class="label">Low-level shim</div><div><code>\(escapeHTML(summary.bridgeShim))</code></div>
+          <div class="label">Mojo runtime</div><div><code>\(escapeHTML(summary.mojoRuntime))</code></div>
           <div class="label">Binding checksum</div><div><code>\(escapeHTML(summary.mojoBindingSourceChecksum))</code></div>
           <div class="label">Binding declarations</div><div><code>\(summary.mojoBindingDeclarationCount)</code></div>
           <div class="label">DevTools active port</div><div><code>\(summary.devToolsActivePortFound)</code></div>
@@ -2515,8 +2695,21 @@ private enum Fixtures {
           window.owlResizeState = { width, height, mode, status: label, sawSmall: state.sawSmall };
         };
 
+        let lastWidth = 0;
+        let lastHeight = 0;
+        const tick = () => {
+          if (window.innerWidth !== lastWidth || window.innerHeight !== lastHeight) {
+            lastWidth = window.innerWidth;
+            lastHeight = window.innerHeight;
+            update();
+          }
+          requestAnimationFrame(tick);
+        };
+
         window.addEventListener("resize", update);
         update();
+        setInterval(update, 50);
+        requestAnimationFrame(tick);
       </script>
     </body>
     </html>

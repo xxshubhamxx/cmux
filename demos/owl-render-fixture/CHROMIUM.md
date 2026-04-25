@@ -10,8 +10,9 @@ Chromium work is split into a smaller proper branch.
 
 The Swift verifier expects a Chromium build with:
 
-- `fresh_owl/owl_fresh_bridge.*`, exposing a C ABI that launches Content Shell
-  through Mojo and forwards `OwlFreshHost` events into Swift callbacks.
+- `fresh_owl/owl_fresh_mojo_runtime.*`, exposing one generic Mojo invocation
+  entry point that launches Content Shell through Mojo, binds `OwlFreshHost`,
+  and returns `OwlFreshClient` events into Swift callbacks.
 - `content/shell/browser/owl_fresh_host_mac.mm`, implementing the host-side
   Mojo service, input forwarding, capture diagnostics, and compositor context
   publication.
@@ -28,8 +29,8 @@ then Swift hosts the portal id in `CALayerHost`.
 `Mojo/OwlFresh.mojom` is the Swift-side source of truth for the current
 `OwlFreshHost` and `OwlFreshClient` surface. `OwlMojoBindingsGenerator` emits
 `Sources/OwlMojoBindingsGenerated/OwlFresh.generated.swift`, and the verifier
-uses those generated Swift request/event and transport types before passing
-through the temporary C ABI shim.
+uses those generated Swift request/event and transport types before invoking
+the generic Mojo runtime. Host control no longer calls per-method C symbols.
 
 The verified gate now includes input. `run-layer-host-verifier-gui.sh` can run
 the real Chromium compositor input fixtures with `OWL_LAYER_HOST_INPUT_CHECK=1`;
@@ -47,5 +48,5 @@ The AWS build used for the current screenshots was rebuilt with:
 
 ```bash
 cd ~/chromium/src
-third_party/ninja/ninja -C out/Release content_shell owl_fresh_bridge
+third_party/ninja/ninja -C out/Release content_shell owl_fresh_mojo_runtime
 ```

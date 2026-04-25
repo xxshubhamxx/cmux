@@ -5,9 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 HOST="${OWL_CHROMIUM_HOST:-$HOME/chromium/src/out/Release/Content Shell.app/Contents/MacOS/Content Shell}"
-BRIDGE="${OWL_BRIDGE_PATH:-$HOME/chromium/src/out/Release/libowl_fresh_bridge.dylib}"
+RUNTIME="${OWL_MOJO_RUNTIME_PATH:-$HOME/chromium/src/out/Release/libowl_fresh_mojo_runtime.dylib}"
 OUT_DIR="${OWL_LAYER_HOST_FIXTURE_OUT:-$ROOT_DIR/artifacts/layer-host-fixture-gui-latest}"
-CHROMIUM_OUT="$(cd "$(dirname "$BRIDGE")" && pwd)"
+CHROMIUM_OUT="$(cd "$(dirname "$RUNTIME")" && pwd)"
 LABEL="com.manaflow.owllayerfixture.$$"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 STDOUT_LOG="/tmp/owl-layer-fixture-$$.out"
@@ -20,8 +20,8 @@ if [ ! -x "$HOST" ]; then
   exit 1
 fi
 
-if [ ! -f "$BRIDGE" ]; then
-  echo "Missing OWL bridge dylib: $BRIDGE" >&2
+if [ ! -f "$RUNTIME" ]; then
+  echo "Missing OWL Mojo runtime dylib: $RUNTIME" >&2
   exit 1
 fi
 
@@ -70,8 +70,8 @@ cat > "$PLIST" <<PLIST
     <string>--args</string>
     <string>--chromium-host</string>
     <string>$HOST</string>
-    <string>--bridge</string>
-    <string>$BRIDGE</string>
+    <string>--mojo-runtime</string>
+    <string>$RUNTIME</string>
     <string>--output-dir</string>
     <string>$OUT_DIR</string>
     <string>--skip-example</string>
@@ -99,6 +99,16 @@ echo "== stderr =="
 cat "$STDERR_LOG" 2>/dev/null || true
 
 if [ ! -f "$OUT_DIR/summary.json" ]; then
+  if [ -f "$OUT_DIR/fatal-error.txt" ]; then
+    echo "== fatal-error =="
+    cat "$OUT_DIR/fatal-error.txt"
+  fi
+  for failure in "$OUT_DIR"/*-failure.json; do
+    if [ -f "$failure" ]; then
+      echo "== $failure =="
+      cat "$failure"
+    fi
+  done
   echo "Missing summary in $OUT_DIR" >&2
   exit 1
 fi

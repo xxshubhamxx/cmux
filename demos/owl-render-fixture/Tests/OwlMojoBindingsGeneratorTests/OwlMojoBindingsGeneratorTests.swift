@@ -62,7 +62,7 @@ final class OwlMojoBindingsGeneratorTests: XCTestCase {
         XCTAssertTrue(report.contains("protocol OwlFreshHostMojoInterface"))
     }
 
-    func testGeneratedHostTransportRecordsAndForwardsCalls() throws {
+    func testGeneratedHostTransportRecordsAndForwardsCalls() async throws {
         let sink = FakeHostSink()
         let transport = GeneratedOwlFreshHostMojoTransport(sink: sink)
 
@@ -79,13 +79,16 @@ final class OwlMojoBindingsGeneratorTests: XCTestCase {
             modifiers: 0
         ))
         transport.sendKey(OwlFreshKeyEvent(keyDown: true, keyCode: 83, text: "S", modifiers: 1))
+        let flushed = try await transport.flush()
 
-        XCTAssertEqual(sink.calls, ["navigate", "resize", "sendMouse", "sendKey"])
-        XCTAssertEqual(transport.recordedCalls.map(\.method), ["navigate", "resize", "sendMouse", "sendKey"])
-        XCTAssertEqual(transport.recordedCalls.map(\.interface), Array(repeating: "OwlFreshHost", count: 4))
+        XCTAssertTrue(flushed)
+        XCTAssertEqual(sink.calls, ["navigate", "resize", "sendMouse", "sendKey", "flush"])
+        XCTAssertEqual(transport.recordedCalls.map(\.method), ["navigate", "resize", "sendMouse", "sendKey", "flush"])
+        XCTAssertEqual(transport.recordedCalls.map(\.interface), Array(repeating: "OwlFreshHost", count: 5))
         XCTAssertEqual(transport.recordedCalls[1].payloadType, "OwlFreshHostResizeRequest")
         XCTAssertEqual(transport.recordedCalls[2].payloadType, "OwlFreshMouseEvent")
         XCTAssertTrue(transport.recordedCalls[3].payloadSummary.contains("keyCode: 83"))
+        XCTAssertEqual(transport.recordedCalls[4].payloadType, "Void")
     }
 
     private let sampleMojo = """
@@ -134,6 +137,11 @@ private final class FakeHostSink: OwlFreshHostMojoSink {
 
     func sendKey(_ event: OwlFreshKeyEvent) {
         calls.append("sendKey")
+    }
+
+    func flush() async throws -> Bool {
+        calls.append("flush")
+        return true
     }
 
     func captureSurface() async throws -> OwlFreshCaptureResult {

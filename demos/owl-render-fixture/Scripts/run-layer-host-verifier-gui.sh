@@ -5,11 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 HOST="${OWL_CHROMIUM_HOST:-$HOME/chromium/src/out/Release/Content Shell.app/Contents/MacOS/Content Shell}"
-BRIDGE="${OWL_BRIDGE_PATH:-$HOME/chromium/src/out/Release/libowl_fresh_bridge.dylib}"
+RUNTIME="${OWL_MOJO_RUNTIME_PATH:-$HOME/chromium/src/out/Release/libowl_fresh_mojo_runtime.dylib}"
 OUT_DIR="${OWL_LAYER_HOST_RENDER_OUT:-$ROOT_DIR/artifacts/layer-host-gui-latest}"
 TIMEOUT="${OWL_LAYER_HOST_TIMEOUT:-45}"
 WAIT_SECONDS="${OWL_LAYER_HOST_WAIT_SECONDS:-140}"
-CHROMIUM_OUT="$(cd "$(dirname "$BRIDGE")" && pwd)"
+CHROMIUM_OUT="$(cd "$(dirname "$RUNTIME")" && pwd)"
 LABEL="com.manaflow.owllayerreal.$$"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 STDOUT_LOG="/tmp/owl-layer-real-$$.out"
@@ -22,8 +22,8 @@ if [ ! -x "$HOST" ]; then
   exit 1
 fi
 
-if [ ! -f "$BRIDGE" ]; then
-  echo "Missing OWL bridge dylib: $BRIDGE" >&2
+if [ ! -f "$RUNTIME" ]; then
+  echo "Missing OWL Mojo runtime dylib: $RUNTIME" >&2
   exit 1
 fi
 
@@ -61,6 +61,7 @@ for env_name in \
   OWL_FRESH_NO_IN_PROCESS_GPU \
   OWL_FRESH_WINDOW_SNAPSHOT \
   OWL_LAYER_HOST_ONLY_TARGETS \
+  OWL_LAYER_HOST_RESIZE_CHECK \
   OWL_LAYER_HOST_KEY_ONLY; do
   env_value="${!env_name:-}"
   if [ -n "$env_value" ]; then
@@ -90,8 +91,8 @@ cat > "$PLIST" <<PLIST
     <string>--args</string>
     <string>--chromium-host</string>
     <string>$HOST</string>
-    <string>--bridge</string>
-    <string>$BRIDGE</string>
+    <string>--mojo-runtime</string>
+    <string>$RUNTIME</string>
     <string>--output-dir</string>
     <string>$OUT_DIR</string>
     <string>--timeout</string>
@@ -144,6 +145,16 @@ echo "== stderr =="
 cat "$STDERR_LOG" 2>/dev/null || true
 
 if [ ! -f "$OUT_DIR/summary.json" ]; then
+  if [ -f "$OUT_DIR/fatal-error.txt" ]; then
+    echo "== fatal-error =="
+    cat "$OUT_DIR/fatal-error.txt"
+  fi
+  for failure in "$OUT_DIR"/*-failure.json; do
+    if [ -f "$failure" ]; then
+      echo "== $failure =="
+      cat "$failure"
+    fi
+  done
   echo "Missing summary in $OUT_DIR" >&2
   exit 1
 fi

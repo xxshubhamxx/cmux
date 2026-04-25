@@ -51,5 +51,6 @@ interface OwlFreshHost {
   SetFocus(bool focused);
   SendMouse(OwlFreshMouseEvent event);
   SendKey(OwlFreshKeyEvent event);
+  Flush() => (bool ok);
   CaptureSurface() => (OwlFreshCaptureResult result);
 };
