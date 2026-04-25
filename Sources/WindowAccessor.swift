@@ -1,11 +1,12 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 struct WindowAccessor: NSViewRepresentable {
-    let onWindow: (NSWindow) -> Void
+    let onWindow: @MainActor (NSWindow) -> Void
     let dedupeByWindow: Bool
 
-    init(dedupeByWindow: Bool = true, onWindow: @escaping (NSWindow) -> Void) {
+    init(dedupeByWindow: Bool = true, onWindow: @escaping @MainActor (NSWindow) -> Void) {
         self.onWindow = onWindow
         self.dedupeByWindow = dedupeByWindow
     }
@@ -42,8 +43,9 @@ extension WindowAccessor {
     }
 }
 
+@MainActor
 final class WindowObservingView: NSView {
-    var onWindow: ((NSWindow) -> Void)?
+    var onWindow: (@MainActor (NSWindow) -> Void)?
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)

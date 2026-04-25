@@ -3361,12 +3361,10 @@ struct ContentView: View {
         })
 
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
-            MainActor.assumeIsolated {
-                let tmuxOverlayController = tmuxWorkspacePaneWindowOverlayController(for: window)
-                tmuxOverlayController.update(state: tmuxWorkspacePaneWindowOverlayState(for: window))
-                let overlayController = commandPaletteWindowOverlayController(for: window)
-                overlayController.update(rootView: AnyView(commandPaletteOverlay), isVisible: isCommandPalettePresented)
-            }
+            let tmuxOverlayController = tmuxWorkspacePaneWindowOverlayController(for: window)
+            tmuxOverlayController.update(state: tmuxWorkspacePaneWindowOverlayState(for: window))
+            let overlayController = commandPaletteWindowOverlayController(for: window)
+            overlayController.update(rootView: AnyView(commandPaletteOverlay), isVisible: isCommandPalettePresented)
         }))
 
         view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
