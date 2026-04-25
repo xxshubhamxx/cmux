@@ -691,6 +691,251 @@ private enum FilePreviewPDFDisplayMode {
     case twoPages
 }
 
+final class FilePreviewPDFContentHostView: NSView {
+    var interactiveOverlayViews: [NSView] = []
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        for overlayView in interactiveOverlayViews.reversed() where !overlayView.isHidden {
+            let convertedPoint = convert(point, to: overlayView)
+            if let hitView = overlayView.hitTest(convertedPoint) {
+                return hitView
+            }
+        }
+        return super.hitTest(point)
+    }
+}
+
+private final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSource, NSCollectionViewDelegate {
+    private enum Metrics {
+        static let thumbnailHeight: CGFloat = 106
+        static let labelHeight: CGFloat = 22
+        static let itemSpacing: CGFloat = 12
+        static let horizontalInset: CGFloat = 18
+        static let verticalInset: CGFloat = 24
+    }
+
+    private let scrollView = NSScrollView()
+    private let collectionView = NSCollectionView()
+    private let flowLayout = NSCollectionViewFlowLayout()
+    private var document: PDFDocument?
+    private var isApplyingSelection = false
+
+    var onSelectPage: ((PDFPage) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupView()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        updateItemSize()
+    }
+
+    func setDocument(_ document: PDFDocument?) {
+        self.document = document
+        collectionView.reloadData()
+        selectPage(at: 0, scrollToVisible: false)
+    }
+
+    func selectPage(at pageIndex: Int, scrollToVisible: Bool) {
+        guard let document, pageIndex >= 0, pageIndex < document.pageCount else {
+            collectionView.deselectAll(nil)
+            return
+        }
+
+        isApplyingSelection = true
+        let indexPath = IndexPath(item: pageIndex, section: 0)
+        collectionView.selectItems(at: [indexPath], scrollPosition: scrollToVisible ? .centeredVertically : [])
+        isApplyingSelection = false
+    }
+
+    func reloadPage(at pageIndex: Int) {
+        guard let document, pageIndex >= 0, pageIndex < document.pageCount else { return }
+        collectionView.reloadItems(at: [IndexPath(item: pageIndex, section: 0)])
+    }
+
+    private func setupView() {
+        flowLayout.minimumLineSpacing = Metrics.itemSpacing
+        flowLayout.minimumInteritemSpacing = 0
+        flowLayout.sectionInset = NSEdgeInsets(
+            top: Metrics.verticalInset,
+            left: 0,
+            bottom: Metrics.verticalInset,
+            right: 0
+        )
+
+        collectionView.collectionViewLayout = flowLayout
+        collectionView.backgroundColors = [.clear]
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        collectionView.isSelectable = true
+        collectionView.allowsMultipleSelection = false
+        collectionView.register(
+            FilePreviewPDFThumbnailItem.self,
+            forItemWithIdentifier: FilePreviewPDFThumbnailItem.reuseIdentifier
+        )
+
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.documentView = collectionView
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    private func updateItemSize() {
+        let itemWidth = max(124, bounds.width - (Metrics.horizontalInset * 2))
+        let nextSize = NSSize(
+            width: itemWidth,
+            height: Metrics.thumbnailHeight + Metrics.labelHeight + 10
+        )
+        guard flowLayout.itemSize != nextSize else { return }
+        flowLayout.itemSize = nextSize
+        flowLayout.invalidateLayout()
+    }
+
+    func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
+        document?.pageCount ?? 0
+    }
+
+    func collectionView(
+        _ collectionView: NSCollectionView,
+        itemForRepresentedObjectAt indexPath: IndexPath
+    ) -> NSCollectionViewItem {
+        let item = collectionView.makeItem(
+            withIdentifier: FilePreviewPDFThumbnailItem.reuseIdentifier,
+            for: indexPath
+        ) as? FilePreviewPDFThumbnailItem ?? FilePreviewPDFThumbnailItem()
+        let page = document?.page(at: indexPath.item)
+        item.configure(page: page, pageNumber: indexPath.item + 1)
+        return item
+    }
+
+    func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
+        guard !isApplyingSelection,
+              let pageIndex = indexPaths.first?.item,
+              let page = document?.page(at: pageIndex) else { return }
+        onSelectPage?(page)
+    }
+}
+
+private final class FilePreviewPDFThumbnailItem: NSCollectionViewItem {
+    static let reuseIdentifier = NSUserInterfaceItemIdentifier("filePreviewPDFThumbnailItem")
+
+    private var thumbnailItemView: FilePreviewPDFThumbnailItemView? {
+        view as? FilePreviewPDFThumbnailItemView
+    }
+
+    override var isSelected: Bool {
+        didSet {
+            thumbnailItemView?.isSelectedForPreview = isSelected
+        }
+    }
+
+    override func loadView() {
+        view = FilePreviewPDFThumbnailItemView()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        thumbnailItemView?.configure(image: nil, pageNumber: "")
+    }
+
+    func configure(page: PDFPage?, pageNumber: Int) {
+        let thumbnail = page?.thumbnail(of: NSSize(width: 190, height: 106), for: .cropBox)
+        thumbnailItemView?.configure(image: thumbnail, pageNumber: "\(pageNumber)")
+        thumbnailItemView?.isSelectedForPreview = isSelected
+    }
+}
+
+private final class FilePreviewPDFThumbnailItemView: NSView {
+    private let selectionView = NSView()
+    private let imageView = NSImageView()
+    private let pageLabel = NSTextField(labelWithString: "")
+
+    var isSelectedForPreview = false {
+        didSet {
+            updateSelectionAppearance()
+        }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupView()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func configure(image: NSImage?, pageNumber: String) {
+        imageView.image = image
+        pageLabel.stringValue = pageNumber
+    }
+
+    private func setupView() {
+        wantsLayer = true
+
+        selectionView.wantsLayer = true
+        selectionView.layer?.cornerRadius = 10
+        selectionView.layer?.masksToBounds = true
+        selectionView.translatesAutoresizingMaskIntoConstraints = false
+
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.wantsLayer = true
+        imageView.layer?.backgroundColor = NSColor.clear.cgColor
+        imageView.layer?.cornerRadius = 6
+        imageView.layer?.masksToBounds = true
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        pageLabel.alignment = .center
+        pageLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        pageLabel.lineBreakMode = .byTruncatingTail
+        pageLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(selectionView)
+        addSubview(imageView)
+        addSubview(pageLabel)
+
+        NSLayoutConstraint.activate([
+            selectionView.topAnchor.constraint(equalTo: topAnchor),
+            selectionView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            selectionView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            selectionView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            imageView.topAnchor.constraint(equalTo: selectionView.topAnchor, constant: 8),
+            imageView.leadingAnchor.constraint(equalTo: selectionView.leadingAnchor, constant: 10),
+            imageView.trailingAnchor.constraint(equalTo: selectionView.trailingAnchor, constant: -10),
+            imageView.heightAnchor.constraint(equalToConstant: 106),
+
+            pageLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 4),
+            pageLabel.centerXAnchor.constraint(equalTo: selectionView.centerXAnchor),
+            pageLabel.bottomAnchor.constraint(lessThanOrEqualTo: selectionView.bottomAnchor, constant: -5),
+        ])
+        updateSelectionAppearance()
+    }
+
+    private func updateSelectionAppearance() {
+        selectionView.layer?.backgroundColor = isSelectedForPreview
+            ? NSColor.controlAccentColor.cgColor
+            : NSColor.clear.cgColor
+        pageLabel.textColor = isSelectedForPreview ? .white : .secondaryLabelColor
+    }
+}
+
 private final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate {
     private enum Metrics {
         static let defaultSidebarWidth: CGFloat = 220
@@ -703,9 +948,9 @@ private final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NS
 
     private let splitView = NSSplitView()
     private let sidebarHost = NSVisualEffectView()
-    private let contentHost = NSView()
+    private let contentHost = FilePreviewPDFContentHostView()
     private let pdfView = FilePreviewMagnifyingPDFView()
-    private let thumbnailView = PDFThumbnailView()
+    private let thumbnailView = FilePreviewPDFThumbnailSidebarView()
     private let outlineScrollView = NSScrollView()
     private let outlineView = NSOutlineView()
     private let outlinePlaceholder = NSTextField(wrappingLabelWithString: "")
@@ -753,6 +998,7 @@ private final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NS
         currentURL = url
         let document = PDFDocument(url: url)
         pdfView.document = document
+        thumbnailView.setDocument(document)
         outlineRoot = document?.outlineRoot
         titleLabel.stringValue = url.lastPathComponent
         rotationAccumulator = 0
@@ -825,11 +1071,10 @@ private final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NS
         sidebarHost.blendingMode = .withinWindow
         sidebarHost.state = .active
 
-        thumbnailView.pdfView = pdfView
-        thumbnailView.thumbnailSize = NSSize(width: 150, height: 104)
-        thumbnailView.maximumNumberOfColumns = 1
-        thumbnailView.backgroundColor = .clear
-        thumbnailView.labelFont = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        thumbnailView.onSelectPage = { [weak self] page in
+            self?.pdfView.go(to: page)
+            self?.updatePageControls()
+        }
         thumbnailView.translatesAutoresizingMaskIntoConstraints = false
 
         let outlineColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("filePreviewPDFOutline"))
@@ -955,13 +1200,14 @@ private final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NS
 
         rightFloatingChrome.addSubview(zoomStack)
         contentHost.addSubview(rightFloatingChrome)
+        contentHost.interactiveOverlayViews = [leftFloatingChrome, rightFloatingChrome]
 
-        titleLabel.font = .boldSystemFont(ofSize: 16)
+        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingMiddle
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        pageLabel.font = .systemFont(ofSize: 12)
+        pageLabel.font = .systemFont(ofSize: 11)
         pageLabel.textColor = .secondaryLabelColor
         pageLabel.lineBreakMode = .byTruncatingTail
 
@@ -1166,6 +1412,7 @@ private final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NS
         }
         let format = String(localized: "filePreview.pdf.pageCount", defaultValue: "Page %d of %d")
         pageLabel.stringValue = String(format: format, pageIndex + 1, document.pageCount)
+        thumbnailView.selectPage(at: pageIndex, scrollToVisible: true)
     }
 
     private func makeSidebarMenu() -> NSMenu {
@@ -1330,6 +1577,9 @@ private final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NS
         page.rotation = normalizedRotation(page.rotation + degrees)
         pdfView.layoutDocumentView()
         pdfView.setNeedsDisplay(pdfView.bounds)
+        if let document = pdfView.document {
+            thumbnailView.reloadPage(at: document.index(for: page))
+        }
     }
 
     private func setPDFScaleFactor(_ nextScale: CGFloat) {

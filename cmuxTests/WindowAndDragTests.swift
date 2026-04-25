@@ -1026,6 +1026,25 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
 
 
 @MainActor
+final class FilePreviewPDFChromeTests: XCTestCase {
+    func testContentHostRoutesHitsToOverlayControlsBeforePDFContent() {
+        let host = FilePreviewPDFContentHostView(frame: NSRect(x: 0, y: 0, width: 220, height: 160))
+        let pdfContentView = NSView(frame: host.bounds)
+        let overlayView = NSView(frame: NSRect(x: 80, y: 80, width: 100, height: 48))
+        let button = NSButton(frame: NSRect(x: 12, y: 10, width: 38, height: 28))
+
+        host.addSubview(pdfContentView)
+        overlayView.addSubview(button)
+        host.addSubview(overlayView)
+        host.interactiveOverlayViews = [overlayView]
+
+        XCTAssertTrue(host.hitTest(NSPoint(x: 100, y: 100)) === button)
+        XCTAssertTrue(host.hitTest(NSPoint(x: 20, y: 20)) === pdfContentView)
+    }
+}
+
+
+@MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
     func testSaveTextContentWritesLiveTextViewContent() throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
