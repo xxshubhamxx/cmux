@@ -1033,6 +1033,31 @@ final class FilePreviewPDFChromeTests: XCTestCase {
         XCTAssertTrue(button.acceptsFirstMouse(for: nil))
     }
 
+    func testPDFChromeControlsUseNativeToolbarHoverButtons() throws {
+        let container = FilePreviewPDFContainerView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let mirror = Mirror(reflecting: container)
+        let sidebarMenuButton = try XCTUnwrap(
+            mirror.descendant("sidebarMenuButton") as? NSButton
+        )
+        let zoomOutButton = try XCTUnwrap(
+            mirror.descendant("zoomOutButton") as? NSButton
+        )
+        let actualSizeButton = try XCTUnwrap(
+            mirror.descendant("actualSizeButton") as? NSButton
+        )
+        let zoomInButton = try XCTUnwrap(
+            mirror.descendant("zoomInButton") as? NSButton
+        )
+
+        for button in [sidebarMenuButton, zoomOutButton, actualSizeButton, zoomInButton] {
+            XCTAssertTrue(button.isBordered)
+            XCTAssertEqual(button.bezelStyle, .toolbar)
+            XCTAssertTrue(button.showsBorderOnlyWhileMouseInside)
+            XCTAssertEqual(button.imagePosition, .imageOnly)
+            XCTAssertNotNil(button.image)
+        }
+    }
+
     func testPDFChromeControlsAreHitTestedAbovePDFContent() throws {
         let container = FilePreviewPDFContainerView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let hostView = NSView(frame: container.frame)

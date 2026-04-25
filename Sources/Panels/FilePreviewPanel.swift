@@ -988,8 +988,6 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private let outlineView = NSOutlineView()
     private let outlinePlaceholder = NSTextField(wrappingLabelWithString: "")
     private let sidebarMenuButton = FilePreviewPDFChromeButton(title: "", target: nil, action: nil)
-    private let sidebarIconView = NSImageView()
-    private let sidebarChevronView = NSImageView()
     private let leftFloatingChrome = NSVisualEffectView()
     private let rightFloatingChrome = NSVisualEffectView()
     private let zoomOutButton = FilePreviewPDFChromeButton(title: "", target: nil, action: nil)
@@ -1189,30 +1187,12 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         configureFloatingChrome(leftFloatingChrome)
         configureFloatingChrome(rightFloatingChrome)
 
-        configureSymbolImageView(
-            sidebarIconView,
-            symbolName: "sidebar.left",
-            accessibilityLabel: String(localized: "filePreview.pdf.sidebarOptions", defaultValue: "Sidebar Options"),
-            pointSize: 17,
-            weight: .regular,
-            tintColor: .labelColor
-        )
-        configureSymbolImageView(
-            sidebarChevronView,
-            symbolName: "chevron.down",
-            accessibilityLabel: String(localized: "filePreview.pdf.sidebarOptions", defaultValue: "Sidebar Options"),
-            pointSize: 10,
-            weight: .semibold,
-            tintColor: .secondaryLabelColor
-        )
-        configureTransparentHitButton(
+        configureSidebarMenuButton(
             sidebarMenuButton,
             label: String(localized: "filePreview.pdf.sidebarOptions", defaultValue: "Sidebar Options"),
             action: #selector(showSidebarMenu)
         )
 
-        leftFloatingChrome.addSubview(sidebarIconView)
-        leftFloatingChrome.addSubview(sidebarChevronView)
         leftFloatingChrome.addSubview(sidebarMenuButton)
         chromeHost.addSubview(leftFloatingChrome)
 
@@ -1273,15 +1253,6 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             leftFloatingChrome.leadingAnchor.constraint(equalTo: chromeHost.leadingAnchor, constant: 10),
             leftFloatingChrome.widthAnchor.constraint(equalToConstant: 58),
             leftFloatingChrome.heightAnchor.constraint(equalToConstant: Metrics.floatingChromeHeight),
-            sidebarIconView.leadingAnchor.constraint(equalTo: leftFloatingChrome.leadingAnchor, constant: 12),
-            sidebarIconView.centerYAnchor.constraint(equalTo: leftFloatingChrome.centerYAnchor),
-            sidebarIconView.widthAnchor.constraint(equalToConstant: 18),
-            sidebarIconView.heightAnchor.constraint(equalToConstant: 18),
-            sidebarChevronView.leadingAnchor.constraint(equalTo: sidebarIconView.trailingAnchor, constant: 8),
-            sidebarChevronView.trailingAnchor.constraint(equalTo: leftFloatingChrome.trailingAnchor, constant: -10),
-            sidebarChevronView.centerYAnchor.constraint(equalTo: leftFloatingChrome.centerYAnchor),
-            sidebarChevronView.widthAnchor.constraint(equalToConstant: 10),
-            sidebarChevronView.heightAnchor.constraint(equalToConstant: 10),
             sidebarMenuButton.topAnchor.constraint(equalTo: leftFloatingChrome.topAnchor),
             sidebarMenuButton.leadingAnchor.constraint(equalTo: leftFloatingChrome.leadingAnchor),
             sidebarMenuButton.trailingAnchor.constraint(equalTo: leftFloatingChrome.trailingAnchor),
@@ -1328,59 +1299,85 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         label: String,
         action: Selector
     ) {
-        button.target = self
-        button.action = action
-        button.isBordered = false
-        button.bezelStyle = .regularSquare
+        configureFloatingToolbarButton(button, label: label, action: action)
         button.image = templateSymbol(named: symbolName, accessibilityLabel: label)
-        button.imagePosition = .imageOnly
-        button.contentTintColor = .labelColor
-        button.toolTip = label
-        button.setAccessibilityLabel(label)
-        button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             button.widthAnchor.constraint(equalToConstant: 38),
             button.heightAnchor.constraint(equalToConstant: Metrics.floatingChromeHeight),
         ])
     }
 
-    private func configureTransparentHitButton(
+    private func configureSidebarMenuButton(
+        _ button: NSButton,
+        label: String,
+        action: Selector
+    ) {
+        configureFloatingToolbarButton(button, label: label, action: action)
+        button.image = sidebarMenuImage(accessibilityLabel: label)
+    }
+
+    private func configureFloatingToolbarButton(
         _ button: NSButton,
         label: String,
         action: Selector
     ) {
         button.target = self
         button.action = action
-        button.isBordered = false
-        button.bezelStyle = .regularSquare
+        button.setButtonType(.momentaryPushIn)
+        button.isBordered = true
+        button.bezelStyle = .toolbar
+        button.showsBorderOnlyWhileMouseInside = true
+        button.focusRingType = .none
         button.title = ""
-        button.image = nil
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.contentTintColor = .labelColor
         button.toolTip = label
         button.setAccessibilityLabel(label)
         button.translatesAutoresizingMaskIntoConstraints = false
     }
 
-    private func configureSymbolImageView(
-        _ imageView: NSImageView,
-        symbolName: String,
-        accessibilityLabel: String,
-        pointSize: CGFloat,
-        weight: NSFont.Weight,
-        tintColor: NSColor
-    ) {
-        let configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
-        let image = templateSymbol(named: symbolName, accessibilityLabel: accessibilityLabel)?
-            .withSymbolConfiguration(configuration)
-        image?.isTemplate = true
-        imageView.image = image
-        imageView.contentTintColor = tintColor
-        imageView.imageScaling = .scaleProportionallyDown
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-    }
-
     private func templateSymbol(named symbolName: String, accessibilityLabel: String) -> NSImage? {
         let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityLabel)
         image?.isTemplate = true
+        return image
+    }
+
+    private func sidebarMenuImage(accessibilityLabel: String) -> NSImage? {
+        let sidebarConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+        let chevronConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        guard
+            let sidebarImage = templateSymbol(
+                named: "sidebar.left",
+                accessibilityLabel: accessibilityLabel
+            )?.withSymbolConfiguration(sidebarConfiguration),
+            let chevronImage = templateSymbol(
+                named: "chevron.down",
+                accessibilityLabel: accessibilityLabel
+            )?.withSymbolConfiguration(chevronConfiguration)
+        else {
+            return templateSymbol(named: "sidebar.left", accessibilityLabel: accessibilityLabel)
+        }
+
+        sidebarImage.isTemplate = true
+        chevronImage.isTemplate = true
+
+        let image = NSImage(size: NSSize(width: 36, height: 18), flipped: false) { _ in
+            sidebarImage.draw(
+                in: NSRect(x: 0, y: 0, width: 18, height: 18),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1
+            )
+            chevronImage.draw(
+                in: NSRect(x: 26, y: 4, width: 10, height: 10),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1
+            )
+            return true
+        }
+        image.isTemplate = true
         return image
     }
 
