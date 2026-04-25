@@ -2365,6 +2365,13 @@ struct ContentView: View {
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
             onSendFeedback: presentFeedbackComposer,
+            onToggleSidebar: { sidebarState.toggle() },
+            onNewTab: {
+                AppDelegate.shared?.performNewWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "titlebar.hiddenNewWorkspace"
+                )
+            },
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
@@ -2668,6 +2675,34 @@ struct ContentView: View {
     private func syncTrafficLightInset() {
         let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen) ? 80 : 0
         tabManager.syncWorkspaceTabBarLeadingInset(inset)
+    }
+
+    private func schedulePortalGeometrySynchronize() {
+        if let observedWindow {
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+        } else {
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+        }
+    }
+
+    private func refreshWindowChromeMetrics(for window: NSWindow) {
+        // Keep content below the titlebar so drags on Bonsplit's tab bar don't
+        // get interpreted as window drags.
+        let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
+        let nextPadding = max(28, min(72, computedTitlebarHeight))
+        let nextSafeAreaTop = max(0, window.contentView?.safeAreaInsets.top ?? 0)
+        if abs(titlebarPadding - nextPadding) > 0.5 {
+            DispatchQueue.main.async {
+                titlebarPadding = nextPadding
+            }
+        }
+        if abs(hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
+            DispatchQueue.main.async {
+                hostingSafeAreaTop = nextSafeAreaTop
+            }
+        }
     }
 
     private func updateTitlebarText() {
@@ -3377,21 +3412,13 @@ struct ContentView: View {
                 sidebarState.persistedWidth = sanitized
             }
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
-            // terminals need an explicit post-layout geometry resync.
-            if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-            }
+            // terminals and browsers need an explicit post-layout geometry resync.
+            schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { _ in
-            if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-            }
+            schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
         })
@@ -3399,14 +3426,18 @@ struct ContentView: View {
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
             guard sidebarState.isVisible,
                   sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue else { return }
-            if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-            }
+            schedulePortalGeometrySynchronize()
         })
 
         view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
+            if let observedWindow {
+                refreshWindowChromeMetrics(for: observedWindow)
+                observedWindow.contentView?.needsLayout = true
+                observedWindow.contentView?.superview?.needsLayout = true
+                observedWindow.invalidateShadow()
+            }
+            schedulePortalGeometrySynchronize()
+            updateSidebarResizerBandState()
             syncTrafficLightInset()
         })
 
@@ -3463,21 +3494,7 @@ struct ContentView: View {
                 }
             }
 
-            // Keep content below the titlebar so drags on Bonsplit's tab bar don't
-            // get interpreted as window drags.
-            let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
-            let nextPadding = max(28, min(72, computedTitlebarHeight))
-            let nextSafeAreaTop = max(0, window.contentView?.safeAreaInsets.top ?? 0)
-            if abs(titlebarPadding - nextPadding) > 0.5 {
-                DispatchQueue.main.async {
-                    titlebarPadding = nextPadding
-                }
-            }
-            if abs(hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
-                DispatchQueue.main.async {
-                    hostingSafeAreaTop = nextSafeAreaTop
-                }
-            }
+            refreshWindowChromeMetrics(for: window)
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                 UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
@@ -3773,10 +3790,11 @@ struct ContentView: View {
 
     private func setTitlebarControlsHidden(_ hidden: Bool, in window: NSWindow) {
         let controlsId = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+        let shouldHide = hidden || isMinimalMode
         for accessory in window.titlebarAccessoryViewControllers {
             if accessory.view.identifier == controlsId {
-                accessory.isHidden = hidden
-                accessory.view.alphaValue = hidden ? 0 : 1
+                accessory.isHidden = shouldHide
+                accessory.view.alphaValue = shouldHide ? 0 : 1
             }
         }
     }
@@ -9112,6 +9130,8 @@ struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
+    let onToggleSidebar: () -> Void
+    let onNewTab: () -> Void
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @Binding var selection: SidebarSelection
@@ -9289,7 +9309,17 @@ struct VerticalTabsSidebar: View {
                 }
                 .overlay(alignment: .topLeading) {
                     if isMinimalMode {
-                        HiddenTitlebarSidebarControlsView(notificationStore: notificationStore)
+                        HiddenTitlebarSidebarControlsView(
+                            notificationStore: notificationStore,
+                            onToggleSidebar: onToggleSidebar,
+                            onToggleNotifications: { anchorView in
+                                AppDelegate.shared?.toggleNotificationsPopover(
+                                    animated: true,
+                                    anchorView: anchorView
+                                )
+                            },
+                            onNewTab: onNewTab
+                        )
                             .padding(.leading, hiddenTitlebarControlsLeadingInset)
                             .padding(.top, 2)
                     }

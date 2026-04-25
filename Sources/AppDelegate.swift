@@ -4993,35 +4993,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func toggleSidebarInActiveMainWindow() -> Bool {
-        if let activeManager = tabManager,
-           let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
-            if let window = activeContext.window ?? windowForMainWindowId(activeContext.windowId) {
+    func toggleSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        func toggle(_ context: MainWindowContext) -> Bool {
+            if let window = context.window ?? windowForMainWindowId(context.windowId) {
                 setActiveMainWindow(window)
             }
-            activeContext.sidebarState.toggle()
+            context.sidebarState.toggle()
             return true
+        }
+
+        if let preferredContext = contextForMainWindow(preferredWindow) {
+            return toggle(preferredContext)
         }
         if let keyContext = contextForMainWindow(NSApp.keyWindow) {
-            if let window = keyContext.window ?? windowForMainWindowId(keyContext.windowId) {
-                setActiveMainWindow(window)
-            }
-            keyContext.sidebarState.toggle()
-            return true
+            return toggle(keyContext)
         }
         if let mainContext = contextForMainWindow(NSApp.mainWindow) {
-            if let window = mainContext.window ?? windowForMainWindowId(mainContext.windowId) {
-                setActiveMainWindow(window)
-            }
-            mainContext.sidebarState.toggle()
-            return true
+            return toggle(mainContext)
+        }
+        if let activeManager = tabManager,
+           let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+            return toggle(activeContext)
         }
         if let fallbackContext = mainWindowContexts.values.first {
-            if let window = fallbackContext.window ?? windowForMainWindowId(fallbackContext.windowId) {
-                setActiveMainWindow(window)
-            }
-            fallbackContext.sidebarState.toggle()
-            return true
+            return toggle(fallbackContext)
         }
         if let sidebarState {
             sidebarState.toggle()

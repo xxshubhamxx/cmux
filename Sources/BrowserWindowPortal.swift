@@ -10,6 +10,92 @@ private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
 private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 private var cmuxWindowInteractiveSplitDividerDragKey: UInt8 = 0
 
+/// Shared routing for portal hosts that sit above Bonsplit's SwiftUI tab strip.
+enum BonsplitTabBarPassThrough {
+    static func isPassThroughPointerEvent(_ eventType: NSEvent.EventType?) -> Bool {
+        guard let eventType else {
+            // Direct hitTest probes and some AppKit paths do not expose a current
+            // event. If there is a real tab-strip view underneath, still defer to it.
+            return true
+        }
+        switch eventType {
+        case .leftMouseDown, .leftMouseUp,
+             .rightMouseDown, .rightMouseUp,
+             .otherMouseDown, .otherMouseUp,
+             .mouseMoved, .mouseEntered,
+             .mouseExited, .cursorUpdate:
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func titlebarInteractionBandMinY(in window: NSWindow) -> CGFloat {
+        let nativeTitlebarHeight = window.frame.height - window.contentLayoutRect.height
+        let customTitlebarBandHeight = max(28, min(72, nativeTitlebarHeight))
+        return window.contentLayoutRect.maxY - customTitlebarBandHeight - 0.5
+    }
+
+    static func passThroughDecision(
+        at point: NSPoint,
+        in portalHost: NSView,
+        eventType: NSEvent.EventType?
+    ) -> (windowPoint: NSPoint, result: Bool, registryHit: Bool)? {
+        guard isPassThroughPointerEvent(eventType) else { return nil }
+        let windowPoint = portalHost.convert(point, to: nil)
+        let registryHit = portalHost.window.map {
+            BonsplitTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: $0)
+        } ?? false
+        if registryHit {
+            return (windowPoint, true, true)
+        }
+        return (
+            windowPoint,
+            hasUnderlyingBonsplitTabBarBackground(at: windowPoint, below: portalHost),
+            false
+        )
+    }
+
+    static func hasBonsplitTabBarBackground(at windowPoint: NSPoint, in view: NSView) -> Bool {
+        guard !view.isHidden, view.alphaValue > 0 else { return false }
+
+        let className = NSStringFromClass(type(of: view))
+        if className.contains("TabBarBackgroundNSView") {
+            let pointInView = view.convert(windowPoint, from: nil)
+            if view.bounds.contains(pointInView) {
+                return true
+            }
+        }
+
+        for subview in view.subviews.reversed() {
+            if hasBonsplitTabBarBackground(at: windowPoint, in: subview) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func hasUnderlyingBonsplitTabBarBackground(
+        at windowPoint: NSPoint,
+        below portalHost: NSView
+    ) -> Bool {
+        if let container = portalHost.superview,
+           let hostIndex = container.subviews.firstIndex(of: portalHost) {
+            for sibling in container.subviews[..<hostIndex].reversed() {
+                if hasBonsplitTabBarBackground(at: windowPoint, in: sibling) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        guard let rootView = portalHost.window?.contentView else {
+            return false
+        }
+        return hasBonsplitTabBarBackground(at: windowPoint, in: rootView)
+    }
+}
+
 #if DEBUG
 private func browserPortalDebugToken(_ view: NSView?) -> String {
     guard let view else { return "nil" }
@@ -493,6 +579,9 @@ final class WindowBrowserHostView: NSView {
 #endif
             return nil
         }
+        if shouldPassThroughToPaneTabBar(at: point, eventType: NSApp.currentEvent?.type) {
+            return nil
+        }
         if sidebarPassThrough {
 #if DEBUG
             debugLogPointerRouting(
@@ -689,10 +778,27 @@ final class WindowBrowserHostView: NSView {
         // hits that land in native titlebar space or the custom titlebar strip
         // we reserve directly under it for window drag/double-click behaviors.
         let windowPoint = convert(point, to: nil)
-        let nativeTitlebarHeight = window.frame.height - window.contentLayoutRect.height
-        let customTitlebarBandHeight = max(28, min(72, nativeTitlebarHeight))
-        let interactionBandMinY = window.contentLayoutRect.maxY - customTitlebarBandHeight - 0.5
-        return windowPoint.y >= interactionBandMinY
+        return windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+    }
+
+    private func shouldPassThroughToPaneTabBar(
+        at point: NSPoint,
+        eventType: NSEvent.EventType?
+    ) -> Bool {
+        guard let decision = BonsplitTabBarPassThrough.passThroughDecision(
+            at: point,
+            in: self,
+            eventType: eventType
+        ) else { return false }
+#if DEBUG
+        if eventType == .leftMouseDown {
+            cmuxDebugLog(
+                "portal.browser.passThroughTabBar wp=\(Int(decision.windowPoint.x)),\(Int(decision.windowPoint.y)) " +
+                    "registry=\(decision.registryHit ? 1 : 0) result=\(decision.result ? 1 : 0)"
+            )
+        }
+#endif
+        return decision.result
     }
 
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
@@ -2295,7 +2401,7 @@ final class WindowBrowserPortal: NSObject {
         geometryObservers.removeAll()
     }
 
-    private func scheduleExternalGeometrySynchronize() {
+    fileprivate func scheduleExternalGeometrySynchronize() {
         guard !hasExternalGeometrySyncScheduled else { return }
         hasExternalGeometrySyncScheduled = true
         DispatchQueue.main.async { [weak self] in
@@ -4041,6 +4147,16 @@ enum BrowserWindowPortalRegistry {
         guard let window = anchorView.window else { return }
         let portal = portal(for: window)
         portal.synchronizeWebViewForAnchor(anchorView)
+    }
+
+    static func scheduleExternalGeometrySynchronize(for window: NSWindow) {
+        portalsByWindowId[ObjectIdentifier(window)]?.scheduleExternalGeometrySynchronize()
+    }
+
+    static func scheduleExternalGeometrySynchronizeForAllWindows() {
+        for portal in portalsByWindowId.values {
+            portal.scheduleExternalGeometrySynchronize()
+        }
     }
 
     /// Update visibleInUI/zPriority on an existing portal entry without rebinding.
