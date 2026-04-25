@@ -128,6 +128,17 @@ set +a
 `~/.secret/cmuxterm.env` is for Stack/web env and does not contain the provider build keys.
 The web dev loader also accepts the legacy `~/.secrets/cmuxterm.env` path while machines migrate.
 
+## Backend TypeScript
+
+Default backend TypeScript to Effect. For code under `web/app/api/**`, `web/services/**`, and
+backend scripts that touch providers, databases, auth, rate limits, retries, timeouts, or telemetry,
+model workflows as `Effect.Effect` values with typed domain errors and explicit service
+dependencies. Keep Next route handlers thin: parse the request, run one Effect program at the
+boundary, map typed errors to HTTP responses, and treat unexpected defects separately.
+
+Use plain TypeScript only for trivial data shapes, constants, config files, frontend React code, or
+small glue where Effect would add ceremony without improving failure handling.
+
 ## Debug event log
 
 All debug events (keys, mouse, focus, splits, tabs) go to a unified log in DEBUG builds:
