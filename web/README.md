@@ -10,12 +10,35 @@ bun install
 bun dev
 ```
 
-`bun dev` listens on `CMUX_PORT` when it is set, otherwise `PORT`, otherwise `3777`.
+`bun dev` sources `~/.secret/cmuxterm.env`, derives local database URLs from `CMUX_PORT`,
+starts this worktree's Docker Postgres, applies Drizzle migrations, then starts Next.js.
+It listens on `CMUX_PORT` when it is set, otherwise `PORT`, otherwise `3777`.
+When `bun dev` exits or is interrupted, it stops the matching Docker Postgres container and
+network. The database volume is preserved so local state survives restarts.
+
+The committed `.envrc` uses the same loader for direnv. Run `direnv allow` once in `web/` if you
+want shells opened there to automatically get the same local dev environment.
+
+`web/.env.local` is not used for local development. Keep runtime secrets in
+`~/.secret/cmuxterm.env`. `~/.secrets/cmuxterm.env` is accepted as a legacy fallback.
+
+To start Next without Docker Postgres, use:
+
+```bash
+CMUX_DEV_START_DB=0 bun dev
+```
+
+To keep the Docker Postgres container running after Next exits, use:
+
+```bash
+CMUX_DEV_STOP_DB_ON_EXIT=0 bun dev
+```
 
 ## Local Postgres
 
 Local Postgres is isolated per worktree by deriving its port and Docker names from `CMUX_PORT` and
-the git branch.
+the git branch. `bun dev` starts and migrates this database automatically; the commands below are
+for manual control. `bun db:down` stops the container and network while preserving the volume.
 
 ```bash
 CMUX_PORT=10180 bun db:up

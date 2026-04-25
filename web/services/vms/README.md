@@ -187,12 +187,13 @@ status, and retry-safe route behavior.
 Use `CMUX_PORT` to run multiple isolated web/DB dev environments on one machine:
 
 ```bash
-CMUX_PORT=10180 bun db:up
-CMUX_PORT=10180 bun db:migrate
-CMUX_PORT=10180 bun db:status
+CMUX_PORT=10180 bun dev
 ```
 
-The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to
+`bun dev` sources `~/.secret/cmuxterm.env`, derives local database URLs from `CMUX_PORT`, starts
+this worktree's Docker Postgres, applies Drizzle migrations, then starts Next.js. When it exits or
+is interrupted, it stops the matching Docker Postgres container and network while preserving the
+volume. The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to
 `localhost:20180`. `bun db:test` starts a separate test DB on `CMUX_PORT + 11000`, applies
 migrations twice, and runs behavior tests against a real Postgres database.
 

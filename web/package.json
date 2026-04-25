@@ -4,7 +4,7 @@
   "license": "GPL-3.0-or-later",
   "private": true,
   "scripts": {
-    "dev": "CMUX_VM_API_BASE_URL=http://localhost:${CMUX_PORT:-${PORT:-3777}} next dev --port ${CMUX_PORT:-${PORT:-3777}}",
+    "dev": "exec bash scripts/dev-local.sh",
     "build": "next build",
     "db:check": "bunx drizzle-kit check --config drizzle.config.ts",
     "db:down": "bash scripts/db-local.sh down",

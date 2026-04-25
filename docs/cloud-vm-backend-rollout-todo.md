@@ -77,17 +77,18 @@ These are already configured in Vercel for development, preview, and production:
 
 ## Phase 2: Local Secret Parity
 
-- [ ] Keep Stack/web runtime secrets in `~/.secrets/cmuxterm.env`.
+- [ ] Keep Stack/web runtime secrets in `~/.secret/cmuxterm.env`.
 - [ ] Keep provider image-build secrets in `~/.secrets/cmux.env`.
-- [ ] Add runtime VM vars to `~/.secrets/cmuxterm.env`:
+- [ ] Add runtime VM vars to `~/.secret/cmuxterm.env`:
   - `CMUX_RIVET_INTERNAL_SECRET`
   - `CMUX_VM_DEFAULT_PROVIDER`
   - `E2B_CMUXD_WS_TEMPLATE`
   - `FREESTYLE_SANDBOX_SNAPSHOT`
   - Rivet endpoint/token vars
   - Axiom/OpenTelemetry vars
-- [ ] Document the split between `~/.secrets/cmuxterm.env` and `~/.secrets/cmux.env` in `AGENTS.md`.
-- [ ] Add or update a local env sync script that regenerates `web/.env.local` without committing secrets.
+- [x] Document the split between `~/.secret/cmuxterm.env` and `~/.secrets/cmux.env` in `AGENTS.md`.
+- [x] Replace `web/.env.local` local development with the committed `web/.envrc` and `bun dev`
+  loader.
 - [ ] Make the script print missing keys by name only, never values.
 
 ## Phase 3: Image Manifest and Rollback

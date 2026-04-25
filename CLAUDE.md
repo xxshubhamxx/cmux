@@ -125,7 +125,8 @@ source ~/.secrets/cmux.env
 set +a
 ```
 
-`~/.secrets/cmuxterm.env` is for Stack/web env and does not contain the provider build keys.
+`~/.secret/cmuxterm.env` is for Stack/web env and does not contain the provider build keys.
+The web dev loader also accepts the legacy `~/.secrets/cmuxterm.env` path while machines migrate.
 
 ## Debug event log
 

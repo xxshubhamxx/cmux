@@ -23,7 +23,7 @@ export type StackBearer = { accessToken: string; refreshToken: string };
 /**
  * Authoritative base URL for the Rivet gateway. Explicit non-loopback
  * `CMUX_VM_API_BASE_URL` values win, and Vercel previews use `VERCEL_URL`. Local dev prefers
- * the active cmux-assigned port so stale `.env.local` values like `localhost:9910` don't send
+ * the active cmux-assigned port so stale local env values like `localhost:9910` don't send
  * RivetKit metadata fetches to a dead process. Deriving this from `request.url.origin` is unsafe
  * because a misconfigured reverse proxy could rewrite Host and redirect Stack Auth tokens to an
  * attacker-controlled endpoint.
