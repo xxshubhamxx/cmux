@@ -1946,6 +1946,7 @@ class GhosttyApp {
 
         // Notify observers that a usable config is available (initial load).
         lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
+        GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
 
         #if os(macOS)
@@ -2897,6 +2898,7 @@ class GhosttyApp {
         if soft, let config {
             ghostty_app_update_config(app, config)
             lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
+            GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
             scheduleSurfaceRefreshAfterConfigurationReload(source: source)
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
@@ -2922,6 +2924,7 @@ class GhosttyApp {
         }
         config = newConfig
         lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
+        GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         scheduleSurfaceRefreshAfterConfigurationReload(source: source)
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")

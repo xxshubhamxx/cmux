@@ -1098,7 +1098,10 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         editor.setSelectedRange(NSRange(location: length, length: 0))
     }
 
-    func update(rootView: AnyView, isVisible: Bool) {
+    func update(
+        isVisible: Bool,
+        makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
+    ) {
         let wasVisible = isPaletteVisible
         if !isVisible, !wasVisible, !hasMountedPaletteRootView, containerView.isHidden {
             return
@@ -1122,7 +1125,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 #endif
         isPaletteVisible = isVisible
         if isVisible {
-            hostingView.rootView = rootView
+            hostingView.rootView = makeRootView()
             hasMountedPaletteRootView = true
             containerView.capturesMouseEvents = true
             containerView.isHidden = false
@@ -3386,7 +3389,9 @@ struct ContentView: View {
             let tmuxOverlayController = tmuxWorkspacePaneWindowOverlayController(for: window)
             tmuxOverlayController.update(state: tmuxWorkspacePaneWindowOverlayState(for: window))
             let overlayController = commandPaletteWindowOverlayController(for: window)
-            overlayController.update(rootView: AnyView(commandPaletteOverlay), isVisible: isCommandPalettePresented)
+            overlayController.update(isVisible: isCommandPalettePresented) {
+                AnyView(commandPaletteOverlay)
+            }
         }))
 
         view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
