@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 type config struct {
@@ -141,7 +142,7 @@ var (
 	muted     = lipgloss.Color("#8B93A3")
 	dim       = lipgloss.Color("#5D6572")
 	red       = lipgloss.Color("#F87171")
-	inputBG   = lipgloss.Color("#20242C")
+	inputBG   = lipgloss.Color("#2A2F37")
 	subtle    = lipgloss.NewStyle().Foreground(muted)
 	dimText   = lipgloss.NewStyle().Foreground(dim)
 	hot       = lipgloss.NewStyle().Foreground(blue)
@@ -150,6 +151,7 @@ var (
 )
 
 func main() {
+	lipgloss.SetColorProfile(termenv.TrueColor)
 	cfg := parseConfig()
 	m := initialModel(cfg)
 	if _, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
@@ -221,7 +223,7 @@ func (l *stringList) Set(value string) error {
 func initialModel(cfg config) model {
 	ta := textarea.New()
 	ta.Placeholder = "What should the agents work on?"
-	ta.Prompt = "  "
+	ta.Prompt = ""
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 20000
 	ta.SetWidth(68)
@@ -358,7 +360,7 @@ func (m *model) resize(width, height int) {
 	m.width = width
 	m.height = height
 	contentWidth := contentWidthForWindow(width)
-	textWidth := maxInt(1, contentWidth-lipgloss.Width("  "))
+	textWidth := maxInt(1, contentWidth-2)
 	textHeight := clampInt(height/5, 5, 8)
 	m.textarea.SetWidth(textWidth)
 	m.textarea.SetHeight(textHeight)
@@ -366,7 +368,7 @@ func (m *model) resize(width, height int) {
 
 func (m model) metrics() layoutMetrics {
 	contentWidth := contentWidthForWindow(m.width)
-	inputHeight := m.textarea.Height()
+	inputHeight := m.textarea.Height() + 2
 	logoHeight := 7
 	configHeight := configLineCount()
 	bodyHeight := logoHeight + 1 + inputHeight + 1 + configHeight + 1 + 3
@@ -628,26 +630,148 @@ func (m model) View() string {
 }
 
 func (m model) renderInput(width int) string {
-	lines := strings.Split(strings.TrimRight(m.textarea.View(), "\n"), "\n")
-	for len(lines) < m.textarea.Height() {
-		lines = append(lines, "")
-	}
-	if len(lines) > m.textarea.Height() {
-		lines = lines[:m.textarea.Height()]
+	type displayLine struct {
+		text        string
+		placeholder bool
+		cursorCol   int
 	}
 
-	style := lipgloss.NewStyle().Width(width).Background(inputBG)
-	for index, line := range lines {
-		filled := lipgloss.PlaceHorizontal(
-			width,
-			lipgloss.Left,
-			line,
-			lipgloss.WithWhitespaceBackground(inputBG),
-			lipgloss.WithWhitespaceChars(" "),
-		)
-		lines[index] = style.Render(filled)
+	height := m.textarea.Height()
+	if height <= 0 || width <= 0 {
+		return ""
 	}
-	return strings.Join(lines, "\n")
+	innerWidth := maxInt(1, width-2)
+
+	value := m.textarea.Value()
+	cursorLine := m.textarea.Line()
+	info := m.textarea.LineInfo()
+	cursorRawCol := info.StartColumn + info.ColumnOffset
+	lines := make([]displayLine, 0, height)
+	cursorDisplayIndex := 0
+
+	if value == "" {
+		lines = append(lines, displayLine{
+			text:        m.textarea.Placeholder,
+			placeholder: true,
+			cursorCol:   0,
+		})
+	} else {
+		rawLines := strings.Split(value, "\n")
+		for lineIndex, rawLine := range rawLines {
+			segments := wrapEditorLine(rawLine, innerWidth)
+			for segmentIndex, segment := range segments {
+				cursorCol := -1
+				if lineIndex == cursorLine && segmentIndex == info.RowOffset {
+					cursorDisplayIndex = len(lines)
+					cursorCol = clampInt(cursorRawCol-segment.start, 0, len([]rune(segment.text)))
+				}
+				lines = append(lines, displayLine{text: segment.text, cursorCol: cursorCol})
+			}
+		}
+	}
+
+	start := 0
+	if cursorDisplayIndex >= height {
+		start = cursorDisplayIndex - height + 1
+	}
+	if start > len(lines) {
+		start = len(lines)
+	}
+
+	visible := lines[start:]
+	if len(visible) > height {
+		visible = visible[:height]
+	}
+	for len(visible) < height {
+		visible = append(visible, displayLine{cursorCol: -1})
+	}
+
+	rendered := make([]string, 0, len(visible))
+	rendered = append(rendered, renderEditorBlankLine(width))
+	for _, line := range visible {
+		rendered = append(rendered, renderEditorInsetLine(line.text, innerWidth, line.cursorCol, line.placeholder))
+	}
+	rendered = append(rendered, renderEditorBlankLine(width))
+	return strings.Join(rendered, "\n")
+}
+
+type editorSegment struct {
+	text  string
+	start int
+}
+
+func wrapEditorLine(line string, width int) []editorSegment {
+	if line == "" {
+		return []editorSegment{{text: "", start: 0}}
+	}
+	runes := []rune(line)
+	segments := make([]editorSegment, 0, maxInt(1, len(runes)/maxInt(1, width)))
+	for start := 0; start < len(runes); {
+		end := start
+		lineWidth := 0
+		for end < len(runes) {
+			nextWidth := lipgloss.Width(string(runes[end]))
+			if lineWidth > 0 && lineWidth+nextWidth > width {
+				break
+			}
+			lineWidth += nextWidth
+			end++
+			if lineWidth >= width {
+				break
+			}
+		}
+		if end == start {
+			end++
+		}
+		segments = append(segments, editorSegment{
+			text:  string(runes[start:end]),
+			start: start,
+		})
+		start = end
+	}
+	return segments
+}
+
+func renderEditorLine(raw string, width int, cursorCol int, placeholder bool) string {
+	runes := []rune(raw)
+	if len(runes) > width {
+		runes = runes[:width]
+	}
+
+	normalStyle := lipgloss.NewStyle().Foreground(text).Background(inputBG)
+	placeholderStyle := lipgloss.NewStyle().Foreground(dim).Background(inputBG)
+	lineStyle := normalStyle
+	if placeholder {
+		lineStyle = placeholderStyle
+	}
+	cursorStyle := lipgloss.NewStyle().Foreground(inputBG).Background(text)
+
+	var out strings.Builder
+	for col := 0; col < width; col++ {
+		cell := " "
+		if col < len(runes) {
+			cell = string(runes[col])
+		}
+		if col == cursorCol {
+			out.WriteString(cursorStyle.Render(cell))
+		} else {
+			out.WriteString(lineStyle.Render(cell))
+		}
+	}
+	return out.String()
+}
+
+func renderEditorInsetLine(raw string, innerWidth int, cursorCol int, placeholder bool) string {
+	cell := inputCellStyle()
+	return cell.Render(" ") + renderEditorLine(raw, innerWidth, cursorCol, placeholder) + cell.Render(" ")
+}
+
+func renderEditorBlankLine(width int) string {
+	return inputCellStyle().Render(strings.Repeat(" ", maxInt(1, width)))
+}
+
+func inputCellStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(text).Background(inputBG)
 }
 
 func cmuxLogo(width int) string {

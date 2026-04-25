@@ -38,8 +38,9 @@ func TestRenderInputFillsEveryLine(t *testing.T) {
 
 	out := m.renderInput(72)
 	lines := strings.Split(out, "\n")
-	if len(lines) != m.textarea.Height() {
-		t.Fatalf("expected %d lines, got %d", m.textarea.Height(), len(lines))
+	expectedHeight := m.textarea.Height() + 2
+	if len(lines) != expectedHeight {
+		t.Fatalf("expected %d lines, got %d", expectedHeight, len(lines))
 	}
 	for index, line := range lines {
 		if width := lipgloss.Width(line); width != 72 {
