@@ -33,6 +33,18 @@ private struct MouseClick {
     let y: Float
 }
 
+private struct MouseWheel {
+    let x: Float
+    let y: Float
+    let deltaX: Float
+    let deltaY: Float
+}
+
+private struct ResizeAction {
+    let width: UInt32
+    let height: UInt32
+}
+
 private struct KeyStroke {
     let keyCode: UInt32
     let text: String
@@ -41,7 +53,9 @@ private struct KeyStroke {
 
 private enum InputAction {
     case mouseClick(MouseClick)
+    case mouseWheel(MouseWheel)
     case key(KeyStroke)
+    case resize(ResizeAction)
     case text(String)
 }
 
@@ -60,6 +74,12 @@ private enum KeyModifiers {
     static let control = UInt32(truncatingIfNeeded: NSEvent.ModifierFlags.control.rawValue)
     static let option = UInt32(truncatingIfNeeded: NSEvent.ModifierFlags.option.rawValue)
     static let shift = UInt32(truncatingIfNeeded: NSEvent.ModifierFlags.shift.rawValue)
+}
+
+private enum KeyCodes {
+    static let backspace: UInt32 = 8
+    static let delete: UInt32 = 46
+    static let leftArrow: UInt32 = 37
 }
 
 private struct PixelStats: Codable {
@@ -385,6 +405,21 @@ private final class LayerHostRunner {
             html: Fixtures.modifierFixture,
             directory: fixtureDirectory
         )
+        let resizeFixture = try writeFixture(
+            name: "resize-fixture",
+            html: Fixtures.resizeFixture,
+            directory: fixtureDirectory
+        )
+        let scrollFixture = try writeFixture(
+            name: "scroll-fixture",
+            html: Fixtures.scrollFixture,
+            directory: fixtureDirectory
+        )
+        let textEditingFixture = try writeFixture(
+            name: "text-edit-fixture",
+            html: Fixtures.textEditingFixture,
+            directory: fixtureDirectory
+        )
         var targets: [RenderTarget] = []
         if options.includeCanvas {
             targets.append(RenderTarget(
@@ -497,6 +532,108 @@ private final class LayerHostRunner {
                         JavaScriptExpectation(key: "shiftSeen", value: .bool(true)),
                         JavaScriptExpectation(key: "status", value: .string("OWL_MODIFIERS_OK")),
                         JavaScriptExpectation(key: "typed", value: .string("plainS")),
+                    ]
+                )
+            )
+            targets.append(
+                RenderTarget(
+                    name: "resize-small-fixture",
+                    url: resizeFixture.absoluteString,
+                    screenshotName: "resize-small-after.png",
+                    expected: [.green, .yellow, .dark],
+                    preInputScreenshotName: "resize-small-before.png",
+                    preInputExpected: [.blue, .dark, .light],
+                    inputActions: [
+                        .resize(ResizeAction(width: 720, height: 480)),
+                    ],
+                    postInputDiagnosticScript: """
+                    ({
+                      mode: window.owlResizeState?.mode || "",
+                      status: document.getElementById("status")?.textContent || ""
+                    })
+                    """,
+                    postInputExpectations: [
+                        JavaScriptExpectation(key: "mode", value: .string("small")),
+                        JavaScriptExpectation(key: "status", value: .string("OWL_RESIZE_SMALL_OK")),
+                    ]
+                )
+            )
+            targets.append(
+                RenderTarget(
+                    name: "resize-roundtrip-fixture",
+                    url: resizeFixture.absoluteString,
+                    screenshotName: "resize-roundtrip-after.png",
+                    expected: [.green, .yellow, .dark],
+                    preInputScreenshotName: "resize-roundtrip-before.png",
+                    preInputExpected: [.blue, .dark, .light],
+                    inputActions: [
+                        .resize(ResizeAction(width: 720, height: 480)),
+                        .resize(ResizeAction(width: 960, height: 640)),
+                    ],
+                    postInputDiagnosticScript: """
+                    ({
+                      mode: window.owlResizeState?.mode || "",
+                      status: document.getElementById("status")?.textContent || ""
+                    })
+                    """,
+                    postInputExpectations: [
+                        JavaScriptExpectation(key: "mode", value: .string("restored")),
+                        JavaScriptExpectation(key: "status", value: .string("OWL_RESIZE_ROUNDTRIP_OK")),
+                    ]
+                )
+            )
+            targets.append(
+                RenderTarget(
+                    name: "scroll-fixture",
+                    url: scrollFixture.absoluteString,
+                    screenshotName: "scroll-fixture-after.png",
+                    expected: [.green, .yellow, .dark],
+                    preInputScreenshotName: "scroll-fixture-before.png",
+                    preInputExpected: [.blue, .dark, .light],
+                    inputActions: [
+                        .mouseWheel(MouseWheel(x: 520, y: 520, deltaX: 0, deltaY: -900)),
+                    ],
+                    postInputDiagnosticScript: """
+                    ({
+                      ok: window.owlScrollState?.ok === true,
+                      status: document.getElementById("status")?.textContent || ""
+                    })
+                    """,
+                    postInputExpectations: [
+                        JavaScriptExpectation(key: "ok", value: .bool(true)),
+                        JavaScriptExpectation(key: "status", value: .string("OWL_SCROLL_OK")),
+                    ]
+                )
+            )
+            targets.append(
+                RenderTarget(
+                    name: "text-edit-fixture",
+                    url: textEditingFixture.absoluteString,
+                    screenshotName: "text-edit-fixture-after.png",
+                    expected: [.green, .yellow, .dark],
+                    preInputScreenshotName: "text-edit-fixture-before.png",
+                    preInputExpected: [.blue, .dark, .light],
+                    inputActions: [
+                        .mouseClick(MouseClick(x: 170, y: 152)),
+                        .text("abcdef"),
+                        .key(KeyStroke(keyCode: KeyCodes.leftArrow, text: "", modifiers: 0)),
+                        .key(KeyStroke(keyCode: KeyCodes.leftArrow, text: "", modifiers: 0)),
+                        .key(KeyStroke(keyCode: KeyCodes.backspace, text: "", modifiers: 0)),
+                        .key(KeyStroke(keyCode: KeyCodes.delete, text: "", modifiers: 0)),
+                        .text("Z"),
+                        .text("final"),
+                    ],
+                    postInputDiagnosticScript: """
+                    ({
+                      sawIntermediate: window.owlTextEditState?.sawIntermediate === true,
+                      status: document.getElementById("status")?.textContent || "",
+                      typed: document.getElementById("editInput")?.value || ""
+                    })
+                    """,
+                    postInputExpectations: [
+                        JavaScriptExpectation(key: "sawIntermediate", value: .bool(true)),
+                        JavaScriptExpectation(key: "status", value: .string("OWL_TEXT_EDIT_OK")),
+                        JavaScriptExpectation(key: "typed", value: .string("abcZfinalf")),
                     ]
                 )
             )
@@ -628,6 +765,7 @@ private final class LayerHostRunner {
         var lastStats: PixelStats?
         var inputSent = target.inputActions.isEmpty
         var currentExpected = target.preInputExpected ?? target.expected
+        var currentSize = contentSize
         var capturedPreInputPath: String?
         var postInputStateVerified = false
         var postInputDiagnosticsWritten = false
@@ -665,7 +803,7 @@ private final class LayerHostRunner {
                 pumpApp(app, for: 0.02)
             }
 
-            guard let windowID = swiftHostWindowID(title: window.title, minimumSize: contentSize) else {
+            guard let windowID = swiftHostWindowID(title: window.title, minimumSize: currentSize) else {
                 lastError = "Swift LayerHost window was not visible in CGWindowList"
                 continue
             }
@@ -680,7 +818,14 @@ private final class LayerHostRunner {
                     if !inputSent {
                         capturedPreInputPath = captureURL.path
                         bridge.setFocus(session, focused: true)
-                        try performInputActions(target.inputActions, bridge: bridge, session: session)
+                        try performInputActions(
+                            target.inputActions,
+                            bridge: bridge,
+                            session: session,
+                            window: window,
+                            app: app,
+                            currentSize: &currentSize
+                        )
                         pumpApp(app, for: 0.05)
                         if options.inputDiagnosticCapture {
                             writePostInputDOMState(target: target, bridge: bridge, session: session)
@@ -802,7 +947,10 @@ private final class LayerHostRunner {
     private func performInputActions(
         _ actions: [InputAction],
         bridge: OwlFreshBridge,
-        session: OpaquePointer
+        session: OpaquePointer,
+        window: LayerHostWindow,
+        app: NSApplication,
+        currentSize: inout CGSize
     ) throws {
         for action in actions {
             switch action {
@@ -816,8 +964,27 @@ private final class LayerHostRunner {
                 bridge.pollEvents(milliseconds: 10)
                 bridge.sendMouse(session, kind: 1, x: click.x, y: click.y, button: 0, clickCount: 1)
                 bridge.pollEvents(milliseconds: 10)
+            case .mouseWheel(let wheel):
+                bridge.sendMouse(
+                    session,
+                    kind: 3,
+                    x: wheel.x,
+                    y: wheel.y,
+                    button: 0,
+                    clickCount: 0,
+                    deltaX: wheel.deltaX,
+                    deltaY: wheel.deltaY
+                )
+                bridge.pollEvents(milliseconds: 20)
             case .key(let stroke):
                 sendKeyStroke(stroke, bridge: bridge, session: session)
+            case .resize(let resize):
+                currentSize = CGSize(width: CGFloat(resize.width), height: CGFloat(resize.height))
+                bridge.resize(session, width: resize.width, height: resize.height, scale: 1.0)
+                window.resize(to: currentSize)
+                pumpApp(app, for: 0.2)
+                bridge.pollEvents(milliseconds: 50)
+                window.flushHostedLayer()
             case .text(let text):
                 for character in text {
                     guard let stroke = KeyStroke.typing(character) else {
@@ -981,6 +1148,8 @@ private func verifyJavaScriptExpectations(
 private final class LayerHostWindow {
     let title: String
     private let window: NSWindow
+    private let contentView: NSView
+    private let rootLayer: CALayer
     private let hostLayer: CALayer
 
     init(title: String, contextID: UInt32, size: CGSize) throws {
@@ -994,6 +1163,8 @@ private final class LayerHostWindow {
         rootLayer.backgroundColor = NSColor.white.cgColor
         rootLayer.frame = CGRect(origin: .zero, size: size)
         contentView.layer = rootLayer
+        self.contentView = contentView
+        self.rootLayer = rootLayer
 
         let hostLayer = try makeCALayerHost(contextID: contextID)
         hostLayer.anchorPoint = CGPoint.zero
@@ -1029,6 +1200,19 @@ private final class LayerHostWindow {
 
     func close() {
         window.close()
+    }
+
+    func resize(to size: CGSize) {
+        window.setContentSize(size)
+        contentView.setFrameSize(size)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        rootLayer.frame = CGRect(origin: .zero, size: size)
+        rootLayer.bounds = CGRect(origin: .zero, size: size)
+        hostLayer.bounds = rootLayer.bounds
+        hostLayer.position = CGPoint.zero
+        CATransaction.commit()
+        flushHostedLayer()
     }
 
     func update(contextID: UInt32) {
@@ -1213,9 +1397,12 @@ private final class OwlFreshBridge {
         x: Float,
         y: Float,
         button: UInt32,
-        clickCount: UInt32
+        clickCount: UInt32,
+        deltaX: Float = 0,
+        deltaY: Float = 0,
+        modifiers: UInt32 = 0
     ) {
-        sessionSendMouse(session, kind, x, y, button, clickCount, 0, 0, 0)
+        sessionSendMouse(session, kind, x, y, button, clickCount, deltaX, deltaY, modifiers)
     }
 
     func sendKey(
@@ -1996,6 +2183,413 @@ private enum Fixtures {
           }
           render();
         });
+        input.focus();
+        render();
+      </script>
+    </body>
+    </html>
+    """
+
+    static let resizeFixture = """
+    <!doctype html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>OWL LayerHost resize fixture</title>
+      <style>
+        html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: rgb(248,248,248); }
+        body { font: 30px -apple-system, BlinkMacSystemFont, sans-serif; color: rgb(20,20,20); }
+        #frame {
+          position: absolute;
+          left: 32px;
+          top: 32px;
+          right: 32px;
+          bottom: 32px;
+          border: 6px solid rgb(20,20,20);
+          background: rgb(248,248,248);
+          box-sizing: border-box;
+        }
+        #banner {
+          position: absolute;
+          left: 64px;
+          top: 56px;
+          right: 64px;
+          height: 64px;
+          background: rgb(0, 89, 255);
+          color: white;
+          display: flex;
+          align-items: center;
+          padding-left: 22px;
+          box-sizing: border-box;
+          font-weight: 900;
+        }
+        #size {
+          position: absolute;
+          left: 64px;
+          top: 150px;
+          width: 390px;
+          height: 82px;
+          border: 4px solid rgb(20,20,20);
+          background: white;
+          display: flex;
+          align-items: center;
+          padding-left: 22px;
+          box-sizing: border-box;
+          font-size: 40px;
+          font-weight: 900;
+        }
+        #status {
+          position: absolute;
+          left: 64px;
+          top: 260px;
+          right: 64px;
+          height: 94px;
+          border: 4px solid rgb(20,20,20);
+          background: rgb(238,238,238);
+          display: flex;
+          align-items: center;
+          padding-left: 22px;
+          box-sizing: border-box;
+          font-size: 44px;
+          font-weight: 900;
+        }
+        #marker {
+          position: absolute;
+          left: 64px;
+          right: 64px;
+          bottom: 58px;
+          height: 92px;
+          border: 4px solid rgb(20,20,20);
+          background: white;
+          display: flex;
+          align-items: center;
+          padding-left: 22px;
+          box-sizing: border-box;
+          font-weight: 900;
+        }
+        body.small #banner,
+        body.restored #banner,
+        body.small #status,
+        body.restored #status {
+          background: rgb(0, 204, 82);
+        }
+        body.small #size,
+        body.restored #marker {
+          background: rgb(255, 210, 0);
+        }
+        body.restored #size,
+        body.small #marker {
+          background: rgb(255, 210, 0);
+        }
+      </style>
+    </head>
+    <body>
+      <div id="frame"></div>
+      <div id="banner">OWL_RESIZE_READY</div>
+      <div id="size">0 x 0</div>
+      <div id="status">OWL_RESIZE_WAITING</div>
+      <div id="marker">edge marker tracks viewport</div>
+      <script>
+        const size = document.getElementById("size");
+        const status = document.getElementById("status");
+        const banner = document.getElementById("banner");
+        const marker = document.getElementById("marker");
+        const state = {
+          sawSmall: false
+        };
+
+        const update = () => {
+          const width = window.innerWidth;
+          const height = window.innerHeight;
+          let mode = "initial";
+          let label = "OWL_RESIZE_READY";
+          if (width <= 760 && height <= 540) {
+            mode = "small";
+            label = "OWL_RESIZE_SMALL_OK";
+            state.sawSmall = true;
+          } else if (state.sawSmall && width >= 900 && height >= 600) {
+            mode = "restored";
+            label = "OWL_RESIZE_ROUNDTRIP_OK";
+          }
+          document.body.className = mode;
+          size.textContent = `${width} x ${height}`;
+          status.textContent = label;
+          banner.textContent = label;
+          marker.textContent = `mode: ${mode}`;
+          window.owlResizeState = { width, height, mode, status: label, sawSmall: state.sawSmall };
+        };
+
+        window.addEventListener("resize", update);
+        update();
+      </script>
+    </body>
+    </html>
+    """
+
+    static let scrollFixture = """
+    <!doctype html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>OWL LayerHost scroll fixture</title>
+      <style>
+        html, body { margin: 0; width: 100%; min-height: 1700px; background: rgb(248,248,248); }
+        body { font: 30px -apple-system, BlinkMacSystemFont, sans-serif; color: rgb(20,20,20); }
+        #header {
+          position: fixed;
+          left: 48px;
+          top: 40px;
+          width: 864px;
+          height: 82px;
+          border: 4px solid rgb(20,20,20);
+          background: rgb(0, 89, 255);
+          color: white;
+          display: flex;
+          align-items: center;
+          padding-left: 24px;
+          box-sizing: border-box;
+          font-size: 42px;
+          font-weight: 900;
+          z-index: 3;
+        }
+        #status {
+          position: fixed;
+          left: 48px;
+          top: 146px;
+          width: 864px;
+          height: 84px;
+          border: 4px solid rgb(20,20,20);
+          background: rgb(238,238,238);
+          display: flex;
+          align-items: center;
+          padding-left: 24px;
+          box-sizing: border-box;
+          font-size: 42px;
+          font-weight: 900;
+          z-index: 3;
+        }
+        #after {
+          position: fixed;
+          left: 48px;
+          top: 256px;
+          width: 864px;
+          height: 94px;
+          border: 4px solid rgb(20,20,20);
+          background: white;
+          display: flex;
+          align-items: center;
+          padding-left: 24px;
+          box-sizing: border-box;
+          font-weight: 900;
+          z-index: 3;
+        }
+        .stripe {
+          position: absolute;
+          left: 48px;
+          width: 864px;
+          height: 180px;
+          border: 4px solid rgb(20,20,20);
+          background: white;
+          box-sizing: border-box;
+          display: flex;
+          align-items: center;
+          padding-left: 24px;
+          font-weight: 900;
+        }
+        #stripe1 { top: 420px; background: white; }
+        #stripe2 { top: 680px; background: rgb(238,238,238); }
+        #stripe3 { top: 940px; background: white; }
+        #stripe4 { top: 1200px; background: rgb(238,238,238); }
+        body.scrolled #header,
+        body.scrolled #status {
+          background: rgb(0, 204, 82);
+          color: rgb(20,20,20);
+        }
+        body.scrolled #after {
+          background: rgb(255, 210, 0);
+        }
+      </style>
+    </head>
+    <body>
+      <div id="header">OWL_SCROLL_READY</div>
+      <div id="status">OWL_SCROLL_TOP</div>
+      <div id="after">scroll delta not seen</div>
+      <div id="stripe1" class="stripe">scroll lane 1</div>
+      <div id="stripe2" class="stripe">scroll lane 2</div>
+      <div id="stripe3" class="stripe">scroll lane 3</div>
+      <div id="stripe4" class="stripe">scroll lane 4</div>
+      <script>
+        const header = document.getElementById("header");
+        const status = document.getElementById("status");
+        const after = document.getElementById("after");
+        const update = () => {
+          const y = Math.round(window.scrollY);
+          const ok = y > 300;
+          document.body.classList.toggle("scrolled", ok);
+          header.textContent = ok ? "OWL_SCROLL_OK" : "OWL_SCROLL_READY";
+          status.textContent = ok ? "OWL_SCROLL_OK" : "OWL_SCROLL_TOP";
+          after.textContent = `scrollY: ${y}`;
+          window.owlScrollState = { y, ok };
+        };
+
+        window.addEventListener("scroll", update);
+        update();
+      </script>
+    </body>
+    </html>
+    """
+
+    static let textEditingFixture = """
+    <!doctype html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>OWL LayerHost text editing fixture</title>
+      <style>
+        html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: rgb(248,248,248); }
+        body { font: 30px -apple-system, BlinkMacSystemFont, sans-serif; color: rgb(20,20,20); }
+        #banner {
+          position: absolute;
+          left: 48px;
+          top: 40px;
+          width: 864px;
+          height: 58px;
+          background: rgb(0, 89, 255);
+          color: white;
+          display: flex;
+          align-items: center;
+          padding-left: 22px;
+          box-sizing: border-box;
+          font-weight: 700;
+        }
+        #editInput {
+          position: absolute;
+          left: 48px;
+          top: 116px;
+          width: 500px;
+          height: 68px;
+          box-sizing: border-box;
+          border: 4px solid rgb(20,20,20);
+          border-radius: 0;
+          font: 34px -apple-system, BlinkMacSystemFont, sans-serif;
+          padding: 0 16px;
+          color: rgb(20,20,20);
+          background: white;
+        }
+        #value {
+          position: absolute;
+          left: 576px;
+          top: 127px;
+          width: 336px;
+          height: 48px;
+          font-weight: 900;
+        }
+        #steps {
+          position: absolute;
+          left: 48px;
+          top: 224px;
+          width: 864px;
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
+        }
+        .step {
+          height: 78px;
+          box-sizing: border-box;
+          border: 4px solid rgb(20,20,20);
+          background: rgb(238,238,238);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 900;
+        }
+        .step.ok {
+          background: rgb(255, 210, 0);
+        }
+        #status {
+          position: absolute;
+          left: 48px;
+          top: 342px;
+          width: 864px;
+          height: 86px;
+          border: 4px solid rgb(20,20,20);
+          background: rgb(238,238,238);
+          display: flex;
+          align-items: center;
+          padding-left: 24px;
+          box-sizing: border-box;
+          font-size: 42px;
+          font-weight: 900;
+        }
+        #result {
+          position: absolute;
+          left: 48px;
+          top: 464px;
+          width: 864px;
+          height: 86px;
+          border: 4px solid rgb(20,20,20);
+          background: white;
+          display: flex;
+          align-items: center;
+          padding-left: 24px;
+          box-sizing: border-box;
+          font-size: 42px;
+          font-weight: 900;
+        }
+        body.done #status,
+        body.done #result {
+          background: rgb(0, 204, 82);
+        }
+      </style>
+    </head>
+    <body class="ready">
+      <div id="banner">OWL_TEXT_EDIT_READY</div>
+      <input id="editInput" aria-label="OWL text editing input" autocomplete="off" spellcheck="false" autofocus>
+      <div id="value">value: EMPTY</div>
+        <div id="steps">
+        <div id="step-type" class="step">TYPE</div>
+        <div id="step-edit" class="step">EDIT</div>
+        <div id="step-select" class="step">INSERT</div>
+      </div>
+      <div id="status">OWL_TEXT_EDIT_WAITING</div>
+      <div id="result">final value pending</div>
+      <script>
+        const input = document.getElementById("editInput");
+        const value = document.getElementById("value");
+        const status = document.getElementById("status");
+        const result = document.getElementById("result");
+        const state = {
+          sawTyped: false,
+          sawIntermediate: false,
+          sawFinal: false
+        };
+        window.owlTextEditState = state;
+
+        const mark = (id, ok) => {
+          document.getElementById(id).classList.toggle("ok", ok);
+        };
+        const render = () => {
+          if (input.value === "abcdef") {
+            state.sawTyped = true;
+          }
+          if (input.value === "abcZf") {
+            state.sawIntermediate = true;
+          }
+          if (state.sawIntermediate && input.value === "abcZfinalf") {
+            state.sawFinal = true;
+          }
+          value.textContent = "value: " + (input.value || "EMPTY");
+          result.textContent = "final value: " + (input.value || "EMPTY");
+          mark("step-type", state.sawTyped);
+          mark("step-edit", state.sawIntermediate);
+          mark("step-select", state.sawFinal);
+          if (state.sawFinal) {
+            document.body.classList.add("done");
+            status.textContent = "OWL_TEXT_EDIT_OK";
+          }
+        };
+
+        input.addEventListener("input", render);
         input.focus();
         render();
       </script>

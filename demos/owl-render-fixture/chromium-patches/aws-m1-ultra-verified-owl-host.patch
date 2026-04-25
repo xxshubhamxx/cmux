@@ -100,397 +100,6 @@ index 462cfd3ef3..75ea06788a 100644
 +  ]
 +  ldflags = [ "-Wl,-install_name,@rpath/libowl_fresh_bridge.dylib" ]
 +}
-diff --git a/content/shell/browser/shell_browser_main_parts.cc b/content/shell/browser/shell_browser_main_parts.cc
-index 76ba15e7f8..f4c221edad 100644
---- a/content/shell/browser/shell_browser_main_parts.cc
-+++ b/content/shell/browser/shell_browser_main_parts.cc
-@@ -188,7 +188,12 @@ int ShellBrowserMainParts::PreMainMessageLoopRun() {
-   InitializeBrowserContexts();
-   Shell::Initialize(CreateShellPlatformDelegate());
-   net::NetModule::SetResourceProvider(PlatformResourceProvider);
--  ShellDevToolsManagerDelegate::StartHttpHandler(browser_context_.get());
-+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-+          switches::kFreshOwlEmbed) &&
-+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
-+          "owl-fresh-disable-devtools")) {
-+    ShellDevToolsManagerDelegate::StartHttpHandler(browser_context_.get());
-+  }
-   InitializeMessageLoopContext();
-   return 0;
- }
-diff --git a/content/shell/browser/shell_content_browser_client.cc b/content/shell/browser/shell_content_browser_client.cc
-index a926ca5c57..b89573bbab 100644
---- a/content/shell/browser/shell_content_browser_client.cc
-+++ b/content/shell/browser/shell_content_browser_client.cc
-@@ -3,6 +3,9 @@
- // found in the LICENSE file.
- 
- #include "content/shell/browser/shell_content_browser_client.h"
-+#if BUILDFLAG(IS_MAC)
-+#include "content/shell/browser/owl_fresh_host_mac.h"
-+#endif
- 
- #include <stddef.h>
- 
-@@ -189,6 +192,15 @@ class ShellControllerImpl : public mojom::ShellController {
-   }
- 
-   void ShutDown() override { Shell::Shutdown(); }
-+
-+  void BindOwlFreshHost(
-+      mojo::PendingReceiver<mojom::OwlFreshHost> receiver) override {
-+#if BUILDFLAG(IS_MAC)
-+    BindOwlFreshHostForCurrentShell(std::move(receiver));
-+#else
-+    receiver.reset();
-+#endif
-+  }
- };
- 
- void BindNetworkHintsHandler(
-diff --git a/content/shell/browser/shell_platform_delegate_mac.mm b/content/shell/browser/shell_platform_delegate_mac.mm
-index 274dffa179..1cc5a230f0 100644
---- a/content/shell/browser/shell_platform_delegate_mac.mm
-+++ b/content/shell/browser/shell_platform_delegate_mac.mm
-@@ -11,8 +11,10 @@
- #import "base/apple/foundation_util.h"
- #include "base/check_op.h"
- #include "base/memory/raw_ptr.h"
-+#include "base/command_line.h"
- #include "base/notreached.h"
- #include "base/strings/sys_string_conversions.h"
-+#include "content/shell/common/shell_switches.h"
- #include "components/input/native_web_keyboard_event.h"
- #include "content/public/browser/render_frame_host.h"
- #include "content/public/browser/render_widget_host.h"
-@@ -201,8 +203,30 @@ void MakeShellButton(NSRect* rect,
-     shell_data.url_edit_view = url_edit_view;
-   }
- 
--  // Show the new window.
--  [window makeKeyAndOrderFront:nil];
-+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-+          switches::kFreshOwlEmbed)) {
-+    [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
-+    window.alphaValue = 0.01;
-+    window.level = NSWindowLevel(NSNormalWindowLevel - 1000);
-+    window.collectionBehavior =
-+        NSWindowCollectionBehaviorStationary |
-+        NSWindowCollectionBehaviorCanJoinAllSpaces |
-+        NSWindowCollectionBehaviorIgnoresCycle;
-+    window.ignoresMouseEvents = YES;
-+    [window orderFront:nil];
-+  } else {
-+    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-+            "owl-fresh-visible-control")) {
-+      [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-+      window.level = NSFloatingWindowLevel;
-+      window.collectionBehavior |=
-+          NSWindowCollectionBehaviorStationary |
-+          NSWindowCollectionBehaviorCanJoinAllSpaces;
-+      [NSApp activateIgnoringOtherApps:YES];
-+      [window orderFrontRegardless];
-+    }
-+    [window makeKeyAndOrderFront:nil];
-+  }
- 
-   shell_data.delegate = delegate;
- }
-diff --git a/content/shell/common/shell_controller.test-mojom b/content/shell/common/shell_controller.test-mojom
-index 53b2a8b770..b9fa891fd3 100644
---- a/content/shell/common/shell_controller.test-mojom
-+++ b/content/shell/common/shell_controller.test-mojom
-@@ -7,6 +7,60 @@ module content.mojom;
- import "mojo/public/mojom/base/string16.mojom";
- import "mojo/public/mojom/base/values.mojom";
- 
-+enum OwlFreshMouseKind {
-+  kDown = 0,
-+  kUp = 1,
-+  kMove = 2,
-+  kWheel = 3,
-+};
-+
-+struct OwlFreshMouseEvent {
-+  OwlFreshMouseKind kind;
-+  float x;
-+  float y;
-+  uint32 button;
-+  uint32 click_count;
-+  float delta_x;
-+  float delta_y;
-+  uint32 modifiers;
-+};
-+
-+struct OwlFreshKeyEvent {
-+  bool key_down;
-+  uint32 key_code;
-+  string text;
-+  uint32 modifiers;
-+};
-+
-+struct OwlFreshCompositorInfo {
-+  uint32 context_id;
-+};
-+
-+struct OwlFreshCaptureResult {
-+  array<uint8> png;
-+  uint32 width;
-+  uint32 height;
-+  string capture_mode;
-+  string error;
-+};
-+
-+interface OwlFreshClient {
-+  OnReady(int32 host_pid, OwlFreshCompositorInfo compositor);
-+  OnCompositorChanged(OwlFreshCompositorInfo compositor);
-+  OnNavigationChanged(string url, string title, bool loading);
-+  OnHostLog(string message);
-+};
-+
-+interface OwlFreshHost {
-+  SetClient(pending_remote<OwlFreshClient> client);
-+  Navigate(string url);
-+  Resize(uint32 width, uint32 height, float scale);
-+  SetFocus(bool focused);
-+  SendMouse(OwlFreshMouseEvent event);
-+  SendKey(OwlFreshKeyEvent event);
-+  CaptureSurface() => (OwlFreshCaptureResult result);
-+};
-+
- // A control interface which can be accessed by clients launching Content Shell
- // with a Mojo invitation on the command line. This is used by
- // LaunchAsMojoClientBrowserTest to exercise that mode of execution.
-@@ -21,7 +75,10 @@ interface ShellController {
-       => (mojo_base.mojom.Value value);
- 
-   // Tells Content Shell to close all windows and shut down. After sending this
--  // message, the Content Shell browser process should be expected to terminate
--  // soon.
-+  // message, Content Shell should be expected to terminate soon.
-   ShutDown();
-+
-+  // Binds the fresh OWL browser host. Every browser command after this point
-+  // uses typed Mojo messages, never sockets or DevTools.
-+  BindOwlFreshHost(pending_receiver<OwlFreshHost> receiver);
- };
-diff --git a/content/shell/common/shell_switches.h b/content/shell/common/shell_switches.h
-index 8757fa418d..b9d7d028b7 100644
---- a/content/shell/common/shell_switches.h
-+++ b/content/shell/common/shell_switches.h
-@@ -40,6 +40,8 @@ inline constexpr char kContentShellHostWindowSize[] =
- // Hides toolbar from content_shell's host window.
- inline constexpr char kContentShellHideToolbar[] = "content-shell-hide-toolbar";
- 
-+inline constexpr char kFreshOwlEmbed[] = "fresh-owl-embed";
-+
- // Enables APIs guarded with the [IsolatedContext] IDL attribute for the given
- // comma-separated list of origins.
- inline constexpr char kIsolatedContextOrigins[] = "isolated-context-origins";
-diff --git a/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm b/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm
-index 65f6c9b457..3bda6ceb05 100644
---- a/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm
-+++ b/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm
-@@ -53,7 +53,7 @@ void ComputeColorComponents(CGImageRef cgImage,
-     *blue = 3;
-   }
- 
--  if (byteOrder != kCGImageByteOrder32Host) {
-+  if (byteOrder != kCGBitmapByteOrder32Host) {
-     int lastChannel = (CGImageGetBitsPerPixel(cgImage) == 24) ? 2 : 3;
-     *red = lastChannel - *red;
-     *green = lastChannel - *green;
-diff --git a/services/shape_detection/text_detection_impl_mac_unittest.mm b/services/shape_detection/text_detection_impl_mac_unittest.mm
-index f5797e9d31..8c9028c8b2 100644
---- a/services/shape_detection/text_detection_impl_mac_unittest.mm
-+++ b/services/shape_detection/text_detection_impl_mac_unittest.mm
-@@ -59,7 +59,7 @@ void DetectCallback(std::vector<mojom::TextDetectionResultPtr> results) {
-       nullptr, width, height, /*bitsPerComponent=*/8,
-       /*bytesPerRow=*/width * 4, rgb_colorspace.get(),
-       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
--          kCGImageByteOrder32Host));
-+          kCGBitmapByteOrder32Host));
- 
-   // Draw a white background.
-   CGContextSetRGBFillColor(context.get(), 1.0, 1.0, 1.0, 1.0);
-diff --git a/skia/ext/skia_utils_ios.mm b/skia/ext/skia_utils_ios.mm
-index 1b202bf6f3..6b11ce44b0 100644
---- a/skia/ext/skia_utils_ios.mm
-+++ b/skia/ext/skia_utils_ios.mm
-@@ -52,7 +52,7 @@ SkBitmap CGImageToSkBitmap(CGImageRef image, CGSize size, bool is_opaque) {
-   base::apple::ScopedCFTypeRef<CGContextRef> context(CGBitmapContextCreate(
-       data, size.width, size.height, 8, size.width * 4, color_space.get(),
-       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
--          kCGImageByteOrder32Host));
-+          kCGBitmapByteOrder32Host));
- #else
- #error We require that Skia's and CoreGraphics's recommended \
-        image memory layout match.
-diff --git a/skia/ext/skia_utils_mac.mm b/skia/ext/skia_utils_mac.mm
-index 07e7f51fc7..e621aa1000 100644
---- a/skia/ext/skia_utils_mac.mm
-+++ b/skia/ext/skia_utils_mac.mm
-@@ -81,7 +81,7 @@ SkBitmap NSImageOrNSImageRepToSkBitmap(NSImage* image,
-   base::apple::ScopedCFTypeRef<CGContextRef> context(CGBitmapContextCreate(
-       data, size.width, size.height, 8, size.width * 4, cg_color_space.get(),
-       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
--          kCGImageByteOrder32Host));
-+          kCGBitmapByteOrder32Host));
- #else
- #error We require that Skia's and CoreGraphics's recommended \
-        image memory layout match.
-diff --git a/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm b/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
-index 9234de2adf..46e143f458 100644
---- a/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
-+++ b/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
-@@ -64,7 +64,7 @@
-   cg_context_.reset(CGBitmapContextCreate(
-       offscreen_.getPixels(), offscreen_.width(), offscreen_.height(), 8,
-       offscreen_.rowBytes(), color_space.get(),
--      kCGImageByteOrder32Host |
-+      kCGBitmapByteOrder32Host |
-           static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst)));
-   DCHECK(cg_context_);
- 
-diff --git a/ui/accelerated_widget_mac/BUILD.gn b/ui/accelerated_widget_mac/BUILD.gn
-index 0f8a6f75b7..c5e8a19224 100644
---- a/ui/accelerated_widget_mac/BUILD.gn
-+++ b/ui/accelerated_widget_mac/BUILD.gn
-@@ -59,6 +59,7 @@ component("accelerated_widget_mac") {
-     ]
- 
-     frameworks += [ "OpenGL.framework" ]
-+    frameworks += [ "CoreImage.framework" ]
- 
-     # TODO(crbug.com/40031409): Fix code that adds exit-time destructors and
-     # enable the diagnostic by removing this line.
-@@ -69,6 +70,8 @@ component("accelerated_widget_mac") {
-     sources += [
-       "display_ca_layer_tree.h",
-       "display_ca_layer_tree.mm",
-+      "owl_fresh_context.h",
-+      "owl_fresh_context.mm",
-     ]
-   }
- 
-diff --git a/ui/accelerated_widget_mac/display_ca_layer_tree.mm b/ui/accelerated_widget_mac/display_ca_layer_tree.mm
-index dcf493d629..8648983f2b 100644
---- a/ui/accelerated_widget_mac/display_ca_layer_tree.mm
-+++ b/ui/accelerated_widget_mac/display_ca_layer_tree.mm
-@@ -3,6 +3,7 @@
- // found in the LICENSE file.
- 
- #include "ui/accelerated_widget_mac/display_ca_layer_tree.h"
-+#include "ui/accelerated_widget_mac/owl_fresh_context.h"
- 
- #import <QuartzCore/QuartzCore.h>
- 
-@@ -123,6 +124,10 @@ - (void)setContentsChanged;
- void DisplayCALayerTree::GotCALayerFrame(uint32_t ca_context_id) {
-   // Early-out if the remote layer has not changed.
-   if (remote_layer_.contextId == ca_context_id) {
-+#if BUILDFLAG(IS_MAC)
-+    ui::OwlFreshDisplayPortalPresentCAContext(ca_context_id,
-+                                              root_layer_.bounds);
-+#endif
-     return;
-   }
- 
-@@ -150,6 +155,11 @@ - (void)setContentsChanged;
-     [io_surface_layer_ removeFromSuperlayer];
-     io_surface_layer_ = nil;
-   }
-+
-+#if BUILDFLAG(IS_MAC)
-+  ui::OwlFreshDisplayPortalPresentCAContext(ca_context_id,
-+                                            root_layer_.bounds);
-+#endif
- }
- 
- void DisplayCALayerTree::GotIOSurfaceFrame(
-@@ -185,6 +195,11 @@ - (void)setContentsChanged;
-     [remote_layer_ removeFromSuperlayer];
-     remote_layer_ = nil;
-   }
-+
-+#if BUILDFLAG(IS_MAC)
-+  ui::OwlFreshDisplayPortalPresentLayer(maybe_flipped_layer_,
-+                                        root_layer_.bounds);
-+#endif
- }
- 
- }  // namespace ui
-diff --git a/ui/base/resource/resource_bundle_ios.mm b/ui/base/resource/resource_bundle_ios.mm
-index bd4b5cc84e..5322109a15 100644
---- a/ui/base/resource/resource_bundle_ios.mm
-+++ b/ui/base/resource/resource_bundle_ios.mm
-@@ -127,7 +127,7 @@
-           /*data=*/nullptr, target_size.width, target_size.height, 8,
-           target_size.width * 4, color_space.get(),
-           static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
--              kCGImageByteOrder32Host));
-+              kCGBitmapByteOrder32Host));
- 
-       CGRect target_rect = CGRectMake(0, 0,
-                                       target_size.width, target_size.height);
-diff --git a/ui/display/mac/screen_utils_mac.mm b/ui/display/mac/screen_utils_mac.mm
-index eace771c4b..b2f5debb14 100644
---- a/ui/display/mac/screen_utils_mac.mm
-+++ b/ui/display/mac/screen_utils_mac.mm
-@@ -9,12 +9,8 @@
- NSScreen* GetNSScreenFromDisplayID(CGDirectDisplayID display_id) {
-   for (NSScreen* screen in NSScreen.screens) {
-     CGDirectDisplayID screen_display_id = kCGNullDirectDisplay;
--    if (@available(macOS 26, *)) {
--      screen_display_id = screen.CGDirectDisplayID;
--    } else {
--      screen_display_id =
--          [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
--    }
-+    screen_display_id =
-+        [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
-     if (screen_display_id == display_id) {
-       return screen;
-     }
-diff --git a/ui/gfx/image/image_ios.mm b/ui/gfx/image/image_ios.mm
-index 676998a61f..cc7ec3d592 100644
---- a/ui/gfx/image/image_ios.mm
-+++ b/ui/gfx/image/image_ios.mm
-@@ -34,7 +34,7 @@
-       /*bitsPerComponent=*/8,
-       /*bytesPerRow=*/0, color_space.get(),
-       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
--          kCGImageByteOrder32Host));
-+          kCGBitmapByteOrder32Host));
-   CGContextSetRGBFillColor(context.get(), 1.0, 0.0, 0.0, 1.0);
-   CGContextFillRect(context.get(), CGRectMake(0.0, 0.0, 16, 16));
-   base::apple::ScopedCFTypeRef<CGImageRef> cg_image(
-diff --git a/ui/gfx/image/image_ios_unittest.mm b/ui/gfx/image/image_ios_unittest.mm
-index fe3ea09bf4..2756dd475a 100644
---- a/ui/gfx/image/image_ios_unittest.mm
-+++ b/ui/gfx/image/image_ios_unittest.mm
-@@ -33,7 +33,7 @@
-       nullptr, target_size.width, target_size.height, 8, target_size.width * 4,
-       color_space.get(),
-       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
--          kCGImageByteOrder32Host));
-+          kCGBitmapByteOrder32Host));
- 
-   CGRect target_rect = CGRectMake(0, 0,
-                                   target_size.width, target_size.height);
-diff --git a/ui/gfx/image/image_unittest_util_apple.mm b/ui/gfx/image/image_unittest_util_apple.mm
-index 4a6e3016b0..74e4544015 100644
---- a/ui/gfx/image/image_unittest_util_apple.mm
-+++ b/ui/gfx/image/image_unittest_util_apple.mm
-@@ -48,7 +48,7 @@ SkColor GetPlatformImageColor(PlatformImage image, int x, int y) {
-           /*bitsPerComponent=*/8,
-           /*bytesPerRow=*/4, color_space.get(),
-           static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
--              kCGImageByteOrder32Host));
-+              kCGBitmapByteOrder32Host));
-   CGContextDrawImage(bitmap_context.get(), CGRectMake(0, 0, 1, 1),
-                      pixel_image.get());
- 
 diff --git a/content/shell/browser/owl_fresh_host_mac.h b/content/shell/browser/owl_fresh_host_mac.h
 new file mode 100644
 index 0000000000..09928bd888
@@ -514,10 +123,10 @@ index 0000000000..09928bd888
 +
 diff --git a/content/shell/browser/owl_fresh_host_mac.mm b/content/shell/browser/owl_fresh_host_mac.mm
 new file mode 100644
-index 0000000000..246b41c4e3
+index 0000000000..2278b4022a
 --- /dev/null
 +++ b/content/shell/browser/owl_fresh_host_mac.mm
-@@ -0,0 +1,957 @@
+@@ -0,0 +1,959 @@
 +#include "content/shell/browser/owl_fresh_host_mac.h"
 +
 +#import <Cocoa/Cocoa.h>
@@ -986,8 +595,10 @@ index 0000000000..246b41c4e3
 +      wheel.delta_y = event->delta_y;
 +      wheel.wheel_ticks_x = event->delta_x / 100.0f;
 +      wheel.wheel_ticks_y = event->delta_y / 100.0f;
-+      wheel.phase = blink::WebMouseWheelEvent::kPhaseChanged;
-+      wheel.has_synthetic_phase = true;
++      wheel.delta_units = ui::ScrollGranularity::kScrollByPrecisePixel;
++      wheel.dispatch_type = blink::WebInputEvent::DispatchType::kBlocking;
++      wheel.event_action = blink::WebMouseWheelEvent::EventAction::kScrollVertical;
++      wheel.phase = blink::WebMouseWheelEvent::kPhaseBegan;
 +      web_contents_impl->GetInputEventRouter()->RouteMouseWheelEvent(
 +          view_base, &wheel, ui::LatencyInfo());
 +      EnsureRenderWidgetProducingFramesForOwlFresh();
@@ -1475,6 +1086,193 @@ index 0000000000..246b41c4e3
 +}
 +
 +}  // namespace content
+diff --git a/content/shell/browser/shell_browser_main_parts.cc b/content/shell/browser/shell_browser_main_parts.cc
+index 76ba15e7f8..f4c221edad 100644
+--- a/content/shell/browser/shell_browser_main_parts.cc
++++ b/content/shell/browser/shell_browser_main_parts.cc
+@@ -188,7 +188,12 @@ int ShellBrowserMainParts::PreMainMessageLoopRun() {
+   InitializeBrowserContexts();
+   Shell::Initialize(CreateShellPlatformDelegate());
+   net::NetModule::SetResourceProvider(PlatformResourceProvider);
+-  ShellDevToolsManagerDelegate::StartHttpHandler(browser_context_.get());
++  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
++          switches::kFreshOwlEmbed) &&
++      !base::CommandLine::ForCurrentProcess()->HasSwitch(
++          "owl-fresh-disable-devtools")) {
++    ShellDevToolsManagerDelegate::StartHttpHandler(browser_context_.get());
++  }
+   InitializeMessageLoopContext();
+   return 0;
+ }
+diff --git a/content/shell/browser/shell_content_browser_client.cc b/content/shell/browser/shell_content_browser_client.cc
+index a926ca5c57..b89573bbab 100644
+--- a/content/shell/browser/shell_content_browser_client.cc
++++ b/content/shell/browser/shell_content_browser_client.cc
+@@ -3,6 +3,9 @@
+ // found in the LICENSE file.
+ 
+ #include "content/shell/browser/shell_content_browser_client.h"
++#if BUILDFLAG(IS_MAC)
++#include "content/shell/browser/owl_fresh_host_mac.h"
++#endif
+ 
+ #include <stddef.h>
+ 
+@@ -189,6 +192,15 @@ class ShellControllerImpl : public mojom::ShellController {
+   }
+ 
+   void ShutDown() override { Shell::Shutdown(); }
++
++  void BindOwlFreshHost(
++      mojo::PendingReceiver<mojom::OwlFreshHost> receiver) override {
++#if BUILDFLAG(IS_MAC)
++    BindOwlFreshHostForCurrentShell(std::move(receiver));
++#else
++    receiver.reset();
++#endif
++  }
+ };
+ 
+ void BindNetworkHintsHandler(
+diff --git a/content/shell/browser/shell_platform_delegate_mac.mm b/content/shell/browser/shell_platform_delegate_mac.mm
+index 274dffa179..1cc5a230f0 100644
+--- a/content/shell/browser/shell_platform_delegate_mac.mm
++++ b/content/shell/browser/shell_platform_delegate_mac.mm
+@@ -11,8 +11,10 @@
+ #import "base/apple/foundation_util.h"
+ #include "base/check_op.h"
+ #include "base/memory/raw_ptr.h"
++#include "base/command_line.h"
+ #include "base/notreached.h"
+ #include "base/strings/sys_string_conversions.h"
++#include "content/shell/common/shell_switches.h"
+ #include "components/input/native_web_keyboard_event.h"
+ #include "content/public/browser/render_frame_host.h"
+ #include "content/public/browser/render_widget_host.h"
+@@ -201,8 +203,30 @@ void MakeShellButton(NSRect* rect,
+     shell_data.url_edit_view = url_edit_view;
+   }
+ 
+-  // Show the new window.
+-  [window makeKeyAndOrderFront:nil];
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++          switches::kFreshOwlEmbed)) {
++    [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
++    window.alphaValue = 0.01;
++    window.level = NSWindowLevel(NSNormalWindowLevel - 1000);
++    window.collectionBehavior =
++        NSWindowCollectionBehaviorStationary |
++        NSWindowCollectionBehaviorCanJoinAllSpaces |
++        NSWindowCollectionBehaviorIgnoresCycle;
++    window.ignoresMouseEvents = YES;
++    [window orderFront:nil];
++  } else {
++    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++            "owl-fresh-visible-control")) {
++      [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
++      window.level = NSFloatingWindowLevel;
++      window.collectionBehavior |=
++          NSWindowCollectionBehaviorStationary |
++          NSWindowCollectionBehaviorCanJoinAllSpaces;
++      [NSApp activateIgnoringOtherApps:YES];
++      [window orderFrontRegardless];
++    }
++    [window makeKeyAndOrderFront:nil];
++  }
+ 
+   shell_data.delegate = delegate;
+ }
+diff --git a/content/shell/common/shell_controller.test-mojom b/content/shell/common/shell_controller.test-mojom
+index 53b2a8b770..b9fa891fd3 100644
+--- a/content/shell/common/shell_controller.test-mojom
++++ b/content/shell/common/shell_controller.test-mojom
+@@ -7,6 +7,60 @@ module content.mojom;
+ import "mojo/public/mojom/base/string16.mojom";
+ import "mojo/public/mojom/base/values.mojom";
+ 
++enum OwlFreshMouseKind {
++  kDown = 0,
++  kUp = 1,
++  kMove = 2,
++  kWheel = 3,
++};
++
++struct OwlFreshMouseEvent {
++  OwlFreshMouseKind kind;
++  float x;
++  float y;
++  uint32 button;
++  uint32 click_count;
++  float delta_x;
++  float delta_y;
++  uint32 modifiers;
++};
++
++struct OwlFreshKeyEvent {
++  bool key_down;
++  uint32 key_code;
++  string text;
++  uint32 modifiers;
++};
++
++struct OwlFreshCompositorInfo {
++  uint32 context_id;
++};
++
++struct OwlFreshCaptureResult {
++  array<uint8> png;
++  uint32 width;
++  uint32 height;
++  string capture_mode;
++  string error;
++};
++
++interface OwlFreshClient {
++  OnReady(int32 host_pid, OwlFreshCompositorInfo compositor);
++  OnCompositorChanged(OwlFreshCompositorInfo compositor);
++  OnNavigationChanged(string url, string title, bool loading);
++  OnHostLog(string message);
++};
++
++interface OwlFreshHost {
++  SetClient(pending_remote<OwlFreshClient> client);
++  Navigate(string url);
++  Resize(uint32 width, uint32 height, float scale);
++  SetFocus(bool focused);
++  SendMouse(OwlFreshMouseEvent event);
++  SendKey(OwlFreshKeyEvent event);
++  CaptureSurface() => (OwlFreshCaptureResult result);
++};
++
+ // A control interface which can be accessed by clients launching Content Shell
+ // with a Mojo invitation on the command line. This is used by
+ // LaunchAsMojoClientBrowserTest to exercise that mode of execution.
+@@ -21,7 +75,10 @@ interface ShellController {
+       => (mojo_base.mojom.Value value);
+ 
+   // Tells Content Shell to close all windows and shut down. After sending this
+-  // message, the Content Shell browser process should be expected to terminate
+-  // soon.
++  // message, Content Shell should be expected to terminate soon.
+   ShutDown();
++
++  // Binds the fresh OWL browser host. Every browser command after this point
++  // uses typed Mojo messages, never sockets or DevTools.
++  BindOwlFreshHost(pending_receiver<OwlFreshHost> receiver);
+ };
+diff --git a/content/shell/common/shell_switches.h b/content/shell/common/shell_switches.h
+index 8757fa418d..b9d7d028b7 100644
+--- a/content/shell/common/shell_switches.h
++++ b/content/shell/common/shell_switches.h
+@@ -40,6 +40,8 @@ inline constexpr char kContentShellHostWindowSize[] =
+ // Hides toolbar from content_shell's host window.
+ inline constexpr char kContentShellHideToolbar[] = "content-shell-hide-toolbar";
+ 
++inline constexpr char kFreshOwlEmbed[] = "fresh-owl-embed";
++
+ // Enables APIs guarded with the [IsolatedContext] IDL attribute for the given
+ // comma-separated list of origins.
+ inline constexpr char kIsolatedContextOrigins[] = "isolated-context-origins";
 diff --git a/fresh_owl/BUILD.gn b/fresh_owl/BUILD.gn
 new file mode 100644
 index 0000000000..1bf493f610
@@ -2122,6 +1920,139 @@ index 0000000000..8c4103de12
 +#endif
 +
 +#endif
+diff --git a/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm b/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm
+index 65f6c9b457..3bda6ceb05 100644
+--- a/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm
++++ b/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm
+@@ -53,7 +53,7 @@ void ComputeColorComponents(CGImageRef cgImage,
+     *blue = 3;
+   }
+ 
+-  if (byteOrder != kCGImageByteOrder32Host) {
++  if (byteOrder != kCGBitmapByteOrder32Host) {
+     int lastChannel = (CGImageGetBitsPerPixel(cgImage) == 24) ? 2 : 3;
+     *red = lastChannel - *red;
+     *green = lastChannel - *green;
+diff --git a/services/shape_detection/text_detection_impl_mac_unittest.mm b/services/shape_detection/text_detection_impl_mac_unittest.mm
+index f5797e9d31..8c9028c8b2 100644
+--- a/services/shape_detection/text_detection_impl_mac_unittest.mm
++++ b/services/shape_detection/text_detection_impl_mac_unittest.mm
+@@ -59,7 +59,7 @@ void DetectCallback(std::vector<mojom::TextDetectionResultPtr> results) {
+       nullptr, width, height, /*bitsPerComponent=*/8,
+       /*bytesPerRow=*/width * 4, rgb_colorspace.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+ 
+   // Draw a white background.
+   CGContextSetRGBFillColor(context.get(), 1.0, 1.0, 1.0, 1.0);
+diff --git a/skia/ext/skia_utils_ios.mm b/skia/ext/skia_utils_ios.mm
+index 1b202bf6f3..6b11ce44b0 100644
+--- a/skia/ext/skia_utils_ios.mm
++++ b/skia/ext/skia_utils_ios.mm
+@@ -52,7 +52,7 @@ SkBitmap CGImageToSkBitmap(CGImageRef image, CGSize size, bool is_opaque) {
+   base::apple::ScopedCFTypeRef<CGContextRef> context(CGBitmapContextCreate(
+       data, size.width, size.height, 8, size.width * 4, color_space.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+ #else
+ #error We require that Skia's and CoreGraphics's recommended \
+        image memory layout match.
+diff --git a/skia/ext/skia_utils_mac.mm b/skia/ext/skia_utils_mac.mm
+index 07e7f51fc7..e621aa1000 100644
+--- a/skia/ext/skia_utils_mac.mm
++++ b/skia/ext/skia_utils_mac.mm
+@@ -81,7 +81,7 @@ SkBitmap NSImageOrNSImageRepToSkBitmap(NSImage* image,
+   base::apple::ScopedCFTypeRef<CGContextRef> context(CGBitmapContextCreate(
+       data, size.width, size.height, 8, size.width * 4, cg_color_space.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+ #else
+ #error We require that Skia's and CoreGraphics's recommended \
+        image memory layout match.
+diff --git a/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm b/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
+index 9234de2adf..46e143f458 100644
+--- a/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
++++ b/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
+@@ -64,7 +64,7 @@
+   cg_context_.reset(CGBitmapContextCreate(
+       offscreen_.getPixels(), offscreen_.width(), offscreen_.height(), 8,
+       offscreen_.rowBytes(), color_space.get(),
+-      kCGImageByteOrder32Host |
++      kCGBitmapByteOrder32Host |
+           static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst)));
+   DCHECK(cg_context_);
+ 
+diff --git a/ui/accelerated_widget_mac/BUILD.gn b/ui/accelerated_widget_mac/BUILD.gn
+index 0f8a6f75b7..c5e8a19224 100644
+--- a/ui/accelerated_widget_mac/BUILD.gn
++++ b/ui/accelerated_widget_mac/BUILD.gn
+@@ -59,6 +59,7 @@ component("accelerated_widget_mac") {
+     ]
+ 
+     frameworks += [ "OpenGL.framework" ]
++    frameworks += [ "CoreImage.framework" ]
+ 
+     # TODO(crbug.com/40031409): Fix code that adds exit-time destructors and
+     # enable the diagnostic by removing this line.
+@@ -69,6 +70,8 @@ component("accelerated_widget_mac") {
+     sources += [
+       "display_ca_layer_tree.h",
+       "display_ca_layer_tree.mm",
++      "owl_fresh_context.h",
++      "owl_fresh_context.mm",
+     ]
+   }
+ 
+diff --git a/ui/accelerated_widget_mac/display_ca_layer_tree.mm b/ui/accelerated_widget_mac/display_ca_layer_tree.mm
+index dcf493d629..8648983f2b 100644
+--- a/ui/accelerated_widget_mac/display_ca_layer_tree.mm
++++ b/ui/accelerated_widget_mac/display_ca_layer_tree.mm
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "ui/accelerated_widget_mac/display_ca_layer_tree.h"
++#include "ui/accelerated_widget_mac/owl_fresh_context.h"
+ 
+ #import <QuartzCore/QuartzCore.h>
+ 
+@@ -123,6 +124,10 @@ - (void)setContentsChanged;
+ void DisplayCALayerTree::GotCALayerFrame(uint32_t ca_context_id) {
+   // Early-out if the remote layer has not changed.
+   if (remote_layer_.contextId == ca_context_id) {
++#if BUILDFLAG(IS_MAC)
++    ui::OwlFreshDisplayPortalPresentCAContext(ca_context_id,
++                                              root_layer_.bounds);
++#endif
+     return;
+   }
+ 
+@@ -150,6 +155,11 @@ - (void)setContentsChanged;
+     [io_surface_layer_ removeFromSuperlayer];
+     io_surface_layer_ = nil;
+   }
++
++#if BUILDFLAG(IS_MAC)
++  ui::OwlFreshDisplayPortalPresentCAContext(ca_context_id,
++                                            root_layer_.bounds);
++#endif
+ }
+ 
+ void DisplayCALayerTree::GotIOSurfaceFrame(
+@@ -185,6 +195,11 @@ - (void)setContentsChanged;
+     [remote_layer_ removeFromSuperlayer];
+     remote_layer_ = nil;
+   }
++
++#if BUILDFLAG(IS_MAC)
++  ui::OwlFreshDisplayPortalPresentLayer(maybe_flipped_layer_,
++                                        root_layer_.bounds);
++#endif
+ }
+ 
+ }  // namespace ui
 diff --git a/ui/accelerated_widget_mac/owl_fresh_context.h b/ui/accelerated_widget_mac/owl_fresh_context.h
 new file mode 100644
 index 0000000000..97a4794039
@@ -2355,3 +2286,74 @@ index 0000000000..9af5a97f54
 +}
 +
 +}  // namespace ui
+diff --git a/ui/base/resource/resource_bundle_ios.mm b/ui/base/resource/resource_bundle_ios.mm
+index bd4b5cc84e..5322109a15 100644
+--- a/ui/base/resource/resource_bundle_ios.mm
++++ b/ui/base/resource/resource_bundle_ios.mm
+@@ -127,7 +127,7 @@
+           /*data=*/nullptr, target_size.width, target_size.height, 8,
+           target_size.width * 4, color_space.get(),
+           static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-              kCGImageByteOrder32Host));
++              kCGBitmapByteOrder32Host));
+ 
+       CGRect target_rect = CGRectMake(0, 0,
+                                       target_size.width, target_size.height);
+diff --git a/ui/display/mac/screen_utils_mac.mm b/ui/display/mac/screen_utils_mac.mm
+index eace771c4b..b2f5debb14 100644
+--- a/ui/display/mac/screen_utils_mac.mm
++++ b/ui/display/mac/screen_utils_mac.mm
+@@ -9,12 +9,8 @@
+ NSScreen* GetNSScreenFromDisplayID(CGDirectDisplayID display_id) {
+   for (NSScreen* screen in NSScreen.screens) {
+     CGDirectDisplayID screen_display_id = kCGNullDirectDisplay;
+-    if (@available(macOS 26, *)) {
+-      screen_display_id = screen.CGDirectDisplayID;
+-    } else {
+-      screen_display_id =
+-          [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
+-    }
++    screen_display_id =
++        [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
+     if (screen_display_id == display_id) {
+       return screen;
+     }
+diff --git a/ui/gfx/image/image_ios.mm b/ui/gfx/image/image_ios.mm
+index 676998a61f..cc7ec3d592 100644
+--- a/ui/gfx/image/image_ios.mm
++++ b/ui/gfx/image/image_ios.mm
+@@ -34,7 +34,7 @@
+       /*bitsPerComponent=*/8,
+       /*bytesPerRow=*/0, color_space.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+   CGContextSetRGBFillColor(context.get(), 1.0, 0.0, 0.0, 1.0);
+   CGContextFillRect(context.get(), CGRectMake(0.0, 0.0, 16, 16));
+   base::apple::ScopedCFTypeRef<CGImageRef> cg_image(
+diff --git a/ui/gfx/image/image_ios_unittest.mm b/ui/gfx/image/image_ios_unittest.mm
+index fe3ea09bf4..2756dd475a 100644
+--- a/ui/gfx/image/image_ios_unittest.mm
++++ b/ui/gfx/image/image_ios_unittest.mm
+@@ -33,7 +33,7 @@
+       nullptr, target_size.width, target_size.height, 8, target_size.width * 4,
+       color_space.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+ 
+   CGRect target_rect = CGRectMake(0, 0,
+                                   target_size.width, target_size.height);
+diff --git a/ui/gfx/image/image_unittest_util_apple.mm b/ui/gfx/image/image_unittest_util_apple.mm
+index 4a6e3016b0..74e4544015 100644
+--- a/ui/gfx/image/image_unittest_util_apple.mm
++++ b/ui/gfx/image/image_unittest_util_apple.mm
+@@ -48,7 +48,7 @@ SkColor GetPlatformImageColor(PlatformImage image, int x, int y) {
+           /*bitsPerComponent=*/8,
+           /*bytesPerRow=*/4, color_space.get(),
+           static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-              kCGImageByteOrder32Host));
++              kCGBitmapByteOrder32Host));
+   CGContextDrawImage(bitmap_context.get(), CGRectMake(0, 0, 1, 1),
+                      pixel_image.get());
+ 
