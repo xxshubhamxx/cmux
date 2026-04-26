@@ -1800,7 +1800,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testAttachUpdateAccessoryRemovesTitlebarAccessoryWhenMinimalModeEnabled() {
+    func testAttachUpdateAccessoryHidesTitlebarAccessoryWhenMinimalModeEnabled() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1824,22 +1824,29 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let hasTitlebarAccessory: () -> Bool = {
-            window.titlebarAccessoryViewControllers.contains {
+        let titlebarAccessory: () -> NSTitlebarAccessoryViewController? = {
+            window.titlebarAccessoryViewControllers.first {
                 $0.view.identifier?.rawValue == "cmux.titlebarControls"
             }
         }
 
-        XCTAssertTrue(hasTitlebarAccessory(), "Expected visible-titlebar mode to attach the titlebar accessory")
+        guard let initialAccessory = titlebarAccessory() else {
+            XCTFail("Expected visible-titlebar mode to attach the titlebar accessory")
+            return
+        }
+        XCTAssertFalse(initialAccessory.isHidden, "Expected visible-titlebar mode to show the titlebar accessory")
 
         defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
         appDelegate.attachUpdateAccessory(to: window)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertFalse(
-            hasTitlebarAccessory(),
-            "Minimal mode should remove the titlebar accessory instead of keeping a hidden controller attached"
-        )
+        guard let minimalAccessory = titlebarAccessory() else {
+            XCTFail("Minimal mode should keep a hidden titlebar accessory so shortcut-driven popovers still have a controller")
+            return
+        }
+        XCTAssertTrue(minimalAccessory.isHidden, "Minimal mode should hide titlebar accessories")
+        XCTAssertTrue(minimalAccessory.view.isHidden, "Minimal mode should hide the titlebar accessory view")
+        XCTAssertEqual(minimalAccessory.view.alphaValue, 0, accuracy: 0.01)
     }
 
     func testWorkspaceButtonFadeModeDefaultsOffWhenTitlebarVisible() {

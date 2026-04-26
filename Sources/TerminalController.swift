@@ -21,19 +21,6 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
 nonisolated private final class SocketLineProcessingResultBox: @unchecked Sendable {
     private let lock = NSLock()
     private var result: SocketLineProcessingResult?
-    private var cancelled = false
-
-    func cancel() {
-        lock.lock()
-        cancelled = true
-        lock.unlock()
-    }
-
-    var isCancelled: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return cancelled
-    }
 
     func store(_ value: SocketLineProcessingResult) {
         lock.lock()
@@ -100,7 +87,6 @@ class TerminalController {
     private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
     private nonisolated static let socketProbePollAttempts = 3
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
-    private nonisolated static let socketCommandMainThreadTimeoutSeconds = 10
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
@@ -1492,8 +1478,12 @@ class TerminalController {
             )
         )
 
-        guard case .rearmAfterDelay(let delayMs) = recoveryAction else {
+        let delayMs: Int
+        switch recoveryAction {
+        case .retryImmediately:
             return
+        case .resumeAfterDelay(let resumeDelayMs), .rearmAfterDelay(let resumeDelayMs):
+            delayMs = resumeDelayMs
         }
 
         let sourceToCancel = withListenerState {
@@ -1501,6 +1491,7 @@ class TerminalController {
                 return nil as DispatchSourceRead?
             }
             pendingAcceptLoopRearmGeneration = generation
+            isRunning = false
             acceptLoopAlive = false
             let source = listenerReadSource
             listenerReadSource = nil
@@ -1629,22 +1620,21 @@ class TerminalController {
         _ command: String,
         authenticated: Bool
     ) -> SocketLineProcessingResult {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                self.processSocketLineOnMain(command, authenticated: authenticated)
+            }
+        }
+
         let semaphore = DispatchSemaphore(value: 0)
         let resultBox = SocketLineProcessingResultBox()
 
-        // The socket protocol is line-synchronous, but UI commands need main-thread
-        // state. Queue asynchronously so the socket worker can time out instead of
-        // deadlocking when the UI thread is wedged.
         DispatchQueue.main.async { [weak self] in
-            guard !resultBox.isCancelled else { return }
-            let result: SocketLineProcessingResult
-            if let self {
-                var nextAuthenticated = authenticated
-                let response = self.authResponseIfNeeded(for: command, authenticated: &nextAuthenticated)
-                    ?? self.processCommand(command)
-                result = SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
-            } else {
-                result = SocketLineProcessingResult(
+            let result = MainActor.assumeIsolated {
+                if let self {
+                    return self.processSocketLineOnMain(command, authenticated: authenticated)
+                }
+                return SocketLineProcessingResult(
                     response: "ERROR: Terminal controller unavailable",
                     authenticated: authenticated
                 )
@@ -1653,15 +1643,21 @@ class TerminalController {
             semaphore.signal()
         }
 
-        guard semaphore.wait(timeout: .now() + .seconds(Self.socketCommandMainThreadTimeoutSeconds)) == .success,
-              let result = resultBox.load() else {
-            resultBox.cancel()
-            return SocketLineProcessingResult(
-                response: "ERROR: Command timed out waiting for main thread",
-                authenticated: authenticated
-            )
-        }
-        return result
+        semaphore.wait()
+        return resultBox.load() ?? SocketLineProcessingResult(
+            response: "ERROR: Terminal controller unavailable",
+            authenticated: authenticated
+        )
+    }
+
+    private func processSocketLineOnMain(
+        _ command: String,
+        authenticated: Bool
+    ) -> SocketLineProcessingResult {
+        var nextAuthenticated = authenticated
+        let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated)
+            ?? processCommand(command)
+        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
     }
 
     private func processCommand(_ command: String) -> String {

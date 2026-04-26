@@ -1238,6 +1238,8 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     }
 
     func update(state: TmuxWorkspacePaneOverlayRenderState?) {
+        guard ensureInstalled() else { return }
+
         if state == nil, lastRenderState == nil, containerView.isHidden {
             return
         }
@@ -1245,7 +1247,6 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
             return
         }
 
-        guard ensureInstalled() else { return }
         if let state {
             lastRenderState = state
             model.apply(state)

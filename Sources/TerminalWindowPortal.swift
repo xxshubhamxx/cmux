@@ -93,6 +93,7 @@ final class WindowTerminalHostView: NSView {
             )
             let clipped = rectInHost.intersection(bounds)
             guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { continue }
+            guard !cursorRectIntersectsChromePassThrough(clipped) else { continue }
             addCursorRect(clipped, cursor: region.isVertical ? .resizeLeftRight : .resizeUpDown)
         }
     }
@@ -236,6 +237,22 @@ final class WindowTerminalHostView: NSView {
         return decision.result
     }
 
+    private func shouldPassThroughToChrome(at point: NSPoint, eventType: NSEvent.EventType?) -> Bool {
+        shouldPassThroughToTitlebar(at: point)
+            || shouldPassThroughToPaneTabBar(at: point, eventType: eventType)
+    }
+
+    private func cursorRectIntersectsChromePassThrough(_ rect: NSRect) -> Bool {
+        let samples = [
+            NSPoint(x: rect.midX, y: rect.midY),
+            NSPoint(x: rect.midX, y: rect.maxY - 0.5),
+            NSPoint(x: rect.midX, y: rect.minY + 0.5),
+            NSPoint(x: rect.minX + 0.5, y: rect.midY),
+            NSPoint(x: rect.maxX - 0.5, y: rect.midY),
+        ]
+        return samples.contains { shouldPassThroughToChrome(at: $0, eventType: .cursorUpdate) }
+    }
+
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
         // The sidebar resizer handle is implemented in SwiftUI. When terminals
         // are portal-hosted, this AppKit host can otherwise sit above the handle
@@ -290,6 +307,11 @@ final class WindowTerminalHostView: NSView {
     }
 
     private func updateDividerCursor(at point: NSPoint) {
+        if shouldPassThroughToChrome(at: point, eventType: NSApp.currentEvent?.type) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
+
         if shouldPassThroughToSidebarResizer(at: point) {
             clearActiveDividerCursor(restoreArrow: false)
             return
