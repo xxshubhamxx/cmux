@@ -558,6 +558,8 @@ private extension Array {
 }
 
 public struct CMUXMarkdownInlineParser: Sendable {
+    private static let escapableCharacters = Set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
+
     public init() {}
 
     public func parse(_ source: String) -> (text: String, spans: [CMUXMarkdownInlineSpan]) {
@@ -593,8 +595,13 @@ public struct CMUXMarkdownInlineParser: Sendable {
 
         while index < source.endIndex {
             if source[index] == "\\", let next = source.index(index, offsetBy: 1, limitedBy: source.endIndex), next < source.endIndex {
-                output.append(source[next])
-                index = source.index(after: next)
+                if Self.escapableCharacters.contains(source[next]) {
+                    output.append(source[next])
+                    index = source.index(after: next)
+                } else {
+                    output.append(source[index])
+                    index = source.index(after: index)
+                }
                 continue
             }
 

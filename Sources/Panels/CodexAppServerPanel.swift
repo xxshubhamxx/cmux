@@ -265,6 +265,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     func sendPrompt() async {
         let text = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !status.isBusy else { return }
+        let generation = lifecycleGeneration
         promptText = ""
         appendUser(text)
 
@@ -273,22 +274,27 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             if !isStarted {
                 await start()
             }
+            guard isCurrentLifecycle(generation) else { return }
             guard isStarted else { return }
             let resolvedThreadId: String
             if let threadId {
                 resolvedThreadId = threadId
             } else {
                 let newThreadId = try await client.startThread(cwd: currentWorkingDirectory())
+                guard isCurrentLifecycle(generation) else { return }
                 threadId = newThreadId
                 resolvedThreadId = newThreadId
             }
 
-            currentTurnId = try await client.startTurn(
+            let turnId = try await client.startTurn(
                 threadId: resolvedThreadId,
                 text: text,
                 cwd: currentWorkingDirectory()
             )
+            guard isCurrentLifecycle(generation) else { return }
+            currentTurnId = turnId
         } catch {
+            guard isCurrentLifecycle(generation) else { return }
             status = .failed(error.localizedDescription)
             appendError(error.localizedDescription)
         }

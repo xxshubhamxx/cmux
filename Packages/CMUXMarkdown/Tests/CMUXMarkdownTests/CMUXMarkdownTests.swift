@@ -83,6 +83,15 @@ final class CMUXMarkdownTests: XCTestCase {
         })
     }
 
+    func testInlineParserPreservesLiteralBackslashes() {
+        let markdown = #"Path C:\Users\me and escaped \*literal\*."#
+
+        let parsed = CMUXMarkdownInlineParser().parse(markdown)
+
+        XCTAssertEqual(parsed.text, #"Path C:\Users\me and escaped *literal*."#)
+        XCTAssertTrue(parsed.spans.isEmpty)
+    }
+
     func testParsesPipeTablesAsStructuredBlocks() throws {
         let markdown = """
         | Feature | Status | Notes |
