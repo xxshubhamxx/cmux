@@ -76,7 +76,7 @@
 		A5001240 /* WindowDecorationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001241 /* WindowDecorationsController.swift */; };
 		A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
-		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
+		C0D3A511A1B2C3D4E5F60718 /* CMUXMarkdown in Frameworks */ = {isa = PBXBuildFile; productRef = C0D3A513A1B2C3D4E5F60718 /* CMUXMarkdown */; };
 		A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 		A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
 		A50012F5 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F4 /* KeyboardLayout.swift */; };
@@ -445,7 +445,7 @@
 				A5001230 /* Sparkle in Frameworks */,
 				A5001250 /* Sentry in Frameworks */,
 				A5001270 /* PostHog in Frameworks */,
-				A5001290 /* MarkdownUI in Frameworks */,
+				C0D3A511A1B2C3D4E5F60718 /* CMUXMarkdown in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
 				F20F85FC5900550685FA33AD /* StackAuth in Frameworks */,
@@ -768,12 +768,12 @@
 				A5001251 /* Sentry */,
 				A5001271 /* PostHog */,
 				A5001261 /* Bonsplit */,
-				A5001291 /* MarkdownUI */,
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
 				AA11BB22CC33DD44EE550002 /* CMUXWorkstream */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 				C0D3A510A1B2C3D4E5F60718 /* CodexTrajectory */,
+				C0D3A513A1B2C3D4E5F60718 /* CMUXMarkdown */,
 			);
 			productName = GhosttyTabs;
 			productReference = A5001000 /* cmux.app */;
@@ -891,13 +891,13 @@
 				A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
-				A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
 				C0D3A50FA1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CodexTrajectory" */,
+				C0D3A512A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXMarkdown" */,
 			);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -1571,6 +1571,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CodexTrajectory;
 		};
+		C0D3A512A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXMarkdown" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CMUXMarkdown;
+		};
 		A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = vendor/bonsplit;
@@ -1600,14 +1604,6 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 3.41.0;
-			};
-		};
-		A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.4.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -1648,11 +1644,6 @@
 			package = A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */;
 			productName = PostHog;
 		};
-		A5001291 /* MarkdownUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
-			productName = MarkdownUI;
-		};
 		A8BD195031FC4B82B4354297 /* StackAuth */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */;
@@ -1662,6 +1653,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C0D3A50FA1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CodexTrajectory" */;
 			productName = CodexTrajectory;
+		};
+		C0D3A513A1B2C3D4E5F60718 /* CMUXMarkdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0D3A512A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXMarkdown" */;
+			productName = CMUXMarkdown;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

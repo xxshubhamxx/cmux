@@ -27,8 +27,45 @@ final class LayoutAndRendererTests: XCTestCase {
         XCTAssertGreaterThan(layout.pages.count, 30)
         XCTAssertGreaterThan(layout.totalHeight, 10_000)
         XCTAssertEqual(layout.pages.first?.textRange.location, 0)
-        XCTAssertEqual(layout.pages.last?.textRange.upperBound, block.displayText.count)
+        XCTAssertEqual(layout.pages.last?.textRange.upperBound, (block.displayText as NSString).length)
         XCTAssertTrue(layout.pages.allSatisfy { $0.measuredSize.width == 640 })
+    }
+
+    func testLayoutUsesRenderedMarkdownTextForAssistantBlocks() throws {
+        let theme = CodexTrajectoryTheme.defaultLight(textSize: 14, monospacedSize: 11)
+        let block = CodexTrajectoryBlock(
+            id: "assistant",
+            kind: .assistantText,
+            text: "## Heading\n\nThis is **bold** with `code` and [link](https://example.com)."
+        )
+
+        let rendered = codexTrajectoryRenderedText(for: block, theme: theme)
+        let layout = CodexTrajectoryLayoutEngine().layout(
+            block: block,
+            configuration: CodexTrajectoryLayoutConfiguration(width: 300),
+            theme: theme
+        )
+
+        XCTAssertTrue(rendered.plainText.contains("Heading"))
+        XCTAssertFalse(rendered.plainText.contains("**"))
+        XCTAssertFalse(rendered.plainText.contains("`code`"))
+        XCTAssertEqual(layout.pages.last?.textRange.upperBound, (rendered.plainText as NSString).length)
+        let firstPage = try XCTUnwrap(layout.pages.first)
+        let page = codexTrajectoryRenderedPage(for: block, page: firstPage, theme: theme)
+        XCTAssertGreaterThan(CFAttributedStringGetLength(page.attributedString), 0)
+    }
+
+    func testDefaultThemeKeepsUserMarkdownLiteral() {
+        let theme = CodexTrajectoryTheme.defaultLight(textSize: 14, monospacedSize: 11)
+        let block = CodexTrajectoryBlock(
+            id: "user",
+            kind: .userText,
+            text: "Use **literal** `markdown`."
+        )
+
+        let rendered = codexTrajectoryRenderedText(for: block, theme: theme)
+
+        XCTAssertEqual(rendered.plainText, "Use **literal** `markdown`.")
     }
 
     func testLayoutUsesSeparateStylesForBodyAndCommandBlocks() {

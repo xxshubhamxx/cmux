@@ -204,16 +204,8 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                     await loadLocalHistory(for: snapshot.threadId)
                 }
                 status = .ready
-                appendEvent(
-                    title: String(localized: "codexAppServer.event.resumed", defaultValue: "Thread resumed"),
-                    body: threadId ?? initialResumeThreadId
-                )
             } else {
                 status = .ready
-                appendEvent(
-                    title: String(localized: "codexAppServer.event.started", defaultValue: "App server started"),
-                    body: currentWorkingDirectory()
-                )
             }
         } catch {
             status = .failed(error.localizedDescription)
@@ -370,6 +362,8 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 title: String(localized: "codexAppServer.event.warning", defaultValue: "Warning"),
                 body: Self.stringValue(named: "message", in: params) ?? Self.prettyJSON(params)
             )
+        case "mcpServer/startupStatus/updated", "thread/status/changed", "thread/tokenUsage/updated":
+            break
         default:
             appendEvent(title: method, body: Self.prettyJSON(params))
         }
@@ -552,18 +546,6 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         } else {
             transcriptItems = snapshot.transcriptItems
         }
-        let format = String(
-            localized: "codexAppServer.event.historyLoaded.body",
-            defaultValue: "Loaded the latest %1$ld items from local Codex history."
-        )
-        appendEvent(
-            title: String(localized: "codexAppServer.event.historyLoaded", defaultValue: "History loaded"),
-            body: String(
-                format: format,
-                locale: Locale.current,
-                snapshot.transcriptItems.count
-            )
-        )
     }
 
     static func resumeSnapshot(

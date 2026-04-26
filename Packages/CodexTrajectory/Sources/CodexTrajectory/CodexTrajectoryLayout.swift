@@ -1,5 +1,6 @@
 import CoreGraphics
 import CoreText
+import CMUXMarkdown
 import Foundation
 
 public struct CodexTrajectoryTextRange: Codable, Hashable, Sendable {
@@ -69,6 +70,49 @@ public struct CodexTrajectoryBlockLayout: Hashable {
     }
 }
 
+public struct CodexTrajectoryRenderedText {
+    public var plainText: String
+    public var attributedString: CFAttributedString
+
+    public init(plainText: String, attributedString: CFAttributedString) {
+        self.plainText = plainText
+        self.attributedString = attributedString
+    }
+}
+
+private final class CodexTrajectoryRenderedTextBox: NSObject {
+    let value: CodexTrajectoryRenderedText
+
+    init(_ value: CodexTrajectoryRenderedText) {
+        self.value = value
+    }
+}
+
+private final class CodexTrajectoryRenderedTextCache: @unchecked Sendable {
+    private let cache: NSCache<NSString, CodexTrajectoryRenderedTextBox>
+
+    init() {
+        let cache = NSCache<NSString, CodexTrajectoryRenderedTextBox>()
+        cache.countLimit = 2_048
+        cache.totalCostLimit = 96 * 1024 * 1024
+        self.cache = cache
+    }
+
+    func value(for key: String) -> CodexTrajectoryRenderedText? {
+        cache.object(forKey: key as NSString)?.value
+    }
+
+    func insert(_ value: CodexTrajectoryRenderedText, for key: String, cost: Int) {
+        cache.setObject(
+            CodexTrajectoryRenderedTextBox(value),
+            forKey: key as NSString,
+            cost: cost
+        )
+    }
+}
+
+private let codexTrajectoryRenderedTextCache = CodexTrajectoryRenderedTextCache()
+
 public struct CodexTrajectoryLayoutEngine {
     public init() {}
 
@@ -77,22 +121,24 @@ public struct CodexTrajectoryLayoutEngine {
         configuration: CodexTrajectoryLayoutConfiguration,
         theme: CodexTrajectoryTheme
     ) -> CodexTrajectoryBlockLayout {
-        let displayText = block.displayText.isEmpty ? " " : block.displayText
+        let rendered = codexTrajectoryRenderedText(for: block, theme: theme)
+        let displayText = rendered.plainText.isEmpty ? " " : rendered.plainText
         let ranges = pageRanges(
             in: displayText,
             pageLineLimit: configuration.pageLineLimit,
             maximumPageCharacters: configuration.maximumPageCharacters
         )
-        let style = theme.style(for: block.kind)
-        let textWidth = max(1, configuration.width - theme.contentInsets.left - theme.contentInsets.right)
+        let insets = theme.contentInsets(for: block.kind)
+        let textWidth = max(1, configuration.width - insets.left - insets.right)
 
         let pages = ranges.enumerated().map { pageIndex, range in
             let text = displayText.codexTrajectorySubstring(in: range)
+            let attributed = attributedSubstring(rendered.attributedString, in: range)
             let measured = measure(
-                text: text.isEmpty ? " " : text,
-                style: style,
+                attributed: attributed,
+                fallbackStyle: theme.style(for: block.kind),
                 width: textWidth,
-                insets: theme.contentInsets
+                insets: insets
             )
             return CodexTrajectoryLayoutPage(
                 blockID: block.id,
@@ -108,12 +154,11 @@ public struct CodexTrajectoryLayoutEngine {
     }
 
     private func measure(
-        text: String,
-        style: CodexTrajectoryBlockStyle,
+        attributed: CFAttributedString,
+        fallbackStyle: CodexTrajectoryBlockStyle,
         width: CGFloat,
         insets: CodexTrajectoryInsets
     ) -> CGSize {
-        let attributed = makeAttributedString(text: text, style: style)
         let framesetter = CTFramesetterCreateWithAttributedString(attributed)
         let suggested = CTFramesetterSuggestFrameSizeWithConstraints(
             framesetter,
@@ -122,7 +167,11 @@ public struct CodexTrajectoryLayoutEngine {
             CGSize(width: width, height: CGFloat.greatestFiniteMagnitude),
             nil
         )
-        let lineHeight = ceil(CTFontGetAscent(style.font) + CTFontGetDescent(style.font) + CTFontGetLeading(style.font))
+        let lineHeight = ceil(
+            CTFontGetAscent(fallbackStyle.font) +
+                CTFontGetDescent(fallbackStyle.font) +
+                CTFontGetLeading(fallbackStyle.font)
+        )
         return CGSize(
             width: width + insets.left + insets.right,
             height: max(lineHeight, ceil(suggested.height)) + insets.top + insets.bottom
@@ -145,7 +194,7 @@ public struct CodexTrajectoryLayoutEngine {
         var characters = 0
 
         for character in text {
-            current += 1
+            current += character.utf16.count
             characters += 1
             if character == "\n" {
                 lines += 1
@@ -167,6 +216,54 @@ public struct CodexTrajectoryLayoutEngine {
     }
 }
 
+public func codexTrajectoryRenderedText(
+    for block: CodexTrajectoryBlock,
+    theme: CodexTrajectoryTheme
+) -> CodexTrajectoryRenderedText {
+    let displayText = block.displayText.isEmpty ? " " : block.displayText
+    let cacheKey = [
+        theme.identifier,
+        block.kind.rawValue,
+        block.id,
+        "\(block.title.hashValue)",
+        "\(block.text.hashValue)",
+        "\(displayText.utf16.count)",
+    ].joined(separator: "\u{1f}")
+    if let cached = codexTrajectoryRenderedTextCache.value(for: cacheKey) {
+        return cached
+    }
+
+    let value: CodexTrajectoryRenderedText
+    guard let markdownTheme = theme.markdownTheme(for: block.kind) else {
+        value = CodexTrajectoryRenderedText(
+            plainText: displayText,
+            attributedString: makeAttributedString(text: displayText, style: theme.style(for: block.kind))
+        )
+        codexTrajectoryRenderedTextCache.insert(value, for: cacheKey, cost: max(1, displayText.utf16.count * 2))
+        return value
+    }
+
+    let rendered = CMUXMarkdownCoreTextRenderer(theme: markdownTheme).render(displayText)
+    value = CodexTrajectoryRenderedText(
+        plainText: rendered.plainText,
+        attributedString: rendered.attributedString
+    )
+    codexTrajectoryRenderedTextCache.insert(value, for: cacheKey, cost: max(1, rendered.plainText.utf16.count * 4))
+    return value
+}
+
+public func codexTrajectoryRenderedPage(
+    for block: CodexTrajectoryBlock,
+    page: CodexTrajectoryLayoutPage,
+    theme: CodexTrajectoryTheme
+) -> CodexTrajectoryRenderedText {
+    let rendered = codexTrajectoryRenderedText(for: block, theme: theme)
+    return CodexTrajectoryRenderedText(
+        plainText: rendered.plainText.codexTrajectorySubstring(in: page.textRange),
+        attributedString: attributedSubstring(rendered.attributedString, in: page.textRange)
+    )
+}
+
 func makeAttributedString(text: String, style: CodexTrajectoryBlockStyle) -> CFAttributedString {
     let attributes: [CFString: Any] = [
         kCTFontAttributeName: style.font,
@@ -175,11 +272,39 @@ func makeAttributedString(text: String, style: CodexTrajectoryBlockStyle) -> CFA
     return CFAttributedStringCreate(kCFAllocatorDefault, text as CFString, attributes as CFDictionary)
 }
 
+func attributedSubstring(_ attributed: CFAttributedString, in range: CodexTrajectoryTextRange) -> CFAttributedString {
+    let length = CFAttributedStringGetLength(attributed)
+    let location = min(max(0, range.location), length)
+    let upper = min(max(location, range.upperBound), length)
+    guard upper > location,
+          let substring = CFAttributedStringCreateWithSubstring(
+            kCFAllocatorDefault,
+            attributed,
+            CFRange(location: location, length: upper - location)
+          ) else {
+        return CFAttributedStringCreate(kCFAllocatorDefault, " " as CFString, [:] as CFDictionary)
+    }
+    return substring
+}
+
 extension String {
     func codexTrajectorySubstring(in range: CodexTrajectoryTextRange) -> String {
         guard range.length > 0 else { return "" }
-        let lower = index(startIndex, offsetBy: range.location, limitedBy: endIndex) ?? endIndex
-        let upper = index(lower, offsetBy: range.length, limitedBy: endIndex) ?? endIndex
+        let utf16View = utf16
+        guard let lowerUTF16 = utf16View.index(
+            utf16View.startIndex,
+            offsetBy: range.location,
+            limitedBy: utf16View.endIndex
+        ),
+            let upperUTF16 = utf16View.index(
+                lowerUTF16,
+                offsetBy: range.length,
+                limitedBy: utf16View.endIndex
+            ),
+            let lower = String.Index(lowerUTF16, within: self),
+            let upper = String.Index(upperUTF16, within: self) else {
+            return ""
+        }
         return String(self[lower..<upper])
     }
 }

@@ -26,37 +26,32 @@ public struct CodexTrajectoryRenderer {
             context.restoreGState()
         }
 
-        let displayText = block.displayText.isEmpty ? " " : block.displayText
-        let pageText = displayText.codexTrajectorySubstring(in: page.textRange)
-        guard !pageText.isEmpty else { return }
+        let renderedPage = codexTrajectoryRenderedPage(for: block, page: page, theme: theme)
+        guard !renderedPage.plainText.isEmpty else { return }
 
         switch coordinates {
         case .yUp:
             drawYUp(
-                text: pageText,
-                style: style,
+                attributed: renderedPage.attributedString,
                 in: context,
-                textRect: rect.inset(by: theme.contentInsets)
+                textRect: rect.inset(by: theme.contentInsets(for: block.kind))
             )
         case .yDown:
             drawYDown(
-                text: pageText,
-                style: style,
+                attributed: renderedPage.attributedString,
                 in: context,
                 rect: rect,
-                insets: theme.contentInsets
+                insets: theme.contentInsets(for: block.kind)
             )
         }
     }
 
     private func drawYUp(
-        text: String,
-        style: CodexTrajectoryBlockStyle,
+        attributed: CFAttributedString,
         in context: CGContext,
         textRect: CGRect
     ) {
         context.saveGState()
-        let attributed = makeAttributedString(text: text, style: style)
         let framesetter = CTFramesetterCreateWithAttributedString(attributed)
         let path = CGMutablePath()
         path.addRect(textRect)
@@ -71,8 +66,7 @@ public struct CodexTrajectoryRenderer {
     }
 
     private func drawYDown(
-        text: String,
-        style: CodexTrajectoryBlockStyle,
+        attributed: CFAttributedString,
         in context: CGContext,
         rect: CGRect,
         insets: CodexTrajectoryInsets
@@ -87,7 +81,7 @@ public struct CodexTrajectoryRenderer {
             width: max(0, rect.width - insets.left - insets.right),
             height: max(0, rect.height - insets.top - insets.bottom)
         )
-        drawYUp(text: text, style: style, in: context, textRect: localTextRect)
+        drawYUp(attributed: attributed, in: context, textRect: localTextRect)
         context.restoreGState()
     }
 }

@@ -13,9 +13,15 @@ let package = Package(
             targets: ["CodexTrajectory"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CMUXMarkdown"),
+    ],
     targets: [
         .target(
-            name: "CodexTrajectory"
+            name: "CodexTrajectory",
+            dependencies: [
+                .product(name: "CMUXMarkdown", package: "CMUXMarkdown"),
+            ]
         ),
         .testTarget(
             name: "CodexTrajectoryTests",

@@ -597,6 +597,66 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertEqual(request.paramsObject?["reason"] as? String, "test")
     }
 
+    func testTranscriptDisplayCollapsesOnlyCurrentTurnProgress() {
+        let items: [CodexAppServerTranscriptItem] = [
+            CodexAppServerTranscriptItem(role: .user, title: "You", body: "old prompt"),
+            CodexAppServerTranscriptItem(role: .assistant, title: "Codex", body: "old answer"),
+            CodexAppServerTranscriptItem(role: .user, title: "You", body: "latest prompt"),
+            Self.transcriptToolCall(name: "exec_command", body: "git status"),
+            CodexAppServerTranscriptItem(role: .event, title: "Tool output", body: "clean", presentation: .toolOutput),
+            CodexAppServerTranscriptItem(role: .assistant, title: "Codex", body: "progress update"),
+            Self.transcriptToolCall(name: "exec_command", body: "ls"),
+            CodexAppServerTranscriptItem(role: .event, title: "Tool output", body: "file", presentation: .toolOutput),
+            CodexAppServerTranscriptItem(role: .assistant, title: "Codex", body: "final answer"),
+        ]
+
+        let entries = CodexTrajectoryTranscriptDisplayEntry.entries(from: items)
+
+        XCTAssertEqual(entries.map(\.kind), [.plain, .plain, .plain, .previousMessages, .plain])
+        XCTAssertEqual(entries[0].block.text, "old prompt")
+        XCTAssertEqual(entries[1].block.text, "old answer")
+        XCTAssertEqual(entries[2].block.text, "latest prompt")
+        XCTAssertEqual(entries[3].title, "3 previous messages")
+        XCTAssertEqual(entries[4].block.text, "final answer")
+    }
+
+    func testTranscriptDisplaySuppressesChatRoleTitles() {
+        let entries = CodexTrajectoryTranscriptDisplayEntry.entries(from: [
+            CodexAppServerTranscriptItem(role: .user, title: "You", body: "Use **literal** markdown"),
+            CodexAppServerTranscriptItem(role: .assistant, title: "Codex", body: "Rendered answer"),
+            CodexAppServerTranscriptItem(role: .event, title: "Event", body: "Diagnostic"),
+        ])
+
+        XCTAssertEqual(entries.map(\.block.title), ["", "", "Event"])
+        XCTAssertEqual(entries.map(\.block.displayText), ["Use **literal** markdown", "Rendered answer", "Event\nDiagnostic"])
+    }
+
+    func testTranscriptDisplaySuppressesLifecycleNoise() {
+        let entries = CodexTrajectoryTranscriptDisplayEntry.entries(from: [
+            CodexAppServerTranscriptItem(role: .event, title: "Thread resumed", body: "thread-id"),
+            CodexAppServerTranscriptItem(role: .event, title: "mcpServer/startupStatus/updated", body: "{}"),
+            CodexAppServerTranscriptItem(role: .event, title: "thread/status/changed", body: "idle"),
+            CodexAppServerTranscriptItem(role: .event, title: "Warning", body: "needs attention"),
+            CodexAppServerTranscriptItem(role: .assistant, title: "Codex", body: "visible"),
+        ])
+
+        XCTAssertEqual(entries.map(\.block.displayText), ["Warning\nneeds attention", "visible"])
+    }
+
+    func testTranscriptDisplayDoesNotCollapseWaitingTurn() {
+        let items: [CodexAppServerTranscriptItem] = [
+            CodexAppServerTranscriptItem(role: .user, title: "You", body: "old prompt"),
+            CodexAppServerTranscriptItem(role: .assistant, title: "Codex", body: "old answer"),
+            CodexAppServerTranscriptItem(role: .user, title: "You", body: "latest prompt"),
+            Self.transcriptToolCall(name: "exec_command", body: "git status"),
+            CodexAppServerTranscriptItem(role: .event, title: "Tool output", body: "clean", presentation: .toolOutput),
+        ]
+
+        let entries = CodexTrajectoryTranscriptDisplayEntry.entries(from: items)
+
+        XCTAssertEqual(entries.map(\.kind), [.plain, .plain, .plain, .toolGroup])
+    }
+
     private static func responseItem(role: String, text: String) -> [String: Any] {
         [
             "timestamp": "2026-04-06T21:34:00.000Z",

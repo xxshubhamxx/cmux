@@ -1,5 +1,6 @@
 import CoreGraphics
 import CoreText
+import CMUXMarkdown
 
 public struct CodexTrajectoryBlockStyle {
     public var font: CTFont
@@ -16,23 +17,55 @@ public struct CodexTrajectoryBlockStyle {
 public struct CodexTrajectoryTheme {
     public var identifier: String
     public var contentInsets: CodexTrajectoryInsets
+    public var contentInsetsByKind: [CodexTrajectoryBlockKind: CodexTrajectoryInsets]
     public var stylesByKind: [CodexTrajectoryBlockKind: CodexTrajectoryBlockStyle]
     public var fallbackStyle: CodexTrajectoryBlockStyle
+    public var markdownKinds: Set<CodexTrajectoryBlockKind>
+    public var markdownTheme: CMUXMarkdownCoreTextTheme?
 
     public init(
         identifier: String,
         contentInsets: CodexTrajectoryInsets = CodexTrajectoryInsets(top: 6, left: 8, bottom: 6, right: 8),
+        contentInsetsByKind: [CodexTrajectoryBlockKind: CodexTrajectoryInsets] = [:],
         stylesByKind: [CodexTrajectoryBlockKind: CodexTrajectoryBlockStyle],
-        fallbackStyle: CodexTrajectoryBlockStyle
+        fallbackStyle: CodexTrajectoryBlockStyle,
+        markdownKinds: Set<CodexTrajectoryBlockKind> = [.assistantText],
+        markdownTheme: CMUXMarkdownCoreTextTheme? = nil
     ) {
         self.identifier = identifier
         self.contentInsets = contentInsets
+        self.contentInsetsByKind = contentInsetsByKind
         self.stylesByKind = stylesByKind
         self.fallbackStyle = fallbackStyle
+        self.markdownKinds = markdownKinds
+        self.markdownTheme = markdownTheme
     }
 
     public func style(for kind: CodexTrajectoryBlockKind) -> CodexTrajectoryBlockStyle {
         stylesByKind[kind] ?? fallbackStyle
+    }
+
+    public func contentInsets(for kind: CodexTrajectoryBlockKind) -> CodexTrajectoryInsets {
+        contentInsetsByKind[kind] ?? contentInsets
+    }
+
+    public func markdownTheme(for kind: CodexTrajectoryBlockKind) -> CMUXMarkdownCoreTextTheme? {
+        guard markdownKinds.contains(kind) else { return nil }
+        if let markdownTheme {
+            return markdownTheme
+        }
+        let style = self.style(for: kind)
+        let monoStyle = self.style(for: .toolCall)
+        return CMUXMarkdownCoreTextTheme(
+            baseFont: style.font,
+            monospacedFont: monoStyle.font,
+            foregroundColor: style.foregroundColor,
+            mutedColor: self.style(for: .status).foregroundColor,
+            linkColor: CGColor(red: 0.34, green: 0.55, blue: 0.92, alpha: 1),
+            codeColor: monoStyle.foregroundColor,
+            paragraphSpacing: 8,
+            lineSpacing: 3
+        )
     }
 
     public static func defaultLight(

@@ -18,6 +18,13 @@ enum CodexTrajectoryTranscriptDisplayKind: Hashable {
     case plain
     case toolGroup
     case compaction
+    case previousMessages
+}
+
+private struct CodexTrajectoryFileChange: Hashable {
+    var path: String
+    var added: Int
+    var removed: Int
 }
 
 struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
@@ -27,13 +34,44 @@ struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
     var subtitle: String
     var statusText: String?
     var block: CodexTrajectoryBlock
+    fileprivate var toolRuns: [CodexTrajectoryToolRun] = []
+    fileprivate var fileChanges: [CodexTrajectoryFileChange] = []
+    fileprivate var previousEntries: [CodexTrajectoryTranscriptDisplayEntry] = []
 
     var isAccordion: Bool {
-        kind == .toolGroup
+        kind == .toolGroup || kind == .previousMessages
     }
 
     var isCompaction: Bool {
         kind == .compaction
+    }
+
+    var isPreviousMessages: Bool {
+        kind == .previousMessages
+    }
+
+    var isUserMessage: Bool {
+        block.kind == .userText
+    }
+
+    var accordionIDs: [String] {
+        var ids: [String] = isAccordion ? [id] : []
+        for entry in previousEntries {
+            ids.append(contentsOf: entry.accordionIDs)
+        }
+        return ids
+    }
+
+    var blockIDs: [String] {
+        [block.id] + previousEntries.flatMap(\.blockIDs)
+    }
+
+    var toolSummaryLines: [String] {
+        let lines = toolRuns.map(\.summaryLine).filter { !$0.isEmpty }
+        if !lines.isEmpty {
+            return lines
+        }
+        return subtitle.isEmpty ? [] : [subtitle]
     }
 
     static func entries(from items: [CodexAppServerTranscriptItem]) -> [Self] {
@@ -49,7 +87,9 @@ struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
         }
 
         for item in items {
-            if item.isToolTranscriptItem {
+            if item.isHiddenCodexLifecycleTranscriptItem {
+                continue
+            } else if item.isToolTranscriptItem {
                 toolItems.append(item)
             } else if item.presentation == .compaction {
                 flushToolItems()
@@ -60,7 +100,61 @@ struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
             }
         }
         flushToolItems()
-        return entries
+        return collapsePreviousMessages(in: entries)
+    }
+
+    private static func collapsePreviousMessages(in entries: [Self]) -> [Self] {
+        guard let latestUserIndex = entries.lastIndex(where: \.isUserMessage) else {
+            return entries
+        }
+
+        guard let latestAssistantIndex = entries.indices.last(where: { index in
+            index > latestUserIndex && entries[index].block.kind == .assistantText
+        }) else {
+            return entries
+        }
+
+        let progressStart = latestUserIndex + 1
+        guard progressStart < latestAssistantIndex else {
+            return entries
+        }
+
+        let previous = Array(entries[progressStart..<latestAssistantIndex])
+        guard !previous.isEmpty else { return entries }
+
+        return Array(entries[...latestUserIndex])
+            + [previousMessages(previous, before: entries[latestAssistantIndex])]
+            + Array(entries[latestAssistantIndex...])
+    }
+
+    private static func previousMessages(_ entries: [Self], before latest: Self) -> Self {
+        let count = entries.count
+        let title: String
+        if count == 1 {
+            title = String(localized: "codexAppServer.previousMessages.one", defaultValue: "1 previous message")
+        } else {
+            let format = String(
+                localized: "codexAppServer.previousMessages.many",
+                defaultValue: "%1$ld previous messages"
+            )
+            title = String(format: format, locale: Locale.current, count)
+        }
+        return Self(
+            id: "previous-\(latest.id)",
+            kind: .previousMessages,
+            title: title,
+            subtitle: "",
+            statusText: nil,
+            block: CodexTrajectoryBlock(
+                id: "previous-\(latest.block.id)",
+                kind: .status,
+                title: title,
+                text: "",
+                isStreaming: false,
+                createdAt: latest.block.createdAt
+            ),
+            previousEntries: entries
+        )
     }
 
     private static func compaction(from item: CodexAppServerTranscriptItem) -> Self {
@@ -82,16 +176,24 @@ struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
     }
 
     private static func plain(from item: CodexAppServerTranscriptItem) -> Self {
-        Self(
+        let shouldSuppressRoleTitle: Bool
+        switch item.role {
+        case .user, .assistant:
+            shouldSuppressRoleTitle = true
+        case .event, .stderr, .error:
+            shouldSuppressRoleTitle = false
+        }
+        let title = shouldSuppressRoleTitle ? "" : item.title
+        return Self(
             id: item.id.uuidString,
             kind: .plain,
-            title: item.title,
+            title: title,
             subtitle: "",
             statusText: nil,
             block: CodexTrajectoryBlock(
                 id: item.id.uuidString,
                 kind: item.trajectoryKind,
-                title: item.title,
+                title: title,
                 text: item.body,
                 isStreaming: item.isStreaming,
                 createdAt: item.date
@@ -121,7 +223,9 @@ struct CodexTrajectoryTranscriptDisplayEntry: Hashable {
                 text: detailText,
                 isStreaming: items.contains(where: \.isStreaming),
                 createdAt: first.date
-            )
+            ),
+            toolRuns: runs,
+            fileChanges: runs.compactMap(\.fileChange)
         )
     }
 
@@ -157,6 +261,7 @@ private struct CodexTrajectoryToolRun: Hashable {
     var command: String
     var output: String
     var exitCode: Int?
+    var fileChange: CodexTrajectoryFileChange?
 
     var summary: String? {
         if !summaryLine.isEmpty {
@@ -415,7 +520,8 @@ private struct CodexTrajectoryToolRun: Hashable {
                 ),
                 command: body,
                 output: "",
-                exitCode: nil
+                exitCode: nil,
+                fileChange: change
             )
         }
         if !patchRuns.isEmpty {
@@ -435,7 +541,8 @@ private struct CodexTrajectoryToolRun: Hashable {
                     summaryLine: String(format: format, locale: Locale.current, displayPath(path), 0, 0),
                     command: body,
                     output: "",
-                    exitCode: nil
+                    exitCode: nil,
+                    fileChange: CodexTrajectoryFileChange(path: path, added: 0, removed: 0)
                 )
             }
         }
@@ -752,15 +859,9 @@ private struct CodexTrajectoryToolRun: Hashable {
         return (query, arguments.dropFirst().last)
     }
 
-    private struct PatchFileChange {
-        var path: String
-        var added: Int
-        var removed: Int
-    }
-
-    private static func patchFileChanges(from body: String) -> [PatchFileChange] {
-        var changes: [PatchFileChange] = []
-        var current: PatchFileChange?
+    private static func patchFileChanges(from body: String) -> [CodexTrajectoryFileChange] {
+        var changes: [CodexTrajectoryFileChange] = []
+        var current: CodexTrajectoryFileChange?
 
         func finishCurrent() {
             if let current {
@@ -773,7 +874,7 @@ private struct CodexTrajectoryToolRun: Hashable {
             let line = String(rawLine)
             if let path = patchPath(from: line) {
                 finishCurrent()
-                current = PatchFileChange(path: path, added: 0, removed: 0)
+                current = CodexTrajectoryFileChange(path: path, added: 0, removed: 0)
                 continue
             }
             guard current != nil else { continue }
@@ -832,7 +933,7 @@ private struct CodexTrajectoryToolRun: Hashable {
         .filter { !$0.isEmpty }
     }
 
-    private static func displayPath(_ rawPath: String) -> String {
+    fileprivate static func displayPath(_ rawPath: String) -> String {
         var path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if path.hasPrefix("./") {
             path.removeFirst(2)
@@ -942,6 +1043,29 @@ private extension CodexAppServerTranscriptItem {
         }
     }
 
+    var isHiddenCodexLifecycleTranscriptItem: Bool {
+        guard role == .event, presentation == .plain else { return false }
+        let titleText = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bodyText = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let quietTitles: Set<String> = [
+            "App server started",
+            "History loaded",
+            "Thread resumed",
+            "mcpServer/startupStatus/updated",
+            "thread/status/changed",
+            "thread/tokenUsage/updated",
+        ]
+        if quietTitles.contains(titleText) {
+            return true
+        }
+
+        let quietBodies: Set<String> = [
+            "idle",
+            "running",
+        ]
+        return quietBodies.contains(bodyText) && titleText.hasPrefix("thread/")
+    }
+
     var trajectoryKind: CodexTrajectoryBlockKind {
         switch role {
         case .user:
@@ -961,20 +1085,34 @@ private extension CodexAppServerTranscriptItem {
 final class CodexTrajectoryTranscriptScrollView: NSScrollView {
     private let trajectoryView = CodexTrajectoryTranscriptDocumentView()
     private var entries: [CodexTrajectoryTranscriptDisplayEntry] = []
+    private var backgroundObserver: NSObjectProtocol?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         drawsBackground = true
-        backgroundColor = .textBackgroundColor
+        backgroundColor = CodexTrajectoryTranscriptDocumentView.transcriptBackgroundColor(for: effectiveAppearance)
         hasVerticalScroller = true
         hasHorizontalScroller = false
         autohidesScrollers = true
         borderType = .noBorder
         documentView = trajectoryView
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshThemeColors()
+        }
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if let backgroundObserver {
+            NotificationCenter.default.removeObserver(backgroundObserver)
+        }
     }
 
     override func layout() {
@@ -1006,6 +1144,11 @@ final class CodexTrajectoryTranscriptScrollView: NSScrollView {
         }
     }
 
+    private func refreshThemeColors() {
+        backgroundColor = CodexTrajectoryTranscriptDocumentView.transcriptBackgroundColor(for: effectiveAppearance)
+        trajectoryView.invalidateTheme()
+    }
+
     private func scrollToBottom() {
         let maxY = max(0, trajectoryView.frame.height - contentView.bounds.height)
         contentView.scroll(to: NSPoint(x: 0, y: maxY))
@@ -1018,7 +1161,9 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         case plain
         case accordionHeader
         case accordionContent
+        case fileChangeCard
         case compaction
+        case previousMessagesHeader
     }
 
     private struct PageEntry {
@@ -1081,12 +1226,19 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
     private var isSelectingText = false
     private var animationTimer: Timer?
     private var documentWidth: CGFloat = 1
-    private let horizontalInset: CGFloat = 14
-    private let rowSpacing: CGFloat = 10
-    private let accordionHeaderHeight: CGFloat = 40
+    private let horizontalInset: CGFloat = 32
+    private let maxContentWidth: CGFloat = 1_520
+    private let maxUserBubbleWidth: CGFloat = 1_120
+    private let rowSpacing: CGFloat = 16
+    private let accordionHeaderTitleHeight: CGFloat = 28
+    private let accordionSummaryRowHeight: CGFloat = 23
+    private let accordionSummaryLimit = 12
+    private let previousMessagesHeaderHeight: CGFloat = 46
     private let compactionHeight: CGFloat = 58
-    private let accordionContentIndent: CGFloat = 24
-    private let accordionContentTopSpacing: CGFloat = 8
+    private let accordionContentIndent: CGFloat = 0
+    private let accordionContentTopSpacing: CGFloat = 2
+    private let fileChangeHeaderHeight: CGFloat = 44
+    private let fileChangeRowHeight: CGFloat = 40
     private let accordionAnimationDuration: TimeInterval = 0.18
 
     override var isFlipped: Bool {
@@ -1107,13 +1259,18 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
 
     func update(entries: [CodexTrajectoryTranscriptDisplayEntry], width: CGFloat) {
         let normalizedWidth = max(1, width)
-        let activeAccordionIDs = Set(entries.filter(\.isAccordion).map(\.id))
+        let activeAccordionIDs = Set(entries.flatMap(\.accordionIDs))
         expandedAccordionIDs.formIntersection(activeAccordionIDs)
         expansionAnimations = expansionAnimations.filter { activeAccordionIDs.contains($0.key) }
 
         guard entries != self.entries || abs(normalizedWidth - documentWidth) > 0.5 else { return }
         self.entries = entries
         documentWidth = normalizedWidth
+        rebuildLayout()
+    }
+
+    fileprivate func invalidateTheme() {
+        cachedLayouts.removeAll(keepingCapacity: true)
         rebuildLayout()
     }
 
@@ -1136,12 +1293,7 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
             switch pageEntry.chrome {
             case .plain:
                 guard let page = pageEntry.page else { continue }
-                let pageRect = CGRect(
-                    x: horizontalInset,
-                    y: y + rowSpacing / 2,
-                    width: max(1, documentWidth - horizontalInset * 2),
-                    height: page.measuredSize.height
-                )
+                let pageRect = plainPageRect(for: pageEntry, page: page, at: y)
                 drawBackground(for: pageEntry.entry.block.kind, in: pageRect, context: context)
                 drawSelectionIfNeeded(
                     pageEntry: pageEntry,
@@ -1160,15 +1312,18 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
                     coordinates: .yDown
                 )
             case .accordionHeader:
-                let rect = accordionHeaderRect(at: y)
+                let rect = accordionHeaderRect(for: pageEntry.entry, at: y)
                 drawAccordionHeader(entry: pageEntry.entry, in: rect, context: context)
+            case .previousMessagesHeader:
+                let rect = accordionHeaderRect(for: pageEntry.entry, at: y)
+                drawPreviousMessagesHeader(entry: pageEntry.entry, in: rect, context: context)
             case .accordionContent:
                 guard let page = pageEntry.page else { continue }
                 let allocatedHeight = heightIndex.height(at: index) ?? 0
                 guard allocatedHeight > 0.5 else { continue }
                 let progress = max(0.01, expansionProgress(for: pageEntry.entry.id))
-                let contentX = horizontalInset + accordionContentIndent
-                let contentWidth = max(1, documentWidth - horizontalInset * 2 - accordionContentIndent)
+                let contentX = self.contentX + accordionContentIndent
+                let contentWidth = max(1, self.contentWidth - accordionContentIndent)
                 let pageRect = CGRect(
                     x: contentX,
                     y: y + pageEntry.topSpacing * progress,
@@ -1185,7 +1340,6 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
                 context.saveGState()
                 context.clip(to: clipRect)
                 context.setAlpha(min(1, progress * 1.35))
-                drawAccordionContentBackground(in: pageRect, context: context)
                 drawSelectionIfNeeded(
                     pageEntry: pageEntry,
                     pageEntryIndex: index,
@@ -1202,6 +1356,17 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
                     theme: theme,
                     coordinates: .yDown
                 )
+                context.restoreGState()
+            case .fileChangeCard:
+                let allocatedHeight = heightIndex.height(at: index) ?? 0
+                guard allocatedHeight > 0.5 else { continue }
+                let progress = max(0.01, expansionProgress(for: pageEntry.entry.id))
+                let rect = contentRect(y: y, height: fileChangeCardHeight(for: pageEntry.entry))
+                let clipRect = contentRect(y: y, height: allocatedHeight)
+                context.saveGState()
+                context.clip(to: clipRect)
+                context.setAlpha(min(1, progress * 1.35))
+                drawFileChangeCard(entry: pageEntry.entry, in: rect, context: context)
                 context.restoreGState()
             case .compaction:
                 drawCompaction(entry: pageEntry.entry, at: y, context: context)
@@ -1227,13 +1392,13 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         }
 
         let pageEntry = pageEntries[index]
-        guard case .accordionHeader = pageEntry.chrome else {
+        guard pageEntry.chrome == .accordionHeader || pageEntry.chrome == .previousMessagesHeader else {
             super.mouseDown(with: event)
             return
         }
 
         let y = heightIndex.prefixSum(upTo: index)
-        guard accordionHeaderRect(at: y).contains(point) else {
+        guard accordionHeaderRect(for: pageEntry.entry, at: y).contains(point) else {
             super.mouseDown(with: event)
             return
         }
@@ -1314,8 +1479,8 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
             let y = heightIndex.prefixSum(upTo: index)
             let pageEntry = pageEntries[index]
             switch pageEntry.chrome {
-            case .accordionHeader:
-                addCursorRect(accordionHeaderRect(at: y), cursor: .pointingHand)
+            case .accordionHeader, .previousMessagesHeader:
+                addCursorRect(accordionHeaderRect(for: pageEntry.entry, at: y), cursor: .pointingHand)
             case .plain, .accordionContent:
                 if let rect = selectablePageRect(
                     for: pageEntry,
@@ -1325,14 +1490,26 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
                 ) {
                     addCursorRect(rect, cursor: .iBeam)
                 }
-            case .compaction:
+            case .fileChangeCard, .compaction:
                 continue
             }
         }
     }
 
     private var backgroundColor: NSColor {
-        .textBackgroundColor
+        Self.transcriptBackgroundColor(for: effectiveAppearance)
+    }
+
+    private var contentWidth: CGFloat {
+        min(maxContentWidth, max(1, documentWidth - horizontalInset * 2))
+    }
+
+    private var contentX: CGFloat {
+        max(horizontalInset, floor((documentWidth - contentWidth) / 2))
+    }
+
+    private func contentRect(y: CGFloat, height: CGFloat) -> CGRect {
+        CGRect(x: contentX, y: y, width: contentWidth, height: height)
     }
 
     private func clearTextSelection() {
@@ -1359,7 +1536,8 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         }) else {
             return nil
         }
-        let length = Self.displayText(for: pageEntry.entry.block).utf16.count
+        let theme = Self.theme(for: effectiveAppearance)
+        let length = codexTrajectoryRenderedText(for: pageEntry.entry.block, theme: theme).plainText.utf16.count
         return TextSelectionEndpoint(
             blockID: endpoint.blockID,
             utf16Offset: min(max(endpoint.utf16Offset, 0), length)
@@ -1411,11 +1589,11 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
 
     private func rebuildLayout() {
         let theme = Self.theme(for: effectiveAppearance)
-        let layoutWidth = max(1, documentWidth - horizontalInset * 2)
+        let layoutWidth = contentWidth
         pageEntries.removeAll(keepingCapacity: true)
         var heights: [CGFloat] = []
 
-        for entry in entries {
+        func appendEntry(_ entry: CodexTrajectoryTranscriptDisplayEntry) {
             if entry.isCompaction {
                 pageEntries.append(
                     PageEntry(
@@ -1428,8 +1606,29 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
                     )
                 )
                 heights.append(compactionHeight)
+            } else if entry.isPreviousMessages {
+                let progress = expansionProgress(for: entry.id)
+                let headerHeight = accordionHeaderHeight(for: entry)
+                pageEntries.append(
+                    PageEntry(
+                        entry: entry,
+                        page: nil,
+                        chrome: .previousMessagesHeader,
+                        topSpacing: 0,
+                        bottomSpacing: progress > 0 ? 0 : rowSpacing,
+                        fullContentHeight: headerHeight
+                    )
+                )
+                heights.append(headerHeight + (progress > 0 ? 0 : rowSpacing))
+
+                if progress > 0 {
+                    for previousEntry in entry.previousEntries {
+                        appendEntry(previousEntry)
+                    }
+                }
             } else if entry.isAccordion {
                 let progress = expansionProgress(for: entry.id)
+                let headerHeight = accordionHeaderHeight(for: entry)
                 pageEntries.append(
                     PageEntry(
                         entry: entry,
@@ -1437,35 +1636,51 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
                         chrome: .accordionHeader,
                         topSpacing: 0,
                         bottomSpacing: progress > 0 ? 0 : rowSpacing,
-                        fullContentHeight: accordionHeaderHeight
+                        fullContentHeight: headerHeight
                     )
                 )
-                heights.append(accordionHeaderHeight + (progress > 0 ? 0 : rowSpacing))
+                heights.append(headerHeight + (progress > 0 ? 0 : rowSpacing))
 
                 if progress > 0 {
-                    let contentWidth = max(1, layoutWidth - accordionContentIndent)
-                    let layout = layout(for: entry.block, width: contentWidth, theme: theme)
-                    for page in layout.pages {
-                        let isFirstPage = page.pageIndex == 0
-                        let isLastPage = page.pageIndex == layout.pages.count - 1
-                        let topSpacing = isFirstPage ? accordionContentTopSpacing : 0
-                        let bottomSpacing = isLastPage ? rowSpacing : 0
-                        let fullHeight = topSpacing + page.measuredSize.height + bottomSpacing
+                    if !entry.fileChanges.isEmpty {
+                        let fullHeight = fileChangeCardHeight(for: entry) + rowSpacing
                         pageEntries.append(
                             PageEntry(
                                 entry: entry,
-                                page: page,
-                                chrome: .accordionContent,
-                                topSpacing: topSpacing,
-                                bottomSpacing: bottomSpacing,
+                                page: nil,
+                                chrome: .fileChangeCard,
+                                topSpacing: 0,
+                                bottomSpacing: rowSpacing,
                                 fullContentHeight: fullHeight
                             )
                         )
                         heights.append(max(0, fullHeight * progress))
+                    } else {
+                        let contentWidth = max(1, layoutWidth - accordionContentIndent)
+                        let layout = layout(for: entry.block, width: contentWidth, theme: theme)
+                        for page in layout.pages {
+                            let isFirstPage = page.pageIndex == 0
+                            let isLastPage = page.pageIndex == layout.pages.count - 1
+                            let topSpacing = isFirstPage ? accordionContentTopSpacing : 0
+                            let bottomSpacing = isLastPage ? rowSpacing : 0
+                            let fullHeight = topSpacing + page.measuredSize.height + bottomSpacing
+                            pageEntries.append(
+                                PageEntry(
+                                    entry: entry,
+                                    page: page,
+                                    chrome: .accordionContent,
+                                    topSpacing: topSpacing,
+                                    bottomSpacing: bottomSpacing,
+                                    fullContentHeight: fullHeight
+                                )
+                            )
+                            heights.append(max(0, fullHeight * progress))
+                        }
                     }
                 }
             } else {
-                let layout = layout(for: entry.block, width: layoutWidth, theme: theme)
+                let entryLayoutWidth = plainLayoutWidth(for: entry, theme: theme)
+                let layout = layout(for: entry.block, width: entryLayoutWidth, theme: theme)
                 for page in layout.pages {
                     pageEntries.append(
                         PageEntry(
@@ -1482,6 +1697,10 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
             }
         }
 
+        for entry in entries {
+            appendEntry(entry)
+        }
+
         if cachedLayouts.count > max(256, entries.count * 3) {
             pruneLayoutCache()
         }
@@ -1491,6 +1710,11 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         clampSelectionToCurrentText()
         needsDisplay = true
         window?.invalidateCursorRects(for: self)
+    }
+
+    private func fileChangeCardHeight(for entry: CodexTrajectoryTranscriptDisplayEntry) -> CGFloat {
+        guard !entry.fileChanges.isEmpty else { return 0 }
+        return fileChangeHeaderHeight + CGFloat(entry.fileChanges.count) * fileChangeRowHeight
     }
 
     private func layout(
@@ -1516,6 +1740,43 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         return layout
     }
 
+    private func plainLayoutWidth(
+        for entry: CodexTrajectoryTranscriptDisplayEntry,
+        theme: CodexTrajectoryTheme
+    ) -> CGFloat {
+        guard entry.isUserMessage else { return contentWidth }
+        let maxWidth = min(maxUserBubbleWidth, contentWidth * 0.74)
+        guard maxWidth > 1 else { return 1 }
+        let minWidth = min(maxWidth, 260)
+        let rendered = codexTrajectoryRenderedText(for: entry.block, theme: theme)
+        let style = theme.style(for: .userText)
+        let insets = theme.contentInsets(for: .userText)
+        let maxLineWidth = rendered.plainText
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .reduce(CGFloat(0)) { current, line in
+                max(current, measureTextWidth(String(line), font: style.font))
+            }
+        let idealWidth = ceil(maxLineWidth + insets.left + insets.right + 2)
+        return min(maxWidth, max(minWidth, idealWidth))
+    }
+
+    private func plainPageRect(
+        for pageEntry: PageEntry,
+        page: CodexTrajectoryLayoutPage,
+        at y: CGFloat
+    ) -> CGRect {
+        let width = min(contentWidth, page.measuredSize.width)
+        let x = pageEntry.entry.isUserMessage
+            ? contentX + contentWidth - width
+            : contentX
+        return CGRect(
+            x: x,
+            y: y + rowSpacing / 2,
+            width: width,
+            height: page.measuredSize.height
+        )
+    }
+
     private func selectablePageRect(
         for pageEntry: PageEntry,
         at index: Int,
@@ -1525,23 +1786,18 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         guard let page = pageEntry.page else { return nil }
         switch pageEntry.chrome {
         case .plain:
-            return CGRect(
-                x: horizontalInset,
-                y: y + rowSpacing / 2,
-                width: max(1, documentWidth - horizontalInset * 2),
-                height: page.measuredSize.height
-            )
+            return plainPageRect(for: pageEntry, page: page, at: y)
         case .accordionContent:
             let allocatedHeight = heightIndex.height(at: index) ?? 0
             guard allocatedHeight > 0.5 else { return nil }
             let progress = max(0.01, expansionProgress(for: pageEntry.entry.id))
             return CGRect(
-                x: horizontalInset + accordionContentIndent,
+                x: contentX + accordionContentIndent,
                 y: y + pageEntry.topSpacing * progress,
-                width: max(1, documentWidth - horizontalInset * 2 - accordionContentIndent),
+                width: max(1, contentWidth - accordionContentIndent),
                 height: page.measuredSize.height
             )
-        case .accordionHeader, .compaction:
+        case .accordionHeader, .fileChangeCard, .compaction, .previousMessagesHeader:
             return nil
         }
     }
@@ -1613,7 +1869,7 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         point: CGPoint,
         theme: CodexTrajectoryTheme
     ) -> TextSelectionEndpoint? {
-        let pageInfo = Self.pageTextInfo(for: pageEntry.entry.block, page: page)
+        let pageInfo = Self.pageTextInfo(for: pageEntry.entry.block, page: page, theme: theme)
         let pageText = pageInfo.text
         let textLength = (pageText as NSString).length
         guard textLength > 0 else {
@@ -1624,9 +1880,9 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         }
 
         let frame = textFrame(
-            text: pageText,
-            kind: pageEntry.entry.block.kind,
+            attributed: pageInfo.attributedString,
             pageRect: pageRect,
+            blockKind: pageEntry.entry.block.kind,
             theme: theme
         )
         let lines = CTFrameGetLines(frame) as? [CTLine] ?? []
@@ -1691,7 +1947,8 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         context: CGContext
     ) {
         guard let selection = textSelection, !selection.isEmpty else { return }
-        let pageText = Self.pageText(for: pageEntry.entry.block, page: page)
+        let pageInfo = Self.pageTextInfo(for: pageEntry.entry.block, page: page, theme: theme)
+        let pageText = pageInfo.text
         guard let range = selectedUTF16Range(
             forPageEntryIndex: pageEntryIndex,
             pageEntry: pageEntry,
@@ -1703,9 +1960,9 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         }
 
         let frame = textFrame(
-            text: pageText,
-            kind: pageEntry.entry.block.kind,
+            attributed: pageInfo.attributedString,
             pageRect: pageRect,
+            blockKind: pageEntry.entry.block.kind,
             theme: theme
         )
         let rects = selectionRects(
@@ -1733,7 +1990,8 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         selection: TextSelection
     ) -> Range<Int>? {
         guard let normalized = normalizedSelection(selection) else { return nil }
-        let pageInfo = Self.pageTextInfo(for: pageEntry.entry.block, page: page)
+        let theme = Self.theme(for: effectiveAppearance)
+        let pageInfo = Self.pageTextInfo(for: pageEntry.entry.block, page: page, theme: theme)
         let pageRange = pageInfo.globalUTF16Range
         let textLength = (pageText as NSString).length
         guard textLength > 0 else { return nil }
@@ -1805,19 +2063,13 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
     }
 
     private func textFrame(
-        text: String,
-        kind: CodexTrajectoryBlockKind,
+        attributed: CFAttributedString,
         pageRect: CGRect,
+        blockKind: CodexTrajectoryBlockKind,
         theme: CodexTrajectoryTheme
     ) -> CTFrame {
-        let style = theme.style(for: kind)
-        let attributes: [CFString: Any] = [
-            kCTFontAttributeName: style.font,
-            kCTForegroundColorAttributeName: style.foregroundColor,
-        ]
-        let attributed = CFAttributedStringCreate(kCFAllocatorDefault, text as CFString, attributes as CFDictionary)!
         let framesetter = CTFramesetterCreateWithAttributedString(attributed)
-        let insets = theme.contentInsets
+        let insets = theme.contentInsets(for: blockKind)
         let localTextRect = CGRect(
             x: insets.left,
             y: insets.bottom,
@@ -1838,6 +2090,7 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         guard let selection = textSelection, !selection.isEmpty else { return nil }
         guard let normalized = normalizedSelection(selection) else { return nil }
 
+        let theme = Self.theme(for: effectiveAppearance)
         var chunks: [String] = []
         for index in normalized.lowerBlockIndex...normalized.upperBlockIndex {
             guard pageEntries.indices.contains(index),
@@ -1848,10 +2101,10 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
             switch pageEntry.chrome {
             case .plain, .accordionContent:
                 break
-            case .accordionHeader, .compaction:
+            case .accordionHeader, .fileChangeCard, .compaction, .previousMessagesHeader:
                 continue
             }
-            let pageText = Self.pageText(for: pageEntry.entry.block, page: page)
+            let pageText = Self.pageText(for: pageEntry.entry.block, page: page, theme: theme)
             guard let range = selectedUTF16Range(
                 forPageEntryIndex: index,
                 pageEntry: pageEntry,
@@ -1873,18 +2126,19 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
     }
 
     private func firstTextEndpoint() -> TextSelectionEndpoint? {
+        let theme = Self.theme(for: effectiveAppearance)
         for pageEntry in pageEntries {
             guard let page = pageEntry.page else { continue }
             switch pageEntry.chrome {
             case .plain, .accordionContent:
-                let pageInfo = Self.pageTextInfo(for: pageEntry.entry.block, page: page)
+                let pageInfo = Self.pageTextInfo(for: pageEntry.entry.block, page: page, theme: theme)
                 if (pageInfo.text as NSString).length > 0 {
                     return TextSelectionEndpoint(
                         blockID: pageEntry.entry.block.id,
                         utf16Offset: pageInfo.globalUTF16Range.lowerBound
                     )
                 }
-            case .accordionHeader, .compaction:
+            case .accordionHeader, .fileChangeCard, .compaction, .previousMessagesHeader:
                 continue
             }
         }
@@ -1892,11 +2146,12 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
     }
 
     private func lastTextEndpoint() -> TextSelectionEndpoint? {
+        let theme = Self.theme(for: effectiveAppearance)
         for pageEntry in pageEntries.reversed() {
             guard let page = pageEntry.page else { continue }
             switch pageEntry.chrome {
             case .plain, .accordionContent:
-                let pageInfo = Self.pageTextInfo(for: pageEntry.entry.block, page: page)
+                let pageInfo = Self.pageTextInfo(for: pageEntry.entry.block, page: page, theme: theme)
                 let length = (pageInfo.text as NSString).length
                 if length > 0 {
                     return TextSelectionEndpoint(
@@ -1904,7 +2159,7 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
                         utf16Offset: pageInfo.globalUTF16Range.upperBound
                     )
                 }
-            case .accordionHeader, .compaction:
+            case .accordionHeader, .fileChangeCard, .compaction, .previousMessagesHeader:
                 continue
             }
         }
@@ -1913,47 +2168,21 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
 
     private static func pageText(
         for block: CodexTrajectoryBlock,
-        page: CodexTrajectoryLayoutPage
+        page: CodexTrajectoryLayoutPage,
+        theme: CodexTrajectoryTheme
     ) -> String {
-        pageTextInfo(for: block, page: page).text
-    }
-
-    private static func displayText(for block: CodexTrajectoryBlock) -> String {
-        block.displayText.isEmpty ? " " : block.displayText
+        pageTextInfo(for: block, page: page, theme: theme).text
     }
 
     private static func pageTextInfo(
         for block: CodexTrajectoryBlock,
-        page: CodexTrajectoryLayoutPage
-    ) -> (text: String, globalUTF16Range: Range<Int>) {
-        let displayText = displayText(for: block)
-        guard page.textRange.length > 0 else {
-            let offset = globalUTF16Offset(in: displayText, characterOffset: page.textRange.location)
-            return ("", offset..<offset)
-        }
-        let lower = displayText.index(
-            displayText.startIndex,
-            offsetBy: page.textRange.location,
-            limitedBy: displayText.endIndex
-        ) ?? displayText.endIndex
-        let upper = displayText.index(
-            lower,
-            offsetBy: page.textRange.length,
-            limitedBy: displayText.endIndex
-        ) ?? displayText.endIndex
-        let text = String(displayText[lower..<upper])
-        let lowerOffset = String(displayText[..<lower]).utf16.count
-        let upperOffset = String(displayText[..<upper]).utf16.count
-        return (text, lowerOffset..<upperOffset)
-    }
-
-    private static func globalUTF16Offset(in text: String, characterOffset: Int) -> Int {
-        let index = text.index(
-            text.startIndex,
-            offsetBy: max(0, characterOffset),
-            limitedBy: text.endIndex
-        ) ?? text.endIndex
-        return String(text[..<index]).utf16.count
+        page: CodexTrajectoryLayoutPage,
+        theme: CodexTrajectoryTheme
+    ) -> (text: String, attributedString: CFAttributedString, globalUTF16Range: Range<Int>) {
+        let renderedPage = codexTrajectoryRenderedPage(for: block, page: page, theme: theme)
+        let lower = max(0, page.textRange.location)
+        let upper = max(lower, page.textRange.upperBound)
+        return (renderedPage.plainText, renderedPage.attributedString, lower..<upper)
     }
 
     private func toggleAccordion(id: String) {
@@ -2014,13 +2243,17 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         Date.timeIntervalSinceReferenceDate
     }
 
-    private func accordionHeaderRect(at y: CGFloat) -> CGRect {
-        CGRect(
-            x: horizontalInset,
-            y: y + rowSpacing / 2,
-            width: max(1, documentWidth - horizontalInset * 2),
-            height: accordionHeaderHeight
-        )
+    private func accordionHeaderHeight(for entry: CodexTrajectoryTranscriptDisplayEntry) -> CGFloat {
+        if entry.isPreviousMessages {
+            return previousMessagesHeaderHeight
+        }
+
+        let summaryCount = min(entry.toolSummaryLines.count, accordionSummaryLimit)
+        return accordionHeaderTitleHeight + CGFloat(summaryCount) * accordionSummaryRowHeight
+    }
+
+    private func accordionHeaderRect(for entry: CodexTrajectoryTranscriptDisplayEntry, at y: CGFloat) -> CGRect {
+        contentRect(y: y + rowSpacing / 2, height: accordionHeaderHeight(for: entry))
     }
 
     private func drawCompaction(
@@ -2029,9 +2262,9 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         context: CGContext
     ) {
         let rect = CGRect(
-            x: horizontalInset,
+            x: contentX,
             y: y,
-            width: max(1, documentWidth - horizontalInset * 2),
+            width: contentWidth,
             height: compactionHeight
         )
         let font = CTFontCreateUIFontForLanguage(.system, 12, nil)
@@ -2081,51 +2314,32 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         in rect: CGRect,
         context: CGContext
     ) {
-        let fill = Self.color(.controlBackgroundColor, appearance: effectiveAppearance)
-        let stroke = Self.color(.separatorColor, appearance: effectiveAppearance)
-        let primary = Self.color(.labelColor, appearance: effectiveAppearance)
         let secondary = Self.color(.secondaryLabelColor, appearance: effectiveAppearance)
-        let tertiary = Self.color(.tertiaryLabelColor, appearance: effectiveAppearance)
+        let primary = Self.primaryTextColor(for: effectiveAppearance)
 
-        context.saveGState()
-        context.setFillColor(fill.cgColor)
-        context.addPath(CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil))
-        context.fillPath()
-        context.setStrokeColor(stroke.withAlphaComponent(0.45).cgColor)
-        context.setLineWidth(1)
-        context.addPath(CGPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerWidth: 8, cornerHeight: 8, transform: nil))
-        context.strokePath()
-        context.restoreGState()
-
-        drawChevron(
-            progress: expansionProgress(for: entry.id),
-            center: CGPoint(x: rect.minX + 18, y: rect.midY),
-            color: secondary.cgColor,
-            context: context
-        )
-
-        let titleFont = CTFontCreateUIFontForLanguage(.system, 13, nil)
-            ?? CTFontCreateWithName("Helvetica" as CFString, 13, nil)
-        let subtitleFont = CTFontCreateUIFontForLanguage(.system, 12, nil)
-            ?? CTFontCreateWithName("Helvetica" as CFString, 12, nil)
+        let titleFont = CTFontCreateUIFontForLanguage(.system, 14, nil)
+            ?? CTFontCreateWithName("Helvetica" as CFString, 14, nil)
+        let summaryFont = CTFontCreateUIFontForLanguage(.system, 15, nil)
+            ?? CTFontCreateWithName("Helvetica" as CFString, 15, nil)
         let statusFont = CTFontCreateUIFontForLanguage(.system, 12, nil)
             ?? CTFontCreateWithName("Helvetica" as CFString, 12, nil)
 
-        let textX = rect.minX + 34
+        let textX = rect.minX
         let statusWidth: CGFloat = entry.statusText == nil ? 0 : 112
-        let titleWidth = max(1, rect.maxX - textX - statusWidth - 12)
+        let titleWidth = max(1, rect.maxX - textX - statusWidth - 28)
         drawTruncatedLine(
             entry.title,
             font: titleFont,
-            color: primary.cgColor,
-            rect: CGRect(x: textX, y: rect.minY + 6, width: titleWidth, height: 16),
+            color: secondary.cgColor,
+            rect: CGRect(x: textX, y: rect.minY + 4, width: titleWidth, height: 18),
             context: context
         )
-        drawTruncatedLine(
-            entry.subtitle,
-            font: subtitleFont,
-            color: tertiary.cgColor,
-            rect: CGRect(x: textX, y: rect.minY + 22, width: titleWidth, height: 14),
+
+        let measuredTitleWidth = min(titleWidth, measureTextWidth(entry.title, font: titleFont))
+        drawChevron(
+            progress: expansionProgress(for: entry.id),
+            center: CGPoint(x: textX + measuredTitleWidth + 14, y: rect.midY + 1),
+            color: secondary.withAlphaComponent(0.86).cgColor,
             context: context
         )
 
@@ -2134,10 +2348,54 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
                 statusText,
                 font: statusFont,
                 color: secondary.cgColor,
-                rect: CGRect(x: rect.maxX - statusWidth - 12, y: rect.minY + 13, width: statusWidth, height: 15),
+                rect: CGRect(x: rect.maxX - statusWidth, y: rect.minY + 6, width: statusWidth, height: 16),
                 context: context
             )
         }
+
+        let visibleSummaries = Array(entry.toolSummaryLines.prefix(accordionSummaryLimit))
+        var summaryY = rect.minY + accordionHeaderTitleHeight + 2
+        for summary in visibleSummaries {
+            drawTruncatedLine(
+                summary,
+                font: summaryFont,
+                color: primary.withAlphaComponent(0.86).cgColor,
+                rect: CGRect(
+                    x: textX,
+                    y: summaryY,
+                    width: max(1, rect.width - 20),
+                    height: accordionSummaryRowHeight
+                ),
+                context: context
+            )
+            summaryY += accordionSummaryRowHeight
+        }
+    }
+
+    private func drawPreviousMessagesHeader(
+        entry: CodexTrajectoryTranscriptDisplayEntry,
+        in rect: CGRect,
+        context: CGContext
+    ) {
+        let secondary = Self.color(.secondaryLabelColor, appearance: effectiveAppearance)
+        let font = CTFontCreateUIFontForLanguage(.system, 15, nil)
+            ?? CTFontCreateWithName("Helvetica" as CFString, 15, nil)
+
+        drawTruncatedLine(
+            entry.title,
+            font: font,
+            color: secondary.cgColor,
+            rect: CGRect(x: rect.minX, y: rect.minY + 12, width: rect.width - 34, height: 22),
+            context: context
+        )
+
+        let textWidth = min(rect.width - 34, measureTextWidth(entry.title, font: font))
+        drawChevron(
+            progress: expansionProgress(for: entry.id),
+            center: CGPoint(x: rect.minX + textWidth + 17, y: rect.midY),
+            color: secondary.withAlphaComponent(0.86).cgColor,
+            context: context
+        )
     }
 
     private func drawChevron(
@@ -2174,15 +2432,151 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         context.restoreGState()
     }
 
+    private func drawFileChangeCard(
+        entry: CodexTrajectoryTranscriptDisplayEntry,
+        in rect: CGRect,
+        context: CGContext
+    ) {
+        guard !entry.fileChanges.isEmpty else { return }
+        let fill = Self.fileChangeCardFill(for: effectiveAppearance)
+        let stroke = Self.fileChangeCardStroke(for: effectiveAppearance)
+        let primary = Self.color(.labelColor, appearance: effectiveAppearance)
+        let secondary = Self.color(.secondaryLabelColor, appearance: effectiveAppearance)
+        let green = Self.color(.systemGreen, appearance: effectiveAppearance)
+        let red = Self.color(.systemRed, appearance: effectiveAppearance)
+        let titleFont = CTFontCreateUIFontForLanguage(.system, 14, nil)
+            ?? CTFontCreateWithName("Helvetica" as CFString, 14, nil)
+        let rowFont = CTFontCreateUIFontForLanguage(.system, 14, nil)
+            ?? CTFontCreateWithName("Helvetica" as CFString, 14, nil)
+        let countFont = CTFontCreateUIFontForLanguage(.system, 13, nil)
+            ?? CTFontCreateWithName("Helvetica" as CFString, 13, nil)
+
+        context.saveGState()
+        context.setFillColor(fill.cgColor)
+        context.addPath(CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil))
+        context.fillPath()
+        context.setStrokeColor(stroke.withAlphaComponent(0.72).cgColor)
+        context.setLineWidth(1)
+        context.addPath(CGPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerWidth: 8, cornerHeight: 8, transform: nil))
+        context.strokePath()
+        context.restoreGState()
+
+        let horizontalPadding: CGFloat = 16
+        let added = entry.fileChanges.reduce(0) { $0 + $1.added }
+        let removed = entry.fileChanges.reduce(0) { $0 + $1.removed }
+        let title = fileChangeTitle(count: entry.fileChanges.count)
+        let undo = String(localized: "codexAppServer.fileChange.undo", defaultValue: "Undo")
+        let undoWidth = measureTextWidth(undo, font: countFont) + 18
+        drawSegmentedLine(
+            [
+                (title, titleFont, primary.cgColor),
+                ("+\(added)", titleFont, green.cgColor),
+                ("-\(removed)", titleFont, red.cgColor),
+            ],
+            rect: CGRect(
+                x: rect.minX + horizontalPadding,
+                y: rect.minY + 11,
+                width: max(1, rect.width - horizontalPadding * 2 - undoWidth),
+                height: 20
+            ),
+            spacing: 7,
+            context: context
+        )
+        drawTruncatedLine(
+            undo,
+            font: countFont,
+            color: primary.withAlphaComponent(0.88).cgColor,
+            rect: CGRect(x: rect.maxX - horizontalPadding - undoWidth, y: rect.minY + 12, width: undoWidth - 10, height: 18),
+            context: context
+        )
+        drawUndoArrow(
+            center: CGPoint(x: rect.maxX - horizontalPadding - 5, y: rect.minY + 21),
+            color: secondary.cgColor,
+            context: context
+        )
+
+        var rowY = rect.minY + fileChangeHeaderHeight
+        for change in entry.fileChanges {
+            context.saveGState()
+            context.setStrokeColor(stroke.withAlphaComponent(0.55).cgColor)
+            context.setLineWidth(1)
+            context.move(to: CGPoint(x: rect.minX, y: rowY))
+            context.addLine(to: CGPoint(x: rect.maxX, y: rowY))
+            context.strokePath()
+            context.restoreGState()
+
+            let addedText = "+\(change.added)"
+            let removedText = "-\(change.removed)"
+            let removedWidth = max(34, measureTextWidth(removedText, font: countFont) + 4)
+            let addedWidth = max(34, measureTextWidth(addedText, font: countFont) + 4)
+            let countsWidth = addedWidth + removedWidth + 10
+            drawTruncatedLine(
+                CodexTrajectoryToolRun.displayPath(change.path),
+                font: rowFont,
+                color: primary.cgColor,
+                rect: CGRect(
+                    x: rect.minX + horizontalPadding,
+                    y: rowY + 10,
+                    width: max(1, rect.width - horizontalPadding * 2 - countsWidth),
+                    height: 20
+                ),
+                context: context
+            )
+            drawTruncatedLine(
+                addedText,
+                font: countFont,
+                color: green.cgColor,
+                rect: CGRect(x: rect.maxX - horizontalPadding - countsWidth, y: rowY + 11, width: addedWidth, height: 18),
+                context: context
+            )
+            drawTruncatedLine(
+                removedText,
+                font: countFont,
+                color: red.cgColor,
+                rect: CGRect(x: rect.maxX - horizontalPadding - removedWidth, y: rowY + 11, width: removedWidth, height: 18),
+                context: context
+            )
+            rowY += fileChangeRowHeight
+        }
+    }
+
+    private func drawUndoArrow(center: CGPoint, color: CGColor, context: CGContext) {
+        context.saveGState()
+        context.translateBy(x: center.x, y: center.y)
+        context.setStrokeColor(color)
+        context.setLineWidth(1.35)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        context.addArc(center: .zero, radius: 5, startAngle: CGFloat.pi * 0.05, endAngle: CGFloat.pi * 1.45, clockwise: true)
+        context.move(to: CGPoint(x: -5.5, y: -1.5))
+        context.addLine(to: CGPoint(x: -8.2, y: -1.1))
+        context.addLine(to: CGPoint(x: -6.8, y: 1.5))
+        context.strokePath()
+        context.restoreGState()
+    }
+
+    private func fileChangeTitle(count: Int) -> String {
+        if count == 1 {
+            return String(localized: "codexAppServer.fileChange.one", defaultValue: "1 file changed")
+        }
+        let format = String(
+            localized: "codexAppServer.fileChange.many",
+            defaultValue: "%1$ld files changed"
+        )
+        return String(format: format, locale: Locale.current, count)
+    }
+
     private func drawBackground(
         for kind: CodexTrajectoryBlockKind,
         in rect: CGRect,
         context: CGContext
     ) {
+        guard kind == .userText || kind == .stderr else { return }
         let fill = Self.backgroundColor(for: kind, appearance: effectiveAppearance)
+        let radius: CGFloat = kind == .userText ? 18 : 8
         context.saveGState()
         context.setFillColor(fill.cgColor)
-        context.addPath(CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil))
+        context.addPath(CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil))
         context.fillPath()
         context.restoreGState()
     }
@@ -2218,31 +2612,87 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
         context.restoreGState()
     }
 
+    private func drawSegmentedLine(
+        _ segments: [(text: String, font: CTFont, color: CGColor)],
+        rect: CGRect,
+        spacing: CGFloat,
+        context: CGContext
+    ) {
+        var x = rect.minX
+        for segment in segments {
+            let width = min(max(0, rect.maxX - x), measureTextWidth(segment.text, font: segment.font))
+            guard width > 0 else { break }
+            drawTruncatedLine(
+                segment.text,
+                font: segment.font,
+                color: segment.color,
+                rect: CGRect(x: x, y: rect.minY, width: width + 2, height: rect.height),
+                context: context
+            )
+            x += width + spacing
+        }
+    }
+
+    private func measureTextWidth(_ text: String, font: CTFont) -> CGFloat {
+        guard !text.isEmpty else { return 0 }
+        let attributes: [CFString: Any] = [kCTFontAttributeName: font]
+        let attributed = CFAttributedStringCreate(kCFAllocatorDefault, text as CFString, attributes as CFDictionary)!
+        let line = CTLineCreateWithAttributedString(attributed)
+        return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+    }
+
     private func pruneLayoutCache() {
-        let activeIDs = Set(entries.map(\.block.id))
+        let activeIDs = Set(entries.flatMap(\.blockIDs))
         cachedLayouts = cachedLayouts.filter { _, value in
             activeIDs.contains(value.block.id)
         }
     }
 
-    private static func theme(for appearance: NSAppearance) -> CodexTrajectoryTheme {
+    fileprivate static func transcriptBackgroundColor(for appearance: NSAppearance) -> NSColor {
+        color(GhosttyBackgroundTheme.currentColor(), appearance: appearance)
+    }
+
+    private static func fileChangeCardFill(for appearance: NSAppearance) -> NSColor {
         let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let textFont = CTFontCreateUIFontForLanguage(.system, 13, nil)
-            ?? CTFontCreateWithName("Helvetica" as CFString, 13, nil)
-        let monoFont = CTFontCreateUIFontForLanguage(.userFixedPitch, 12, nil)
-            ?? CTFontCreateWithName("Menlo" as CFString, 12, nil)
-        let primary = color(.labelColor, appearance: appearance)
-        let muted = color(.secondaryLabelColor, appearance: appearance)
+        if isDark {
+            return NSColor(srgbRed: 0.185, green: 0.196, blue: 0.166, alpha: 1)
+        }
+        return color(.controlBackgroundColor, appearance: appearance)
+    }
+
+    private static func fileChangeCardStroke(for appearance: NSAppearance) -> NSColor {
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        if isDark {
+            return NSColor(srgbRed: 0.255, green: 0.266, blue: 0.232, alpha: 1)
+        }
+        return color(.separatorColor, appearance: appearance)
+    }
+
+    private static func theme(for appearance: NSAppearance) -> CodexTrajectoryTheme {
+        let background = transcriptBackgroundColor(for: appearance)
+        let isDark = background.luminance <= 0.5
+        let textFont = CTFontCreateUIFontForLanguage(.system, 16, nil)
+            ?? CTFontCreateWithName("Helvetica" as CFString, 16, nil)
+        let monoFont = CTFontCreateUIFontForLanguage(.userFixedPitch, 14, nil)
+            ?? CTFontCreateWithName("Menlo" as CFString, 14, nil)
+        let primary = primaryTextColor(for: appearance)
+        let muted = isDark
+            ? NSColor(srgbRed: 0.555, green: 0.575, blue: 0.535, alpha: 1)
+            : color(.secondaryLabelColor, appearance: appearance)
         let error = color(isDark ? NSColor.systemRed : NSColor.systemRed, appearance: appearance)
         let fallback = CodexTrajectoryBlockStyle(font: textFont, foregroundColor: primary.cgColor)
 
         return CodexTrajectoryTheme(
             identifier: isDark ? "cmux-dark" : "cmux-light",
-            contentInsets: CodexTrajectoryInsets(top: 9, left: 10, bottom: 9, right: 10),
+            contentInsets: CodexTrajectoryInsets(top: 4, left: 0, bottom: 4, right: 0),
+            contentInsetsByKind: [
+                .userText: CodexTrajectoryInsets(top: 12, left: 16, bottom: 12, right: 16),
+                .stderr: CodexTrajectoryInsets(top: 10, left: 14, bottom: 10, right: 14),
+            ],
             stylesByKind: [
                 .userText: CodexTrajectoryBlockStyle(font: textFont, foregroundColor: primary.cgColor),
                 .assistantText: CodexTrajectoryBlockStyle(font: textFont, foregroundColor: primary.cgColor),
-                .commandOutput: CodexTrajectoryBlockStyle(font: monoFont, foregroundColor: primary.cgColor),
+                .commandOutput: CodexTrajectoryBlockStyle(font: textFont, foregroundColor: muted.cgColor),
                 .toolCall: CodexTrajectoryBlockStyle(font: monoFont, foregroundColor: muted.cgColor),
                 .fileChange: CodexTrajectoryBlockStyle(font: monoFont, foregroundColor: primary.cgColor),
                 .approvalRequest: CodexTrajectoryBlockStyle(font: textFont, foregroundColor: primary.cgColor),
@@ -2250,8 +2700,21 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
                 .stderr: CodexTrajectoryBlockStyle(font: monoFont, foregroundColor: error.cgColor),
                 .systemEvent: CodexTrajectoryBlockStyle(font: monoFont, foregroundColor: muted.cgColor),
             ],
-            fallbackStyle: fallback
+            fallbackStyle: fallback,
+            markdownKinds: [.assistantText]
         )
+    }
+
+    private static func primaryTextColor(for appearance: NSAppearance) -> NSColor {
+        let background = transcriptBackgroundColor(for: appearance)
+        let isDark = background.luminance <= 0.5
+        let configured = color(GhosttyConfig.load().foregroundColor, appearance: appearance)
+        if abs(configured.luminance - background.luminance) > 0.35 {
+            return configured
+        }
+        return isDark
+            ? NSColor(srgbRed: 0.925, green: 0.936, blue: 0.898, alpha: 1)
+            : color(.labelColor, appearance: appearance)
     }
 
     private static func backgroundColor(
@@ -2260,7 +2723,11 @@ private final class CodexTrajectoryTranscriptDocumentView: NSView, NSUserInterfa
     ) -> NSColor {
         switch kind {
         case .userText:
-            return color(NSColor.controlAccentColor.withAlphaComponent(0.10), appearance: appearance)
+            let background = transcriptBackgroundColor(for: appearance)
+            let isDark = background.luminance <= 0.5
+            return isDark
+                ? NSColor(srgbRed: 0.18, green: 0.19, blue: 0.17, alpha: 1)
+                : color(.controlBackgroundColor, appearance: appearance)
         case .assistantText:
             return color(.controlBackgroundColor, appearance: appearance)
         case .stderr:
