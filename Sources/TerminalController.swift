@@ -72,6 +72,7 @@ class TerminalController {
     private nonisolated let listenerStateLock = NSLock()
     private nonisolated let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
     private nonisolated(unsafe) var listenerReadSource: DispatchSourceRead?
+    private nonisolated(unsafe) var acceptSourceConsecutiveFailures = 0
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
@@ -914,7 +915,12 @@ class TerminalController {
         }
     }
 
-    func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
+    func start(
+        tabManager: TabManager,
+        socketPath: String,
+        accessMode: SocketControlMode,
+        preserveAcceptFailureStreak: Bool = false
+    ) {
         self.tabManager = tabManager
         self.accessMode = accessMode
 
@@ -1049,6 +1055,9 @@ class TerminalController {
         let generation = withListenerState {
             isRunning = true
             pendingAcceptLoopRearmGeneration = nil
+            if !preserveAcceptFailureStreak {
+                acceptSourceConsecutiveFailures = 0
+            }
             nextAcceptLoopGeneration &+= 1
             let generation = nextAcceptLoopGeneration
             activeAcceptLoopGeneration = generation
@@ -1436,6 +1445,10 @@ class TerminalController {
                 return
             }
 
+            withListenerState {
+                acceptSourceConsecutiveFailures = 0
+            }
+
             if let errnoCode = Self.configureBlocking(clientSocket) {
                 sentryBreadcrumb(
                     "socket.listener.client_config.failed",
@@ -1462,7 +1475,17 @@ class TerminalController {
         errnoCode: Int32
     ) {
         let errnoClass = Self.acceptErrorClassification(errnoCode: errnoCode)
-        let recoveryAction = Self.acceptFailureRecoveryAction(errnoCode: errnoCode, consecutiveFailures: 1)
+        let consecutiveFailures = withListenerState {
+            guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else { return 0 }
+            acceptSourceConsecutiveFailures += 1
+            return acceptSourceConsecutiveFailures
+        }
+        guard consecutiveFailures > 0 else { return }
+
+        let recoveryAction = Self.acceptFailureRecoveryAction(
+            errnoCode: errnoCode,
+            consecutiveFailures: consecutiveFailures
+        )
 
         sentryBreadcrumb(
             "socket.listener.accept.failed",
@@ -1472,6 +1495,7 @@ class TerminalController {
                 errnoCode: errnoCode,
                 extra: [
                     "generation": generation,
+                    "consecutiveFailures": consecutiveFailures,
                     "errnoClass": errnoClass,
                     "recoveryAction": recoveryAction.debugLabel
                 ]
@@ -1508,7 +1532,7 @@ class TerminalController {
         scheduleListenerRearm(
             generation: generation,
             errnoCode: errnoCode,
-            consecutiveFailures: 1,
+            consecutiveFailures: consecutiveFailures,
             delayMs: delayMs
         )
     }
@@ -1556,7 +1580,12 @@ class TerminalController {
             )
 
             self.stop()
-            self.start(tabManager: tabManager, socketPath: restartPath, accessMode: restartMode)
+            self.start(
+                tabManager: tabManager,
+                socketPath: restartPath,
+                accessMode: restartMode,
+                preserveAcceptFailureStreak: true
+            )
         }
     }
 

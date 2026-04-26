@@ -243,10 +243,13 @@ private struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
     let duration: TimeInterval
 
     func entries(from startDate: Date, mode: Mode) -> Entries {
-        Entries(
-            nextDate: max(startDate, flashStartedAt),
-            endDate: flashStartedAt.addingTimeInterval(duration),
-            interval: 1.0 / 60.0
+        let firstDate = max(startDate, flashStartedAt)
+        let endDate = flashStartedAt.addingTimeInterval(duration)
+        return Entries(
+            nextDate: firstDate,
+            endDate: endDate,
+            interval: 1.0 / 60.0,
+            shouldEmitEndDate: firstDate <= endDate
         )
     }
 
@@ -254,11 +257,19 @@ private struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
         var nextDate: Date
         let endDate: Date
         let interval: TimeInterval
+        var shouldEmitEndDate: Bool
 
         mutating func next() -> Date? {
-            guard nextDate <= endDate else { return nil }
+            guard nextDate <= endDate else {
+                guard shouldEmitEndDate else { return nil }
+                shouldEmitEndDate = false
+                return endDate
+            }
             let date = nextDate
             nextDate = nextDate.addingTimeInterval(interval)
+            if date >= endDate {
+                shouldEmitEndDate = false
+            }
             return date
         }
     }
@@ -272,6 +283,7 @@ struct WorkspaceContentView: View {
         let backgroundEventId: UInt64?
         let backgroundSource: String?
         let notificationPayloadHex: String?
+        let forceInitialApply: Bool
     }
 
     @ObservedObject var workspace: Workspace
@@ -698,7 +710,8 @@ struct WorkspaceContentView: View {
             backgroundOverride: deferredRefresh.backgroundOverride,
             backgroundEventId: deferredRefresh.backgroundEventId,
             backgroundSource: deferredRefresh.backgroundSource,
-            notificationPayloadHex: deferredRefresh.notificationPayloadHex
+            notificationPayloadHex: deferredRefresh.notificationPayloadHex,
+            forceInitialApply: deferredRefresh.forceInitialApply
         )
     }
 
@@ -707,15 +720,20 @@ struct WorkspaceContentView: View {
         backgroundOverride: NSColor? = nil,
         backgroundEventId: UInt64? = nil,
         backgroundSource: String? = nil,
-        notificationPayloadHex: String? = nil
+        notificationPayloadHex: String? = nil,
+        forceInitialApply: Bool = false
     ) {
         guard isWorkspaceVisible else {
+            let existing = deferredThemeRefresh
             deferredThemeRefresh = DeferredThemeRefresh(
                 reason: reason,
                 backgroundOverride: backgroundOverride,
                 backgroundEventId: backgroundEventId,
                 backgroundSource: backgroundSource,
-                notificationPayloadHex: notificationPayloadHex
+                notificationPayloadHex: notificationPayloadHex,
+                forceInitialApply: forceInitialApply
+                    || reason == "onAppear"
+                    || existing?.forceInitialApply == true
             )
             return
         }
@@ -734,9 +752,10 @@ struct WorkspaceContentView: View {
         let configChanged = previousSignature != nextSignature
         let backgroundChanged = previousBackgroundHex != next.backgroundColor.hexString()
         let opacityChanged = abs(config.backgroundOpacity - next.backgroundOpacity) > 0.0001
-        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || reason == "onAppear"
-        let shouldApplyChrome = configChanged || reason == "onAppear"
-        let shouldRefreshWindowBackground = backgroundChanged || opacityChanged || reason == "onAppear"
+        let shouldForceInitialApply = forceInitialApply || reason == "onAppear"
+        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || shouldForceInitialApply
+        let shouldApplyChrome = configChanged || shouldForceInitialApply
+        let shouldRefreshWindowBackground = backgroundChanged || opacityChanged || shouldForceInitialApply
         if !shouldApplyChrome && !shouldRefreshWindowBackground && !shouldRequestTitlebarRefresh {
             logTheme(
                 "theme refresh skip workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel)"
