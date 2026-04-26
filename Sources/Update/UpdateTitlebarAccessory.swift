@@ -1495,6 +1495,7 @@ final class UpdateTitlebarAccessoryController {
 
     private func toggleDetachedNotificationsPopover(animated: Bool, anchorView: NSView) {
         if let popover = detachedNotificationsPopover, popover.isShown {
+            popover.animates = animated
             popover.performClose(nil)
             return
         }

@@ -13,11 +13,7 @@ private var cmuxWindowInteractiveSplitDividerDragKey: UInt8 = 0
 /// Shared routing for portal hosts that sit above Bonsplit's SwiftUI tab strip.
 enum BonsplitTabBarPassThrough {
     static func isPassThroughPointerEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        guard let eventType else {
-            // Direct hitTest probes and some AppKit paths do not expose a current
-            // event. If there is a real tab-strip view underneath, still defer to it.
-            return true
-        }
+        guard let eventType else { return false }
         switch eventType {
         case .leftMouseDown, .leftMouseUp,
              .rightMouseDown, .rightMouseUp,

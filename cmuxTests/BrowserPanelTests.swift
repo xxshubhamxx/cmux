@@ -508,9 +508,21 @@ final class WindowBrowserHostViewTests: XCTestCase {
         let pointInWindow = contentView.convert(pointInContent, to: nil)
         let pointInHost = host.convert(pointInWindow, from: nil)
 
+        XCTAssertTrue(
+            BonsplitTabBarPassThrough.passThroughDecision(
+                at: pointInHost,
+                in: host,
+                eventType: .leftMouseDown
+            )?.result == true,
+            "Browser portal should defer pointer events to the minimal tab strip just below the native titlebar interaction band"
+        )
         XCTAssertNil(
-            host.hitTest(pointInHost),
-            "Browser portal should defer to the minimal tab strip just below the native titlebar interaction band"
+            BonsplitTabBarPassThrough.passThroughDecision(
+                at: pointInHost,
+                in: host,
+                eventType: nil
+            ),
+            "Browser portal should not do tab-strip hit-test work for nil-event AppKit probes"
         )
     }
 

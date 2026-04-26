@@ -136,8 +136,7 @@ final class WindowTerminalHostView: NSView {
         let currentEvent = NSApp.currentEvent
         let isPointerEvent: Bool
         switch currentEvent?.type {
-        case nil,
-             .mouseMoved, .mouseEntered, .mouseExited,
+        case .mouseMoved, .mouseEntered, .mouseExited,
              .leftMouseDown, .leftMouseUp, .leftMouseDragged,
              .rightMouseDown, .rightMouseUp, .rightMouseDragged,
              .otherMouseDown, .otherMouseUp, .otherMouseDragged,
