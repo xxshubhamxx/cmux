@@ -1878,8 +1878,14 @@ struct ContentView: View {
             )
         }
 
-        guard !unreadRects.isEmpty || flashRect != nil else {
-            return nil
+        if unreadRects.isEmpty, flashRect == nil {
+            return TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: workspace.id,
+                unreadRects: [],
+                flashRect: nil,
+                flashToken: workspace.tmuxWorkspaceFlashToken,
+                flashReason: workspace.tmuxWorkspaceFlashReason
+            )
         }
 
         return TmuxWorkspacePaneOverlayRenderState(
@@ -3463,6 +3469,7 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
             if let observedWindow {
+                setTitlebarControlsHidden(isFullScreen, in: observedWindow)
                 refreshWindowChromeMetrics(for: observedWindow)
                 observedWindow.contentView?.needsLayout = true
                 observedWindow.contentView?.superview?.needsLayout = true

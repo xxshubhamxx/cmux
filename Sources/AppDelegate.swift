@@ -5011,20 +5011,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func toggleSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
         func toggle(_ context: MainWindowContext) -> Bool {
-            if let window = context.window ?? windowForMainWindowId(context.windowId) {
-                setActiveMainWindow(window)
+            guard let window = resolvedWindow(for: context) else {
+                discardOrphanedMainWindowContext(context)
+                return false
             }
+            setActiveMainWindow(window)
             context.sidebarState.toggle()
             return true
         }
 
-        if let preferredContext = contextForMainWindow(preferredWindow) {
+        if let preferredWindow,
+           let preferredContext = contextForMainTerminalWindow(preferredWindow) {
             return toggle(preferredContext)
         }
-        if let keyContext = contextForMainWindow(NSApp.keyWindow) {
+        if let keyWindow = NSApp.keyWindow,
+           let keyContext = contextForMainTerminalWindow(keyWindow) {
             return toggle(keyContext)
         }
-        if let mainContext = contextForMainWindow(NSApp.mainWindow) {
+        if let mainWindow = NSApp.mainWindow,
+           let mainContext = contextForMainTerminalWindow(mainWindow) {
             return toggle(mainContext)
         }
         if let activeManager = tabManager,
@@ -5033,10 +5038,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if let fallbackContext = mainWindowContexts.values.first {
             return toggle(fallbackContext)
-        }
-        if let sidebarState {
-            sidebarState.toggle()
-            return true
         }
         return false
     }

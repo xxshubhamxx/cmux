@@ -18,23 +18,6 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
     let authenticated: Bool
 }
 
-nonisolated private final class SocketLineProcessingResultBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var result: SocketLineProcessingResult?
-
-    func store(_ value: SocketLineProcessingResult) {
-        lock.lock()
-        result = value
-        lock.unlock()
-    }
-
-    func load() -> SocketLineProcessingResult? {
-        lock.lock()
-        defer { lock.unlock() }
-        return result
-    }
-}
-
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -1510,9 +1493,9 @@ class TerminalController {
             delayMs = resumeDelayMs
         }
 
-        let sourceToCancel = withListenerState {
+        let cleanup = withListenerState {
             guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else {
-                return nil as DispatchSourceRead?
+                return (didCleanup: false, sourceToCancel: nil as DispatchSourceRead?)
             }
             pendingAcceptLoopRearmGeneration = generation
             isRunning = false
@@ -1520,14 +1503,16 @@ class TerminalController {
             let source = listenerReadSource
             listenerReadSource = nil
             serverSocket = -1
-            return source
+            shutdown(listenerSocket, SHUT_RDWR)
+            if source == nil {
+                close(listenerSocket)
+            }
+            return (didCleanup: true, sourceToCancel: source)
         }
-        shutdown(listenerSocket, SHUT_RDWR)
-        if let sourceToCancel {
-            sourceToCancel.cancel()
-        } else {
-            close(listenerSocket)
+        guard cleanup.didCleanup else {
+            return
         }
+        cleanup.sourceToCancel?.cancel()
 
         scheduleListenerRearm(
             generation: generation,
@@ -1649,34 +1634,11 @@ class TerminalController {
         _ command: String,
         authenticated: Bool
     ) -> SocketLineProcessingResult {
-        if Thread.isMainThread {
-            return MainActor.assumeIsolated {
+        return v2MainSync {
+            MainActor.assumeIsolated {
                 self.processSocketLineOnMain(command, authenticated: authenticated)
             }
         }
-
-        let semaphore = DispatchSemaphore(value: 0)
-        let resultBox = SocketLineProcessingResultBox()
-
-        DispatchQueue.main.async { [weak self] in
-            let result = MainActor.assumeIsolated {
-                if let self {
-                    return self.processSocketLineOnMain(command, authenticated: authenticated)
-                }
-                return SocketLineProcessingResult(
-                    response: "ERROR: Terminal controller unavailable",
-                    authenticated: authenticated
-                )
-            }
-            resultBox.store(result)
-            semaphore.signal()
-        }
-
-        semaphore.wait()
-        return resultBox.load() ?? SocketLineProcessingResult(
-            response: "ERROR: Terminal controller unavailable",
-            authenticated: authenticated
-        )
     }
 
     private func processSocketLineOnMain(
@@ -3053,7 +3015,7 @@ class TerminalController {
         return NSNull()
     }
 
-    private func v2MainSync<T>(_ body: () -> T) -> T {
+    private nonisolated func v2MainSync<T>(_ body: () -> T) -> T {
         if Thread.isMainThread {
             return body()
         }
