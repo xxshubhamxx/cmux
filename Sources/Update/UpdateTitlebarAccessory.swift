@@ -1299,8 +1299,10 @@ final class UpdateTitlebarAccessoryController {
         guard currentMode != lastKnownPresentationMode else { return }
         lastKnownPresentationMode = currentMode
 
-        attachToExistingWindows()
-        for window in NSApp.windows {
+        if currentMode == .standard {
+            attachToExistingWindows()
+        }
+        for window in attachedWindows.allObjects {
             applyAccessoryVisibility(for: window)
         }
     }
@@ -1359,6 +1361,7 @@ final class UpdateTitlebarAccessoryController {
         }
 
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
+        guard canAccessTitlebarAccessories(on: window) else { return }
 
         // Don't re-attach controls if already attached.
         guard !attachedWindows.contains(window) else {
@@ -1389,6 +1392,11 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func applyAccessoryVisibility(for window: NSWindow) {
+        guard canAccessTitlebarAccessories(on: window) else {
+            attachedWindows.remove(window)
+            pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
+            return
+        }
         let shouldHide = WorkspacePresentationModeSettings.mode() == .minimal
             || window.styleMask.contains(.fullScreen)
         for accessory in window.titlebarAccessoryViewControllers
@@ -1400,6 +1408,11 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func removeAccessoryIfPresent(from window: NSWindow) {
+        guard canAccessTitlebarAccessories(on: window) else {
+            attachedWindows.remove(window)
+            pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
+            return
+        }
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
             return id == controlsIdentifier
@@ -1444,6 +1457,10 @@ final class UpdateTitlebarAccessoryController {
     private func isMainTerminalWindow(_ window: NSWindow) -> Bool {
         guard let raw = window.identifier?.rawValue else { return false }
         return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+    }
+
+    private func canAccessTitlebarAccessories(on window: NSWindow) -> Bool {
+        isMainTerminalWindow(window) && window.styleMask.contains(.titled) && !isSettingsWindow(window)
     }
 
     private func preferredNotificationsController(

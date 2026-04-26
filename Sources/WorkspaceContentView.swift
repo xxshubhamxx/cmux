@@ -450,14 +450,8 @@ struct WorkspaceContentView: View {
             )
         }
 
-        Group {
-            if isMinimalMode && !isFullScreen {
-                bonsplitView
-                    .ignoresSafeArea(.container, edges: .top)
-            } else {
-                bonsplitView
-            }
-        }
+        bonsplitView
+            .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
     private func syncBonsplitNotificationBadges() {
