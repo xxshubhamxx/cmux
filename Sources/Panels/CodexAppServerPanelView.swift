@@ -143,14 +143,17 @@ struct CodexAppServerPanelView: View {
     }
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             TextField(
                 String(localized: "codexAppServer.prompt.placeholder", defaultValue: "Ask Codex about this workspace"),
                 text: $panel.promptText,
                 axis: .vertical
             )
             .textFieldStyle(.plain)
+            .font(.system(size: 16))
             .lineLimit(1...5)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(minHeight: 28, alignment: .center)
             .focused($promptFocused)
             .onSubmit {
                 Task { await panel.sendPrompt() }
@@ -170,12 +173,12 @@ struct CodexAppServerPanelView: View {
             .background(Color(nsColor: .controlBackgroundColor).opacity(panel.canSendPrompt ? 0.75 : 0.35), in: Circle())
             .accessibilityLabel(String(localized: "codexAppServer.button.send", defaultValue: "Send"))
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.62), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.88), in: RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.32), lineWidth: 1)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.62), lineWidth: 1)
         )
         .frame(maxWidth: 1_180)
         .frame(maxWidth: .infinity)
