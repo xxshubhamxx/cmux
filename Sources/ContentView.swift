@@ -9,7 +9,7 @@ import WebKit
 
 enum MinimalModeChromeMetrics {
     static let titlebarHeight: CGFloat = 30
-    static let workspaceTopInset: CGFloat = 12
+    static let workspaceTopInset: CGFloat = 0
 }
 
 // MARK: - File Drop Overlay

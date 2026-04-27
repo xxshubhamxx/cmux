@@ -191,7 +191,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         let topInset = distanceToTopEdge(of: workspaceRow, in: window)
         XCTAssertEqual(
             topInset,
-            20,
+            8,
             accuracy: 4,
             "Expected minimal mode to lift sidebar workspace rows into the compact 30 px titlebar area. window=\(window.frame) workspaceRow=\(workspaceRow.frame) topInset=\(topInset)"
         )
