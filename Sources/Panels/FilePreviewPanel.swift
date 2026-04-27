@@ -112,7 +112,6 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
 
     func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
         if type == Self.bonsplitTransferType {
-            mirrorTransferDataToDragPasteboard()
             return transferData
         }
         return nil
@@ -280,6 +279,7 @@ final class FilePreviewPanel: Panel, ObservableObject {
     let panelType: PanelType = .filePreview
     let filePath: String
     private(set) var workspaceId: UUID
+    let displayIcon: String?
 
     @Published private(set) var displayTitle: String
     @Published private(set) var isFileUnavailable = false
@@ -296,16 +296,14 @@ final class FilePreviewPanel: Panel, ObservableObject {
         URL(fileURLWithPath: filePath)
     }
 
-    var displayIcon: String? {
-        FilePreviewKindResolver.tabIconName(for: fileURL)
-    }
-
     init(workspaceId: UUID, filePath: String) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
-        self.previewMode = FilePreviewKindResolver.mode(for: URL(fileURLWithPath: filePath))
+        let fileURL = URL(fileURLWithPath: filePath)
+        self.previewMode = FilePreviewKindResolver.mode(for: fileURL)
+        self.displayIcon = FilePreviewKindResolver.tabIconName(for: fileURL)
 
         if previewMode == .text {
             loadTextContent()
@@ -345,6 +343,9 @@ final class FilePreviewPanel: Panel, ObservableObject {
 
     func loadTextContent() {
         guard FileManager.default.fileExists(atPath: filePath) else {
+            textContent = ""
+            originalTextContent = ""
+            isDirty = false
             isFileUnavailable = true
             return
         }
@@ -353,6 +354,9 @@ final class FilePreviewPanel: Panel, ObservableObject {
             let data = try Data(contentsOf: fileURL)
             let decoded = Self.decodeText(data)
             guard let decoded else {
+                textContent = ""
+                originalTextContent = ""
+                isDirty = false
                 isFileUnavailable = true
                 return
             }
@@ -362,6 +366,9 @@ final class FilePreviewPanel: Panel, ObservableObject {
             isDirty = false
             isFileUnavailable = false
         } catch {
+            textContent = ""
+            originalTextContent = ""
+            isDirty = false
             isFileUnavailable = true
         }
     }
@@ -371,12 +378,12 @@ final class FilePreviewPanel: Panel, ObservableObject {
         do {
             let currentContent = textView?.string ?? textContent
             textContent = currentContent
-            try currentContent.write(to: fileURL, atomically: true, encoding: textEncoding)
+            try currentContent.write(to: fileURL, atomically: false, encoding: textEncoding)
             originalTextContent = textContent
             isDirty = false
             isFileUnavailable = false
         } catch {
-            isFileUnavailable = true
+            isFileUnavailable = !FileManager.default.fileExists(atPath: filePath)
         }
     }
 

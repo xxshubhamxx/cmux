@@ -1319,6 +1319,44 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertFalse(panel.isDirty)
     }
 
+    func testSaveTextContentWritesThroughSymlink() throws {
+        let targetURL = try temporaryTextFile(contents: "original", encoding: .utf8)
+        let linkURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        defer {
+            try? FileManager.default.removeItem(at: linkURL)
+            try? FileManager.default.removeItem(at: targetURL)
+        }
+        try FileManager.default.createSymbolicLink(
+            at: linkURL,
+            withDestinationURL: targetURL
+        )
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: linkURL.path)
+        panel.updateTextContent("edited through link")
+        panel.saveTextContent()
+
+        XCTAssertEqual(try String(contentsOf: targetURL, encoding: .utf8), "edited through link")
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path), targetURL.path)
+        XCTAssertFalse(panel.isDirty)
+    }
+
+    func testLoadTextContentClearsDirtyStateWhenFileVanishes() throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        panel.updateTextContent("edited")
+        try FileManager.default.removeItem(at: url)
+
+        panel.loadTextContent()
+
+        XCTAssertEqual(panel.textContent, "")
+        XCTAssertFalse(panel.isDirty)
+        XCTAssertTrue(panel.isFileUnavailable)
+    }
+
     func testTextEditorInsetsReapplyWhenMovedBetweenWindows() {
         _ = NSApplication.shared
         let textView = SavingTextView()

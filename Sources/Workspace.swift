@@ -7949,6 +7949,17 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    func panelNeedsConfirmClose(panelId: UUID) -> Bool {
+        guard let panel = panels[panelId] else { return false }
+        if let terminalPanel = panel as? TerminalPanel {
+            return panelNeedsConfirmClose(
+                panelId: panelId,
+                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
+            )
+        }
+        return panel.isDirty
+    }
+
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
         let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
         let existing = panelGitBranches[panelId]
@@ -10330,6 +10341,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = detached.panelId
+        if let filePreviewPanel = detached.panel as? FilePreviewPanel,
+           panelSubscriptions[filePreviewPanel.id] == nil {
+            installFilePreviewPanelSubscription(filePreviewPanel)
+        }
         let didAdoptWorkspaceRemoteTracking =
             detached.isRemoteTerminal
             && detached.remoteRelayPort == remoteConfiguration?.relayPort
@@ -10804,9 +10819,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Check if any panel needs close confirmation
     func needsConfirmClose() -> Bool {
-        for (panelId, panel) in panels {
-            if let terminalPanel = panel as? TerminalPanel,
-               panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
+        for (panelId, _) in panels {
+            if panelNeedsConfirmClose(panelId: panelId) {
                 return true
             }
         }
@@ -12322,8 +12336,7 @@ extension Workspace: BonsplitDelegate {
         }
 
         // Check if the panel needs close confirmation
-        guard let panelId = panelIdFromSurfaceId(tab.id),
-              let terminalPanel = terminalPanel(for: panelId) else {
+        guard let panelId = panelIdFromSurfaceId(tab.id) else {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             recordPostCloseSelection()
             return true
@@ -12332,7 +12345,7 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        if panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
+        if panelNeedsConfirmClose(panelId: panelId) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
                 return false
@@ -12638,8 +12651,7 @@ extension Workspace: BonsplitDelegate {
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
-               let terminalPanel = terminalPanel(for: panelId),
-               panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
+               panelNeedsConfirmClose(panelId: panelId) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 return false
             }
