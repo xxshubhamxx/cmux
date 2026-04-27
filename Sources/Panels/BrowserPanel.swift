@@ -3718,6 +3718,41 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
+    func promoteWebContentFirstResponderIfPossible(in window: NSWindow, reason: String) -> Bool {
+        guard webView.window === window,
+              !webView.isHiddenOrHasHiddenAncestor,
+              let cmuxWebView = webView as? CmuxWebView else {
+#if DEBUG
+            dlog(
+                "browser.focus.promoteWebContent.panel panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) result=failed cause=ineligible " +
+                "webWin=\(webView.window?.windowNumber ?? -1) " +
+                "window=\(window.windowNumber) hidden=\(webView.isHiddenOrHasHiddenAncestor ? 1 : 0)"
+            )
+#endif
+            return false
+        }
+
+        let result = cmuxWebView.promoteWebContentFirstResponderIfPossible(
+            in: window,
+            reason: reason
+        )
+        if result.didFocusContent {
+            noteWebViewFocused()
+        }
+#if DEBUG
+        dlog(
+            "browser.focus.promoteWebContent.panel panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) result=\(result.debugDescription) " +
+            "focused=\(result.didFocusResponder ? 1 : 0) " +
+            "content=\(result.didFocusContent ? 1 : 0) " +
+            "fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+        )
+#endif
+        return result.didFocusContent
+    }
+
+    @discardableResult
     func requestMountedContentWebViewFocus(in window: NSWindow, reason: String) -> Bool {
         guard webView.window === window, !webView.isHiddenOrHasHiddenAncestor else { return false }
         paneController.setPaneFocused(true)
@@ -3895,7 +3930,18 @@ final class BrowserPanel: Panel, ObservableObject {
         case let .browserWebContent(panelId) where panelId == id:
             return false
         case let .browserWebViewWrapper(panelId) where panelId == id:
-            return false
+            let promoted = promoteWebContentFirstResponderIfPossible(
+                in: window,
+                reason: "keyRepair.\(reason).wrapper"
+            )
+#if DEBUG
+            dlog(
+                "browser.focus.keyRepair.wrapper panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) promoted=\(promoted ? 1 : 0) " +
+                "fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+            )
+#endif
+            return promoted
         case let .browserAddressBar(panelId) where panelId == id:
             return false
         case let .browserFindField(panelId) where panelId == id:
