@@ -162,43 +162,17 @@ enum FilePreviewKindResolver {
     ]
 
     static func mode(for url: URL) -> FilePreviewMode {
+        if let mode = mediaMode(for: url) {
+            return mode
+        }
         if isTextFile(url: url) {
             return .text
-        }
-        if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType {
-            if type.conforms(to: .pdf) {
-                return .pdf
-            }
-            if type.conforms(to: .image) {
-                return .image
-            }
-            if type.conforms(to: .movie)
-                || type.conforms(to: .audiovisualContent)
-                || type.conforms(to: .audio) {
-                return .media
-            }
-        }
-        if let fallbackType = UTType(filenameExtension: url.pathExtension.lowercased()) {
-            if fallbackType.conforms(to: .pdf) {
-                return .pdf
-            }
-            if fallbackType.conforms(to: .image) {
-                return .image
-            }
-            if fallbackType.conforms(to: .movie)
-                || fallbackType.conforms(to: .audiovisualContent)
-                || fallbackType.conforms(to: .audio) {
-                return .media
-            }
         }
         return .quickLook
     }
 
     static func tabIconName(for url: URL) -> String {
-        if isTextFile(url: url) {
-            return "doc.text"
-        }
-        if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType {
+        for type in contentTypes(for: url) {
             if type.conforms(to: .pdf) {
                 return "doc.richtext"
             }
@@ -212,7 +186,47 @@ enum FilePreviewKindResolver {
                 return "waveform"
             }
         }
+        if isTextFile(url: url) {
+            return "doc.text"
+        }
         return "doc.viewfinder"
+    }
+
+    private static func mediaMode(for url: URL) -> FilePreviewMode? {
+        for type in contentTypes(for: url) {
+            if let mode = mediaMode(for: type) {
+                return mode
+            }
+        }
+        return nil
+    }
+
+    private static func mediaMode(for type: UTType) -> FilePreviewMode? {
+        if type.conforms(to: .pdf) {
+            return .pdf
+        }
+        if type.conforms(to: .image) {
+            return .image
+        }
+        if type.conforms(to: .movie)
+            || type.conforms(to: .audiovisualContent)
+            || type.conforms(to: .audio) {
+            return .media
+        }
+        return nil
+    }
+
+    private static func contentTypes(for url: URL) -> [UTType] {
+        var types: [UTType] = []
+        if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType,
+           type != .data {
+            types.append(type)
+        }
+        if let fallbackType = UTType(filenameExtension: url.pathExtension.lowercased()),
+           !types.contains(fallbackType) {
+            types.append(fallbackType)
+        }
+        return types
     }
 
     private static func isTextFile(url: URL) -> Bool {
@@ -246,10 +260,17 @@ enum FilePreviewKindResolver {
         if String(data: data, encoding: .utf8) != nil {
             return true
         }
-        if String(data: data, encoding: .utf16) != nil {
+        if hasUTF16ByteOrderMark(data), String(data: data, encoding: .utf16) != nil {
             return true
         }
         return false
+    }
+
+    private static func hasUTF16ByteOrderMark(_ data: Data) -> Bool {
+        data.count >= 2 && (
+            (data[0] == 0xFF && data[1] == 0xFE)
+                || (data[0] == 0xFE && data[1] == 0xFF)
+        )
     }
 }
 
@@ -773,7 +794,7 @@ final class FilePreviewPDFChromeHostingView: NSHostingView<AnyView> {
     }
 }
 
-enum FilePreviewPDFViewport {
+enum FilePreviewViewport {
     static func normalizedAnchorRatio(_ value: CGFloat, length: CGFloat) -> CGFloat {
         guard length > 1 else { return 0.5 }
         return min(max(value / length, 0), 1)
@@ -1975,11 +1996,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         let oldDocumentBounds = documentView.bounds
         let anchorInDocument = documentView.convert(anchorInClip, from: clipView)
         let anchorRatio = CGPoint(
-            x: FilePreviewPDFViewport.normalizedAnchorRatio(
+            x: FilePreviewViewport.normalizedAnchorRatio(
                 anchorInDocument.x - oldDocumentBounds.minX,
                 length: oldDocumentBounds.width
             ),
-            y: FilePreviewPDFViewport.normalizedAnchorRatio(
+            y: FilePreviewViewport.normalizedAnchorRatio(
                 anchorInDocument.y - oldDocumentBounds.minY,
                 length: oldDocumentBounds.height
             )
@@ -1997,7 +2018,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             x: updatedDocumentBounds.minX + (updatedDocumentBounds.width * anchorRatio.x),
             y: updatedDocumentBounds.minY + (updatedDocumentBounds.height * anchorRatio.y)
         )
-        let nextOrigin = FilePreviewPDFViewport.clampedClipOrigin(
+        let nextOrigin = FilePreviewViewport.clampedClipOrigin(
             documentPoint: targetDocumentPoint,
             anchorOffsetInClip: anchorOffsetInClip,
             documentBounds: updatedDocumentBounds,
@@ -2313,14 +2334,12 @@ private final class FilePreviewImageContainerView: NSView {
 
     @objc private func zoomOut() {
         isFitMode = false
-        scale = clampedImageScale(scale / FilePreviewInteraction.zoomStep)
-        applyScale()
+        setImageScale(scale / FilePreviewInteraction.zoomStep, preservingVisibleCenter: true)
     }
 
     @objc private func zoomIn() {
         isFitMode = false
-        scale = clampedImageScale(scale * FilePreviewInteraction.zoomStep)
-        applyScale()
+        setImageScale(scale * FilePreviewInteraction.zoomStep, preservingVisibleCenter: true)
     }
 
     @objc private func zoomToFit() {
@@ -2331,8 +2350,7 @@ private final class FilePreviewImageContainerView: NSView {
 
     @objc private func actualSize() {
         isFitMode = false
-        scale = 1.0
-        applyScale()
+        setImageScale(1.0, preservingVisibleCenter: true)
     }
 
     @objc private func rotateLeft() {
@@ -2369,6 +2387,53 @@ private final class FilePreviewImageContainerView: NSView {
         documentView.scaledImageSize = scaledSize
         documentView.rotationDegrees = rotationDegrees
         documentView.needsLayout = true
+    }
+
+    private func setImageScale(_ nextScale: CGFloat, preservingVisibleCenter: Bool = false) {
+        let clamped = clampedImageScale(nextScale)
+        guard clamped.isFinite else { return }
+        if preservingVisibleCenter {
+            preserveVisibleImageCenter {
+                scale = clamped
+                applyScale()
+            }
+        } else {
+            scale = clamped
+            applyScale()
+        }
+    }
+
+    private func preserveVisibleImageCenter(_ scaleChange: () -> Void) {
+        documentView.layoutSubtreeIfNeeded()
+        let clipBounds = scrollView.contentView.bounds
+        guard clipBounds.width > 1, clipBounds.height > 1 else {
+            scaleChange()
+            return
+        }
+
+        let anchorInClip = CGPoint(x: clipBounds.midX, y: clipBounds.midY)
+        let oldImageFrame = documentView.imageView.frame
+        let anchorInDocument = documentView.convert(anchorInClip, from: scrollView.contentView)
+        let anchorRatio = CGPoint(
+            x: FilePreviewViewport.normalizedAnchorRatio(
+                anchorInDocument.x - oldImageFrame.minX,
+                length: oldImageFrame.width
+            ),
+            y: FilePreviewViewport.normalizedAnchorRatio(
+                anchorInDocument.y - oldImageFrame.minY,
+                length: oldImageFrame.height
+            )
+        )
+
+        scaleChange()
+        documentView.layoutSubtreeIfNeeded()
+
+        let newImageFrame = documentView.imageView.frame
+        let targetDocumentPoint = CGPoint(
+            x: newImageFrame.minX + (newImageFrame.width * anchorRatio.x),
+            y: newImageFrame.minY + (newImageFrame.height * anchorRatio.y)
+        )
+        scrollDocumentPoint(targetDocumentPoint, toClipPoint: anchorInClip)
     }
 
     private func zoomImage(with event: NSEvent, factor: CGFloat) {
@@ -2438,14 +2503,19 @@ private final class FilePreviewImageContainerView: NSView {
 
     private func scrollDocumentPoint(_ documentPoint: CGPoint, toClipPoint clipPoint: CGPoint) {
         let clipSize = scrollView.contentView.bounds.size
+        let clipOrigin = scrollView.contentView.bounds.origin
+        let anchorOffsetInClip = CGPoint(
+            x: clipPoint.x - clipOrigin.x,
+            y: clipPoint.y - clipOrigin.y
+        )
         let documentSize = documentView.bounds.size
         let maxOrigin = CGPoint(
             x: max(0, documentSize.width - clipSize.width),
             y: max(0, documentSize.height - clipSize.height)
         )
         let nextOrigin = CGPoint(
-            x: min(max(0, documentPoint.x - clipPoint.x), maxOrigin.x),
-            y: min(max(0, documentPoint.y - clipPoint.y), maxOrigin.y)
+            x: min(max(0, documentPoint.x - anchorOffsetInClip.x), maxOrigin.x),
+            y: min(max(0, documentPoint.y - anchorOffsetInClip.y), maxOrigin.y)
         )
         scrollView.contentView.scroll(to: nextOrigin)
         scrollView.reflectScrolledClipView(scrollView.contentView)

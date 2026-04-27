@@ -1196,7 +1196,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFViewportOriginUsesVisibleClipWidth() {
-        let origin = FilePreviewPDFViewport.clampedClipOrigin(
+        let origin = FilePreviewViewport.clampedClipOrigin(
             documentPoint: CGPoint(x: 500, y: 700),
             anchorOffsetInClip: CGPoint(x: 200, y: 300),
             documentBounds: CGRect(x: 0, y: 0, width: 1_000, height: 1_400),
@@ -1208,7 +1208,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFViewportOriginCentersSmallerDocuments() {
-        let origin = FilePreviewPDFViewport.clampedClipOrigin(
+        let origin = FilePreviewViewport.clampedClipOrigin(
             documentPoint: CGPoint(x: 54, y: 224.5),
             anchorOffsetInClip: CGPoint(x: 300, y: 400),
             documentBounds: CGRect(x: 0, y: 0, width: 108, height: 449),
@@ -1301,6 +1301,26 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(textView.textContainer?.lineFragmentPadding, FilePreviewTextEditorLayout.lineFragmentPadding)
 
         withExtendedLifetime([firstWindow, secondWindow]) {}
+    }
+
+    func testPDFExtensionWinsOverLooseTextSniff() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("pdf")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try Data("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n".utf8).write(to: url)
+
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .pdf)
+        XCTAssertEqual(FilePreviewKindResolver.tabIconName(for: url), "doc.richtext")
+    }
+
+    func testUTF16TextWithBOMStillResolvesAsText() throws {
+        let url = try temporaryTextFile(contents: "hello", encoding: .utf16)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.tabIconName(for: url), "doc.text")
     }
 
     private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
