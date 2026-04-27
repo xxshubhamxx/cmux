@@ -5918,22 +5918,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) else { return }
 
         let actualFocus = browserPanel.actualFocus(in: window)
-        let shouldRepairFocusedWrapper: Bool
         switch actualFocus {
         case let .browserWebContent(actualPanelId) where actualPanelId == panelId,
              let .browserAddressBar(actualPanelId) where actualPanelId == panelId,
+             let .browserWebViewWrapper(actualPanelId) where actualPanelId == panelId,
              let .browserFindField(actualPanelId) where actualPanelId == panelId:
             return
-        case let .browserWebViewWrapper(actualPanelId) where actualPanelId == panelId:
-            shouldRepairFocusedWrapper = shouldDispatchBrowserSpaceViaFirstResponderKeyDown(
-                keyCode: event.keyCode,
-                firstResponderIsBrowser: true,
-                firstResponderHasMarkedText: browserResponderHasMarkedText(firstResponder),
-                flags: event.modifierFlags
-            )
-            guard shouldRepairFocusedWrapper else { return }
         default:
-            shouldRepairFocusedWrapper = false
             break
         }
 
@@ -5944,15 +5935,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "workspace=\(String(workspace.id.uuidString.prefix(5))) " +
             "panel=\(String(panelId.uuidString.prefix(5))) " +
             "fr=\(before) actual=\(actualFocus.debugDescription) " +
-            "wrapperRepair=\(shouldRepairFocusedWrapper ? 1 : 0) " +
             "keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue)"
         )
 #endif
 
         let repaired = browserPanel.repairWebContentFocusForKeyboardInput(
             in: window,
-            reason: "windowSendEvent",
-            repairFocusedWrapper: shouldRepairFocusedWrapper
+            reason: "windowSendEvent"
         )
 
 #if DEBUG

@@ -3895,7 +3895,7 @@ final class BrowserPanel: Panel, ObservableObject {
         case let .browserWebContent(panelId) where panelId == id:
             return false
         case let .browserWebViewWrapper(panelId) where panelId == id:
-            guard repairFocusedWrapper else { return false }
+            return false
         case let .browserAddressBar(panelId) where panelId == id:
             return false
         case let .browserFindField(panelId) where panelId == id:
@@ -3922,7 +3922,6 @@ final class BrowserPanel: Panel, ObservableObject {
         dlog(
             "browser.focus.keyRepair panel=\(id.uuidString.prefix(5)) " +
             "reason=\(reason) result=\(focusResult.debugDescription) " +
-            "wrapperRepair=\(repairFocusedWrapper ? 1 : 0) " +
             "focused=\(focusResult.didFocusResponder ? 1 : 0) " +
             "content=\(focusResult.didFocusContent ? 1 : 0) " +
             "fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
