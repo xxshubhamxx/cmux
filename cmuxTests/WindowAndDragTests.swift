@@ -1169,6 +1169,35 @@ final class FilePreviewPDFChromeTests: XCTestCase {
         XCTAssertGreaterThan(itemSize.width, sidebar.bounds.width / 2)
     }
 
+    func testThumbnailSidebarPreferredWidthShrinksToPortraitContent() throws {
+        let document = try makePDFDocument(pageSizes: [NSSize(width: 80, height: 160)])
+
+        let width = FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: document)
+
+        XCTAssertEqual(width, FilePreviewPDFSizing.minimumSidebarWidth, accuracy: 0.001)
+    }
+
+    func testThumbnailSidebarPreferredWidthExpandsForLandscapeContent() throws {
+        let document = try makePDFDocument(pageSizes: [NSSize(width: 160, height: 90)])
+
+        let width = FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: document)
+
+        XCTAssertGreaterThan(width, 200)
+        XCTAssertLessThan(width, FilePreviewPDFSizing.maximumSidebarWidth)
+    }
+
+    func testSidebarWidthClampReservesMinimumContentWidth() {
+        let width = FilePreviewPDFSizing.clampedSidebarWidth(
+            240,
+            containerWidth: FilePreviewPDFSizing.minimumSidebarWidth
+                + FilePreviewPDFSizing.minimumContentWidth
+                - 40,
+            dividerThickness: 1
+        )
+
+        XCTAssertEqual(width, FilePreviewPDFSizing.minimumSidebarWidth, accuracy: 0.001)
+    }
+
     func testThumbnailSidebarKeepsSingleSelectionWhenProgrammaticallyChangingPage() throws {
         let sidebar = FilePreviewPDFThumbnailSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 480))
         let document = try makePDFDocument(pageCount: 5)
@@ -1231,12 +1260,21 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     private func makePDFDocument(pageCount: Int) throws -> PDFDocument {
+        try makePDFDocument(pageSizes: Array(repeating: NSSize(width: 80, height: 80), count: pageCount))
+    }
+
+    private func makePDFDocument(pageSizes: [NSSize]) throws -> PDFDocument {
         let document = PDFDocument()
-        for pageIndex in 0..<pageCount {
-            let image = NSImage(size: NSSize(width: 80, height: 80))
+        for (pageIndex, pageSize) in pageSizes.enumerated() {
+            let image = NSImage(size: pageSize)
             image.lockFocus()
-            NSColor(calibratedHue: CGFloat(pageIndex) / CGFloat(max(pageCount, 1)), saturation: 0.5, brightness: 0.8, alpha: 1).setFill()
-            NSBezierPath(rect: NSRect(x: 0, y: 0, width: 80, height: 80)).fill()
+            NSColor(
+                calibratedHue: CGFloat(pageIndex) / CGFloat(max(pageSizes.count, 1)),
+                saturation: 0.5,
+                brightness: 0.8,
+                alpha: 1
+            ).setFill()
+            NSBezierPath(rect: NSRect(origin: .zero, size: pageSize)).fill()
             image.unlockFocus()
             let page = try XCTUnwrap(PDFPage(image: image))
             document.insert(page, at: pageIndex)
