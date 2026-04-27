@@ -1342,6 +1342,22 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertFalse(panel.isDirty)
     }
 
+    func testCleanSaveDoesNotWriteReadOnlyTextFile() throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            try? FileManager.default.removeItem(at: url)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        panel.saveTextContent()
+
+        XCTAssertFalse(panel.isDirty)
+        XCTAssertFalse(panel.isFileUnavailable)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "original")
+    }
+
     func testLoadTextContentClearsDirtyStateWhenFileVanishes() throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -1379,6 +1395,21 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         withExtendedLifetime([firstWindow, secondWindow]) {}
     }
 
+    func testPendingTextFocusAppliesWhenTextViewAttaches() throws {
+        _ = NSApplication.shared
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        panel.focus()
+
+        let textView = SavingTextView()
+        let window = windowHosting(textView)
+        panel.attachTextView(textView)
+
+        XCTAssertTrue(window.firstResponder === textView)
+        withExtendedLifetime(window) {}
+    }
+
     func testPDFExtensionWinsOverLooseTextSniff() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -1397,6 +1428,16 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.tabIconName(for: url), "doc.text")
+    }
+
+    func testBinaryPlistDoesNotOpenAsEditableText() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("plist")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("bplist00".utf8).write(to: url)
+
+        XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
     private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {

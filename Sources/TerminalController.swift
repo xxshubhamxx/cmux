@@ -3301,7 +3301,10 @@ class TerminalController {
 
     private func v2PanelType(_ params: [String: Any], _ key: String) -> PanelType? {
         guard let s = v2String(params, key) else { return nil }
-        return PanelType(rawValue: s.lowercased())
+        let normalized = s.replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        return PanelType(rawValue: normalized)
     }
 
     // MARK: - V2 Context Resolution

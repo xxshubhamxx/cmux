@@ -1859,6 +1859,13 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
 
 @MainActor
 final class BrowserPaneDropRoutingTests: XCTestCase {
+    func testFilePreviewPanelTypeUsesLowercaseRawValueWithLegacyDecode() throws {
+        XCTAssertEqual(PanelType.filePreview.rawValue, "filepreview")
+        XCTAssertEqual(PanelType(rawValue: "filepreview"), .filePreview)
+        let legacy = try JSONDecoder().decode(PanelType.self, from: Data("\"filePreview\"".utf8))
+        XCTAssertEqual(legacy, .filePreview)
+    }
+
     func testVerticalZonesFollowAppKitCoordinates() {
         let size = CGSize(width: 240, height: 180)
 
@@ -1963,7 +1970,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         let sourcePaneId = UUID()
         let payload = try! JSONSerialization.data(
             withJSONObject: [
-                "tab": ["id": tabId.uuidString],
+                "tab": ["id": tabId.uuidString, "kind": "filePreview"],
                 "sourcePaneId": sourcePaneId.uuidString,
                 "sourceProcessId": ProcessInfo.processInfo.processIdentifier,
             ]
@@ -1974,6 +1981,33 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         XCTAssertEqual(transfer?.tabId, tabId)
         XCTAssertEqual(transfer?.sourcePaneId, sourcePaneId)
         XCTAssertTrue(transfer?.isFromCurrentProcess == true)
+        XCTAssertTrue(transfer?.isFilePreview == true)
+    }
+
+    func testFilePreviewDropDestinationUsesPaneCenterOrSplitZone() {
+        let paneId = PaneID(id: UUID())
+        let target = BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: paneId
+        )
+
+        switch BrowserPaneDropRouting.filePreviewDestination(target: target, zone: .center) {
+        case .insert(let destinationPane, let index):
+            XCTAssertEqual(destinationPane, paneId)
+            XCTAssertNil(index)
+        default:
+            XCTFail("Center file-preview drops should insert into the target pane")
+        }
+
+        switch BrowserPaneDropRouting.filePreviewDestination(target: target, zone: .left) {
+        case .split(let destinationPane, let orientation, let insertFirst):
+            XCTAssertEqual(destinationPane, paneId)
+            XCTAssertEqual(orientation, .horizontal)
+            XCTAssertTrue(insertFirst)
+        default:
+            XCTFail("Edge file-preview drops should split the target pane")
+        }
     }
 }
 

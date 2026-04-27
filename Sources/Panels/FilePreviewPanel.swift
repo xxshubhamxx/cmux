@@ -50,6 +50,12 @@ final class FilePreviewDragRegistry {
         return pending.removeValue(forKey: id)
     }
 
+    func contains(id: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return pending[id] != nil
+    }
+
     func discardAll() {
         lock.lock()
         pending.removeAll()
@@ -107,11 +113,14 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
     }
 
     func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
-        [Self.bonsplitTransferType]
+        [
+            DragOverlayRoutingPolicy.filePreviewTransferType,
+            Self.bonsplitTransferType
+        ]
     }
 
     func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        if type == Self.bonsplitTransferType {
+        if type == Self.bonsplitTransferType || type == DragOverlayRoutingPolicy.filePreviewTransferType {
             return transferData
         }
         return nil
@@ -120,8 +129,9 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
     private func mirrorTransferDataToDragPasteboard() {
         let write = { [transferData] in
             let pasteboard = NSPasteboard(name: .drag)
-            pasteboard.addTypes([Self.bonsplitTransferType], owner: nil)
+            pasteboard.addTypes([DragOverlayRoutingPolicy.filePreviewTransferType, Self.bonsplitTransferType], owner: nil)
             pasteboard.setData(transferData, forType: Self.bonsplitTransferType)
+            pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         }
         if Thread.isMainThread {
             write()
@@ -234,6 +244,9 @@ enum FilePreviewKindResolver {
             return true
         }
         let ext = url.pathExtension.lowercased()
+        if ext == "plist", looksLikeBinaryPropertyList(url: url) {
+            return false
+        }
         if textExtensions.contains(ext) {
             return true
         }
@@ -246,6 +259,13 @@ enum FilePreviewKindResolver {
             return true
         }
         return sniffLooksLikeText(url: url)
+    }
+
+    private static func looksLikeBinaryPropertyList(url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        let data = (try? handle.read(upToCount: 8)) ?? Data()
+        return String(data: data, encoding: .ascii) == "bplist00"
     }
 
     private static func sniffLooksLikeText(url: URL) -> Bool {
@@ -291,6 +311,7 @@ final class FilePreviewPanel: Panel, ObservableObject {
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
     private weak var textView: NSTextView?
+    private var hasPendingTextFocus = false
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
@@ -313,7 +334,11 @@ final class FilePreviewPanel: Panel, ObservableObject {
     }
 
     func focus() {
-        guard let textView else { return }
+        guard let textView else {
+            hasPendingTextFocus = true
+            return
+        }
+        hasPendingTextFocus = false
         textView.window?.makeFirstResponder(textView)
     }
 
@@ -333,6 +358,9 @@ final class FilePreviewPanel: Panel, ObservableObject {
 
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
+        if hasPendingTextFocus {
+            focus()
+        }
     }
 
     func updateTextContent(_ nextContent: String) {
@@ -375,8 +403,13 @@ final class FilePreviewPanel: Panel, ObservableObject {
 
     func saveTextContent() {
         guard previewMode == .text else { return }
+        let currentContent = textView?.string ?? textContent
+        guard currentContent != originalTextContent else {
+            textContent = currentContent
+            isDirty = false
+            return
+        }
         do {
-            let currentContent = textView?.string ?? textContent
             textContent = currentContent
             try currentContent.write(to: fileURL, atomically: false, encoding: textEncoding)
             originalTextContent = textContent

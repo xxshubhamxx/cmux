@@ -7,7 +7,29 @@ public enum PanelType: String, Codable, Sendable {
     case terminal
     case browser
     case markdown
-    case filePreview
+    case filePreview = "filepreview"
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        if let type = Self(rawValue: rawValue) {
+            self = type
+            return
+        }
+        if rawValue.lowercased() == Self.filePreview.rawValue {
+            self = .filePreview
+            return
+        }
+        throw DecodingError.dataCorruptedError(
+            in: container,
+            debugDescription: "Unknown panel type: \(rawValue)"
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 public enum TerminalPanelFocusIntent: Equatable {

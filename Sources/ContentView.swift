@@ -11,11 +11,17 @@ import WebKit
 
 enum DragOverlayRoutingPolicy {
     static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+    static let filePreviewTransferType = NSPasteboard.PasteboardType("com.cmux.filepreview.transfer")
     static let sidebarTabReorderType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
 
     static func hasBonsplitTabTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let pasteboardTypes else { return false }
         return pasteboardTypes.contains(bonsplitTabTransferType)
+    }
+
+    static func hasFilePreviewTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard let pasteboardTypes else { return false }
+        return pasteboardTypes.contains(filePreviewTransferType)
     }
 
     static func hasSidebarTabReorder(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
@@ -81,6 +87,7 @@ enum DragOverlayRoutingPolicy {
     ) -> Bool {
         guard isPortalDragEvent(eventType) else { return false }
         return hasBonsplitTabTransfer(pasteboardTypes)
+            || hasFilePreviewTransfer(pasteboardTypes)
             || hasSidebarTabReorder(pasteboardTypes)
             || hasFileURL(pasteboardTypes)
     }

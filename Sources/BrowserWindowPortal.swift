@@ -1265,9 +1265,21 @@ struct BrowserPaneDragTransfer: Equatable {
     let tabId: UUID
     let sourcePaneId: UUID
     let sourceProcessId: Int32
+    let kind: String?
+
+    init(tabId: UUID, sourcePaneId: UUID, sourceProcessId: Int32, kind: String? = nil) {
+        self.tabId = tabId
+        self.sourcePaneId = sourcePaneId
+        self.sourceProcessId = sourceProcessId
+        self.kind = kind
+    }
 
     var isFromCurrentProcess: Bool {
         sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
+    }
+
+    var isFilePreview: Bool {
+        kind?.lowercased() == "filepreview"
     }
 
     static func decode(from pasteboard: NSPasteboard) -> BrowserPaneDragTransfer? {
@@ -1291,10 +1303,12 @@ struct BrowserPaneDragTransfer: Equatable {
         }
 
         let sourceProcessId = (json["sourceProcessId"] as? NSNumber)?.int32Value ?? -1
+        let kind = tab["kind"] as? String
         return BrowserPaneDragTransfer(
             tabId: tabId,
             sourcePaneId: sourcePaneId,
-            sourceProcessId: sourceProcessId
+            sourceProcessId: sourceProcessId,
+            kind: kind
         )
     }
 }
@@ -1411,6 +1425,24 @@ enum BrowserPaneDropRouting {
             splitTarget: splitTarget
         )
     }
+
+    static func filePreviewDestination(
+        target: BrowserPaneDropContext,
+        zone: DropZone
+    ) -> BonsplitController.ExternalTabDropRequest.Destination {
+        switch zone {
+        case .center:
+            return .insert(targetPane: target.paneId, targetIndex: nil)
+        case .left:
+            return .split(targetPane: target.paneId, orientation: .horizontal, insertFirst: true)
+        case .right:
+            return .split(targetPane: target.paneId, orientation: .horizontal, insertFirst: false)
+        case .top:
+            return .split(targetPane: target.paneId, orientation: .vertical, insertFirst: true)
+        case .bottom:
+            return .split(targetPane: target.paneId, orientation: .vertical, insertFirst: false)
+        }
+    }
 }
 
 final class BrowserPaneDropTargetView: NSView {
@@ -1425,7 +1457,10 @@ final class BrowserPaneDropTargetView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([DragOverlayRoutingPolicy.bonsplitTabTransferType])
+        registerForDraggedTypes([
+            DragOverlayRoutingPolicy.filePreviewTransferType,
+            DragOverlayRoutingPolicy.bonsplitTabTransferType
+        ])
     }
 
     @available(*, unavailable)
@@ -1505,6 +1540,34 @@ final class BrowserPaneDropTargetView: NSView {
             in: bounds.size,
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
         )
+
+        if transfer.isFilePreview {
+            guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId),
+                  let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                    "reason=missingFilePreviewEntry tab=\(transfer.tabId.uuidString.prefix(5))"
+                )
+#endif
+                return false
+            }
+            let handled = workspace.handleFilePreviewDrop(
+                entry: entry,
+                destination: BrowserPaneDropRouting.filePreviewDestination(
+                    target: dropContext,
+                    zone: zone
+                )
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone) filePreview=1 handled=\(handled ? 1 : 0)"
+            )
+#endif
+            return handled
+        }
+
         guard let action = BrowserPaneDropRouting.action(
             for: transfer,
             target: dropContext,
@@ -1554,7 +1617,8 @@ final class BrowserPaneDropTargetView: NSView {
     private func updateDragState(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
         guard let dropContext,
               let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
-              transfer.isFromCurrentProcess else {
+              transfer.isFromCurrentProcess,
+              (!transfer.isFilePreview || FilePreviewDragRegistry.shared.contains(id: transfer.tabId)) else {
             clearDragState(phase: "\(phase).reject")
             return []
         }

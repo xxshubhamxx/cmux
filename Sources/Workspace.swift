@@ -11631,7 +11631,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func handleFilePreviewDrop(
+    func handleFilePreviewDrop(
         entry: FilePreviewDragEntry,
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
