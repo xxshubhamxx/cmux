@@ -188,11 +188,12 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
         panel.acknowledgeAddressBarFocusRequest(requestId)
         XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+        XCTAssertTrue(panel.isAddressBarFocused)
 
         // Acknowledgement only clears the durable request; focus suppression follows
         // explicit blur state transitions.
         XCTAssertTrue(panel.shouldSuppressWebViewFocus())
-        panel.endSuppressWebViewFocusForAddressBar()
+        panel.setAddressBarFocused(false, reason: "test")
         XCTAssertFalse(panel.shouldSuppressWebViewFocus())
     }
 
@@ -227,10 +228,12 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
         panel.acknowledgeAddressBarFocusRequest(requestId)
 
         XCTAssertEqual(panel.preferredFocusIntentForActivation(), .browser(.addressBar))
+        XCTAssertTrue(panel.isAddressBarFocused)
         XCTAssertTrue(panel.shouldSuppressWebViewFocus())
 
-        panel.noteAddressBarBlurred(reason: "test")
+        panel.setAddressBarFocused(false, reason: "test")
 
+        XCTAssertFalse(panel.isAddressBarFocused)
         XCTAssertNil(panel.pendingAddressBarFocusRequestId)
         XCTAssertEqual(panel.preferredFocusIntentForActivation(), .browser(.webView))
         XCTAssertFalse(panel.shouldSuppressWebViewFocus())
@@ -242,9 +245,11 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
         panel.acknowledgeAddressBarFocusRequest(requestId)
 
         XCTAssertEqual(panel.preferredFocusIntentForActivation(), .browser(.addressBar))
+        XCTAssertTrue(panel.isAddressBarFocused)
 
         panel.noteWebViewFocused()
 
+        XCTAssertFalse(panel.isAddressBarFocused)
         XCTAssertEqual(panel.preferredFocusIntentForActivation(), .browser(.webView))
         XCTAssertFalse(panel.shouldSuppressWebViewFocus())
     }
@@ -1158,7 +1163,7 @@ final class BrowserPanelFindFocusRequestTests: XCTestCase {
         panel.notePanelFocusChanged(true)
         let requestId = panel.requestAddressBarFocus()
         panel.acknowledgeAddressBarFocusRequest(requestId)
-        panel.noteAddressBarBlurred(reason: "testNavigationCommit")
+        panel.setAddressBarFocused(false, reason: "testNavigationCommit")
 
         let cmuxWebView = try XCTUnwrap(panel.webView as? CmuxWebView)
         XCTAssertFalse(cmuxWebView.allowsFirstResponderAcquisition)

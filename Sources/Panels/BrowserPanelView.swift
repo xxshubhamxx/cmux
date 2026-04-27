@@ -518,7 +518,6 @@ struct BrowserPanelView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.paneDropZone) private var paneDropZone
     @State private var omnibarState = OmnibarState()
-    @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
@@ -990,8 +989,6 @@ struct BrowserPanelView: View {
 #endif
         let urlString = panel.preferredURLStringForOmnibar() ?? ""
         if focused {
-            panel.beginSuppressWebViewFocusForAddressBar()
-            NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panel.id)
             // Only request panel focus if this pane isn't currently focused. When already
             // focused (e.g. Cmd+L), forcing focus can steal first responder back to WebKit.
             if !isFocused {
@@ -1004,8 +1001,6 @@ struct BrowserPanelView: View {
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
         } else {
-            panel.endSuppressWebViewFocusForAddressBar()
-            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
             if suppressNextFocusLostRevert {
                 suppressNextFocusLostRevert = false
                 let effects = omnibarReduce(state: &omnibarState, event: .focusLostPreserveBuffer(currentURLString: urlString))
@@ -1399,7 +1394,7 @@ struct BrowserPanelView: View {
                         refreshInlineCompletion()
                     }
                 ),
-                isFocused: $addressBarFocused,
+                isFocused: addressBarFocusBinding,
                 selectAllRequestGeneration: omnibarSelectAllRequestGeneration,
                 inlineCompletion: inlineCompletion,
                 placeholder: String(localized: "browser.addressBar.placeholder", defaultValue: "Search or enter URL"),
@@ -1571,6 +1566,17 @@ struct BrowserPanelView: View {
         )
     }
 
+    private var addressBarFocused: Bool {
+        panel.isAddressBarFocused
+    }
+
+    private var addressBarFocusBinding: Binding<Bool> {
+        Binding(
+            get: { panel.isAddressBarFocused },
+            set: { setAddressBarFocused($0, reason: "omnibar.binding") }
+        )
+    }
+
     private func setAddressBarFocused(_ focused: Bool, reason: String) {
 #if DEBUG
         if addressBarFocused == focused {
@@ -1585,12 +1591,7 @@ struct BrowserPanelView: View {
             )
         }
 #endif
-        addressBarFocused = focused
-        if focused {
-            panel.noteAddressBarFocused()
-        } else {
-            panel.noteAddressBarBlurred(reason: reason)
-        }
+        panel.setAddressBarFocused(focused, reason: reason)
     }
 
     private func browserFocusResponderChainContains(
@@ -1733,7 +1734,6 @@ struct BrowserPanelView: View {
             return
         }
         lastHandledAddressBarFocusRequestId = requestId
-        panel.beginSuppressWebViewFocusForAddressBar()
 #if DEBUG
         logBrowserFocusState(
             event: "addressBarFocus.request.apply",
@@ -2427,7 +2427,6 @@ struct BrowserPanelView: View {
             hideSuggestions()
             // This transition is stateful: drop omnibar focus suppression before
             // attempting responder handoff so WKWebView can actually become first responder.
-            panel.endSuppressWebViewFocusForAddressBar()
             setAddressBarFocused(false, reason: "effects.blurToWebView")
             DispatchQueue.main.async {
                 guard let window = panel.webView.window,

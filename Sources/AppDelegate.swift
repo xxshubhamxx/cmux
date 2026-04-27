@@ -13000,7 +13000,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] notification in
             guard let self else { return }
             guard let panelId = notification.object as? UUID else { return }
-            self.browserPanel(for: panelId)?.beginSuppressWebViewFocusForAddressBar()
             self.browserAddressBarFocusedPanelId = panelId
             self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
@@ -13015,7 +13014,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] notification in
             guard let self else { return }
             guard let panelId = notification.object as? UUID else { return }
-            self.browserPanel(for: panelId)?.noteAddressBarBlurred(reason: "notification")
             if self.browserAddressBarFocusedPanelId == panelId {
                 self.browserAddressBarFocusedPanelId = nil
                 self.stopBrowserOmnibarSelectionRepeat()
@@ -13049,7 +13047,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                trackedPanelId != panel.id,
                let trackedPanel = self.browserPanel(for: trackedPanelId),
                !self.shouldPreserveBrowserAddressBarTracking(for: trackedPanel) {
-                trackedPanel.noteAddressBarBlurred(reason: "staleOtherPanelWebViewFirstResponder")
+                trackedPanel.setAddressBarFocused(false, reason: "staleOtherPanelWebViewFirstResponder")
                 self.browserAddressBarFocusedPanelId = nil
                 self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
@@ -13074,6 +13072,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 panel.noteWebViewFocused()
             }
             if hasContentFirstResponder, self.browserAddressBarFocusedPanelId == panel.id {
+                panel.setAddressBarFocused(false, reason: "webViewFirstResponder")
                 self.browserAddressBarFocusedPanelId = nil
                 self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
