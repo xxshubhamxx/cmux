@@ -3,8 +3,9 @@ import PDFKit
 
 enum FilePreviewPDFSizing {
     static let thumbnailMaximumSize = CGSize(width: 190, height: 106)
-    static let thumbnailHorizontalPadding: CGFloat = 20
+    static let thumbnailHorizontalPadding: CGFloat = 22
     static let defaultSidebarWidth: CGFloat = 128
+    static let minimumThumbnailSidebarWidth: CGFloat = 104
     static let minimumSidebarWidth: CGFloat = 112
     static let maximumSidebarWidth: CGFloat = 320
     static let minimumContentWidth: CGFloat = 260
@@ -25,7 +26,7 @@ enum FilePreviewPDFSizing {
             return max(current, thumbnailSize(for: page).width)
         }
         let preferredWidth = ceil(widestThumbnail + thumbnailHorizontalPadding)
-        return max(minimumSidebarWidth, preferredWidth)
+        return max(minimumThumbnailSidebarWidth, preferredWidth)
     }
 
     static func preferredOutlineSidebarWidth(for outlineRoot: PDFOutline?) -> CGFloat {
@@ -50,18 +51,19 @@ enum FilePreviewPDFSizing {
     static func clampedSidebarWidth(
         _ proposedWidth: CGFloat,
         containerWidth: CGFloat,
-        dividerThickness: CGFloat
+        dividerThickness: CGFloat,
+        minimumWidth: CGFloat = minimumSidebarWidth
     ) -> CGFloat {
         let availableWidth = max(0, containerWidth - dividerThickness)
         guard availableWidth > 0 else {
-            return max(proposedWidth, minimumSidebarWidth)
+            return max(proposedWidth, minimumWidth)
         }
 
         let maximumWidthForContainer = max(
-            minimumSidebarWidth,
+            minimumWidth,
             min(maximumSidebarWidth, availableWidth - minimumContentWidth)
         )
-        return min(max(proposedWidth, minimumSidebarWidth), maximumWidthForContainer)
+        return min(max(proposedWidth, minimumWidth), maximumWidthForContainer)
     }
 
     static func thumbnailSize(for page: PDFPage) -> CGSize {

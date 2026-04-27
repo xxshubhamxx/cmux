@@ -1174,7 +1174,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
 
         let width = FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: document)
 
-        XCTAssertEqual(width, FilePreviewPDFSizing.minimumSidebarWidth, accuracy: 0.001)
+        XCTAssertEqual(width, FilePreviewPDFSizing.minimumThumbnailSidebarWidth, accuracy: 0.001)
     }
 
     func testThumbnailSidebarPreferredWidthExpandsForLandscapeContent() throws {
