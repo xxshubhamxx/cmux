@@ -485,7 +485,6 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
         app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
         app.launch()
-        app.activate()
         return (app, dataPath)
     }
 
