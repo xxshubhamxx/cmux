@@ -1,3 +1,63 @@
+diff --git a/content/browser/compositor/viz_process_transport_factory.cc b/content/browser/compositor/viz_process_transport_factory.cc
+index 59a7d48453..2a8d65b201 100644
+--- a/content/browser/compositor/viz_process_transport_factory.cc
++++ b/content/browser/compositor/viz_process_transport_factory.cc
+@@ -47,6 +47,7 @@
+ #include "services/viz/privileged/mojom/compositing/display_private.mojom.h"
+ #include "services/viz/privileged/mojom/compositing/external_begin_frame_controller.mojom.h"
+ #include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
++#include "third_party/blink/public/common/switches.h"
+ #include "ui/base/ozone_buildflags.h"
+ #include "ui/base/ui_base_features.h"
+ 
+@@ -432,8 +433,10 @@ void VizProcessTransportFactory::OnEstablishedGpuChannel(
+   root_params->renderer_settings.display_id = compositor->display_id();
+ #endif
+   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+-  if (command_line->HasSwitch(switches::kDisableFrameRateLimit))
++  if (command_line->HasSwitch(switches::kDisableFrameRateLimit) ||
++      command_line->HasSwitch(blink::switches::kFreshOwlHostedFramePump)) {
+     root_params->disable_frame_rate_limit = true;
++  }
+ 
+ #if BUILDFLAG(IS_WIN)
+   const bool using_direct_composition = GpuDataManagerImpl::GetInstance()
+diff --git a/content/browser/gpu/gpu_process_host.cc b/content/browser/gpu/gpu_process_host.cc
+index 62cab5dad3..f5cb60e098 100644
+--- a/content/browser/gpu/gpu_process_host.cc
++++ b/content/browser/gpu/gpu_process_host.cc
+@@ -89,6 +89,7 @@
+ #include "services/webnn/buildflags.h"
+ #include "services/webnn/webnn_switches.h"
+ #include "skia/buildflags.h"
++#include "third_party/blink/public/common/switches.h"
+ #include "third_party/blink/public/common/tokens/tokens.h"
+ #include "ui/base/ui_base_features.h"
+ #include "ui/base/ui_base_switches.h"
+@@ -1345,8 +1346,10 @@ bool GpuProcessHost::LaunchGpuProcess() {
+       browser_command_line,
+       switches::GetWebNNSwitchesCopiedFromGpuProcessHost());
+ 
+-  if (browser_command_line.HasSwitch(switches::kDisableFrameRateLimit))
++  if (browser_command_line.HasSwitch(switches::kDisableFrameRateLimit) ||
++      browser_command_line.HasSwitch(blink::switches::kFreshOwlHostedFramePump)) {
+     cmd_line->AppendSwitch(switches::kDisableGpuVsync);
++  }
+ 
+   if (browser_command_line.HasSwitch(switches::kForceHighPerformanceGPU)) {
+     cmd_line->AppendSwitch(gpu::GpuDriverBugWorkaroundTypeToString(
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index bdf3d9ca41..71e8799f76 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -3807,6 +3807,7 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
+       blink::switches::kEnableOverlaysAndLowLatencyUsageForWebGL,
+ #endif
+       blink::switches::kForceGpuMemAvailableMb,
++      blink::switches::kFreshOwlHostedFramePump,
+       blink::switches::
+           kGpuMemoryBufferReadbackFromTextureForceDisabledForDebugging,
+       blink::switches::kMinHeightForGpuRasterTile,
 diff --git a/content/browser/renderer_host/render_widget_host_view_mac.mm b/content/browser/renderer_host/render_widget_host_view_mac.mm
 index 63041c4311..4cc2d07cd9 100644
 --- a/content/browser/renderer_host/render_widget_host_view_mac.mm
@@ -1322,10 +1382,10 @@ index 0000000000..ab883e226a
 +}
 diff --git a/fresh_owl/owl_fresh_mojo_runtime.cc b/fresh_owl/owl_fresh_mojo_runtime.cc
 new file mode 100644
-index 0000000000..a294a390a4
+index 0000000000..07bb1c36ec
 --- /dev/null
 +++ b/fresh_owl/owl_fresh_mojo_runtime.cc
-@@ -0,0 +1,597 @@
+@@ -0,0 +1,598 @@
 +#include "fresh_owl/owl_fresh_mojo_runtime.h"
 +
 +#include <cstdlib>
@@ -1618,6 +1678,7 @@ index 0000000000..a294a390a4
 +  const bool visible_control_mode = std::getenv("OWL_FRESH_NO_EMBED") != nullptr;
 +  if (!visible_control_mode) {
 +    command_line.AppendSwitch("fresh-owl-embed");
++    command_line.AppendSwitch("fresh-owl-hosted-frame-pump");
 +  } else {
 +    command_line.AppendSwitch("owl-fresh-visible-control");
 +  }
@@ -2046,6 +2107,34 @@ index 07e7f51fc7..e621aa1000 100644
  #else
  #error We require that Skia's and CoreGraphics's recommended \
         image memory layout match.
+diff --git a/third_party/blink/common/switches.cc b/third_party/blink/common/switches.cc
+index c33f4e27a4..201aa619e5 100644
+--- a/third_party/blink/common/switches.cc
++++ b/third_party/blink/common/switches.cc
+@@ -103,6 +103,11 @@ const char kEnableZeroCopy[] = "enable-zero-copy";
+ // cc.
+ const char kForceGpuMemAvailableMb[] = "force-gpu-mem-available-mb";
+ 
++// Enables the hosted Owl frame pump for renderer and root compositor
++// scheduling.
++const char kFreshOwlHostedFramePump[] =
++    "fresh-owl-hosted-frame-pump";
++
+ // Disables the GpuMemoryBufferReadbackFromTexture codepath for debugging
+ // purposes.
+ const char kGpuMemoryBufferReadbackFromTextureForceDisabledForDebugging[] =
+diff --git a/third_party/blink/public/common/switches.h b/third_party/blink/public/common/switches.h
+index 92c4fe527d..bde431ddac 100644
+--- a/third_party/blink/public/common/switches.h
++++ b/third_party/blink/public/common/switches.h
+@@ -43,6 +43,7 @@ BLINK_COMMON_EXPORT extern const char
+     kGpuMemoryBufferReadbackFromTextureForceDisabledForDebugging[];
+ BLINK_COMMON_EXPORT extern const char kGpuRasterizationMSAASampleCount[];
+ BLINK_COMMON_EXPORT extern const char kForceGpuMemAvailableMb[];
++BLINK_COMMON_EXPORT extern const char kFreshOwlHostedFramePump[];
+ BLINK_COMMON_EXPORT extern const char
+     kIntensiveWakeUpThrottlingPolicy_ForceDisable[];
+ BLINK_COMMON_EXPORT extern const char
 diff --git a/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm b/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
 index 9234de2adf..46e143f458 100644
 --- a/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
@@ -2058,6 +2147,20 @@ index 9234de2adf..46e143f458 100644
 +      kCGBitmapByteOrder32Host |
            static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst)));
    DCHECK(cg_context_);
+ 
+diff --git a/third_party/blink/renderer/platform/widget/compositing/layer_tree_settings.cc b/third_party/blink/renderer/platform/widget/compositing/layer_tree_settings.cc
+index 062719e67f..1a368d3f2a 100644
+--- a/third_party/blink/renderer/platform/widget/compositing/layer_tree_settings.cc
++++ b/third_party/blink/renderer/platform/widget/compositing/layer_tree_settings.cc
+@@ -582,7 +582,8 @@ cc::LayerTreeSettings GenerateLayerTreeSettings(
+       RuntimeEnabledFeatures::BackfaceVisibilityInteropEnabled();
+ 
+   settings.disable_frame_rate_limit =
+-      cmd.HasSwitch(::switches::kDisableFrameRateLimit);
++      cmd.HasSwitch(::switches::kDisableFrameRateLimit) ||
++      cmd.HasSwitch(switches::kFreshOwlHostedFramePump);
+ 
+   settings.enable_hit_test_opaqueness = true;
  
 diff --git a/ui/accelerated_widget_mac/BUILD.gn b/ui/accelerated_widget_mac/BUILD.gn
 index 0f8a6f75b7..c5e8a19224 100644

@@ -797,6 +797,7 @@ private final class LayerHostRunner {
         defer {
             runtime.destroy(session)
             terminateHostProcessIfNeeded(pid: hostPID)
+            pumpApp(app, for: 0.2)
         }
         let hostController = OwlFreshMojoHostController(
             runtime: runtime,
@@ -840,7 +841,7 @@ private final class LayerHostRunner {
         )
         defer {
             window.close()
-            pumpApp(app, for: 0.1)
+            pumpApp(app, for: 0.2)
         }
 
         app.activate(ignoringOtherApps: true)
@@ -1106,6 +1107,11 @@ private final class LayerHostRunner {
                 try sendKeyStroke(stroke, runtime: runtime, hostController: hostController)
             case .resize(let resize, let expectedMode):
                 try hostController.resize(resize)
+                currentSize = CGSize(
+                    width: CGFloat(Int(resize.width)),
+                    height: CGFloat(Int(resize.height))
+                )
+                window.resize(to: currentSize)
                 pumpApp(app, for: 0.2)
                 runtime.pollEvents(milliseconds: 50)
                 window.flushHostedLayer()

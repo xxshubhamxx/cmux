@@ -114,6 +114,11 @@ if [ "${OWL_LAYER_HOST_INPUT_CHECK:-}" = "1" ]; then
     <string>--input-check</string>
 PLIST
 fi
+if [ "${OWL_LAYER_HOST_RESIZE_CHECK:-}" = "1" ]; then
+  cat >> "$PLIST" <<PLIST
+    <string>--resize-check</string>
+PLIST
+fi
 if [ "${OWL_LAYER_HOST_INPUT_DIAGNOSTIC_CAPTURE:-}" = "1" ]; then
   cat >> "$PLIST" <<PLIST
     <string>--input-diagnostic-capture</string>
