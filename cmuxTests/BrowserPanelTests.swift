@@ -265,12 +265,60 @@ private final class BrowserPanelFakeWebContentResponderView: NSView {
     }
 }
 
+private final class BrowserPanelKeyStateTestWindow: NSWindow {
+    var testIsKeyWindow = true
+    var nilFirstResponderRequestCount = 0
+
+    override var isKeyWindow: Bool {
+        testIsKeyWindow
+    }
+
+    override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        if responder == nil {
+            nilFirstResponderRequestCount += 1
+        }
+        return super.makeFirstResponder(responder)
+    }
+}
+
 @MainActor
 final class BrowserPanelFindFocusRequestTests: XCTestCase {
     @MainActor
-    func testTransitionToWebContentFocusUsesNativeResponderOnly() async throws {
+    func testActualFocusDistinguishesWebViewWrapperFromWebContent() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let window = NSWindow(
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+
+        let contentResponder = BrowserPanelFakeWebContentResponderView(frame: panel.webView.bounds)
+        contentResponder.autoresizingMask = [.width, .height]
+        panel.webView.addSubview(contentResponder)
+
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+
+        let cmuxWebView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        cmuxWebView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(panel.webView))
+        XCTAssertEqual(panel.actualFocus(in: window), .browserWebViewWrapper(panel.id))
+
+        XCTAssertTrue(window.makeFirstResponder(contentResponder))
+        XCTAssertEqual(panel.actualFocus(in: window), .browserWebContent(panel.id))
+    }
+
+    @MainActor
+    func testTransitionToWebContentFocusUsesPublicWebViewResponder() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -322,12 +370,310 @@ final class BrowserPanelFindFocusRequestTests: XCTestCase {
         )
         await fulfillment(of: [restored], timeout: 2.0)
 
-        let responderView = try XCTUnwrap(window.firstResponder as? NSView)
-        XCTAssertTrue(
-            responderView === panel.webView || responderView.isDescendant(of: panel.webView),
-            "Expected native responder to land in the live WKWebView, got \(type(of: responderView))"
-        )
+        XCTAssertTrue(panel.hasWebViewFirstResponder(in: window))
         _ = delegate
+    }
+
+    @MainActor
+    func testSpaceKeyDeliveryAfterRestoredPublicWebViewFocusMutatesFocusedPageInput() async throws {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+
+        let navigation = expectation(description: "space probe page loaded")
+        let delegate = BrowserPanelTestNavigationDelegate {
+            navigation.fulfill()
+        }
+        panel.webView.navigationDelegate = delegate
+        panel.webView.loadHTMLString(
+            """
+            <!doctype html>
+            <body>
+            <input id="target" value="hello">
+            <script>
+            window.__cmuxSpaceProbe = [];
+            const target = document.getElementById("target");
+            function snapshot(kind, event) {
+              window.__cmuxSpaceProbe.push({
+                kind,
+                key: event && event.key || "",
+                code: event && event.code || "",
+                inputType: event && event.inputType || "",
+                data: event && event.data || "",
+                value: target.value,
+                start: target.selectionStart,
+                end: target.selectionEnd,
+                active: document.activeElement === target ? "target" : document.activeElement && (document.activeElement.id || document.activeElement.tagName) || "nil"
+              });
+            }
+            ["keydown", "beforeinput", "input", "keyup"].forEach((kind) => {
+              target.addEventListener(kind, (event) => snapshot(kind, event), true);
+            });
+            document.addEventListener("selectionchange", () => snapshot("selectionchange", null), true);
+            target.focus();
+            target.setSelectionRange(target.value.length, target.value.length);
+            snapshot("ready", null);
+            </script>
+            </body>
+            """,
+            baseURL: nil
+        )
+        await fulfillment(of: [navigation], timeout: 2.0)
+
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+        panel.notePanelFocusChanged(true)
+        panel.prepareFocusIntentForActivation(.browser(.webView))
+        XCTAssertTrue(panel.requestMountedContentWebViewFocus(in: window, reason: "spaceProbe"))
+        XCTAssertTrue(window.firstResponder === panel.webView)
+
+        let activeElementId = try await panel.evaluateJavaScript("document.activeElement && document.activeElement.id") as? String
+        XCTAssertEqual(activeElementId, "target")
+
+        let spaceEvent = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: " ",
+                charactersIgnoringModifiers: " ",
+                isARepeat: false,
+                keyCode: 49
+            )
+        )
+
+        XCTAssertTrue(
+            window.performKeyEquivalent(with: spaceEvent),
+            "Space should be claimed by cmux only after it is forwarded to WebKit keyDown."
+        )
+
+        func probeSnapshot() async throws -> [String: Any] {
+            let evaluated = try await panel.evaluateJavaScript(
+                """
+                JSON.stringify({
+                  value: target.value,
+                  start: target.selectionStart,
+                  end: target.selectionEnd,
+                  active: document.activeElement === target ? "target" : document.activeElement && (document.activeElement.id || document.activeElement.tagName) || "nil",
+                  events: window.__cmuxSpaceProbe
+                })
+                """
+            )
+            let json = try XCTUnwrap(evaluated as? String)
+            let object = try JSONSerialization.jsonObject(with: Data(json.utf8), options: [])
+            return try XCTUnwrap(object as? [String: Any])
+        }
+
+        var snapshot: [String: Any] = [:]
+        for _ in 0..<50 {
+            snapshot = try await probeSnapshot()
+            if snapshot["value"] as? String == "hello " {
+                break
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(snapshot["value"] as? String, "hello ", "Probe snapshot: \(snapshot)")
+        XCTAssertEqual(snapshot["start"] as? Int, 6, "Probe snapshot: \(snapshot)")
+        XCTAssertEqual(snapshot["end"] as? Int, 6, "Probe snapshot: \(snapshot)")
+        XCTAssertEqual(snapshot["active"] as? String, "target", "Probe snapshot: \(snapshot)")
+
+        let events = try XCTUnwrap(snapshot["events"] as? [[String: Any]])
+        XCTAssertTrue(events.contains { $0["kind"] as? String == "keydown" && $0["key"] as? String == " " })
+        XCTAssertTrue(events.contains { $0["kind"] as? String == "beforeinput" && $0["data"] as? String == " " })
+        XCTAssertTrue(events.contains { $0["kind"] as? String == "input" && $0["data"] as? String == " " })
+        _ = delegate
+    }
+
+    @MainActor
+    func testPaneBlurPreservesWebViewResponderUntilNextPanelClaimsFocus() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(panel.requestExplicitWebViewFocus())
+        XCTAssertTrue(panel.hasWebViewFirstResponder(in: window))
+
+        panel.unfocus()
+        XCTAssertTrue(panel.hasWebViewFirstResponder(in: window))
+
+        let terminalSurrogate = BrowserPanelFakeWebContentResponderView(
+            frame: NSRect(x: 20, y: 20, width: 180, height: 24)
+        )
+        contentView.addSubview(terminalSurrogate)
+        XCTAssertTrue(window.makeFirstResponder(terminalSurrogate))
+
+        let intent = PanelFocusIntent.browser(.webView)
+        panel.prepareFocusIntentForActivation(intent)
+        XCTAssertTrue(panel.requestMountedContentWebViewFocus(in: window, reason: "testPaneFocus"))
+        XCTAssertTrue(panel.hasWebViewFirstResponder(in: window))
+    }
+
+    @MainActor
+    func testPaneRestoreReactivatesPublicWebViewResponder() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+
+        let cmuxWebView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        cmuxWebView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(panel.webView))
+        XCTAssertTrue(window.firstResponder === panel.webView)
+
+        let nilRequestsBeforeRestore = window.nilFirstResponderRequestCount
+        XCTAssertTrue(panel.requestMountedContentWebViewFocus(in: window, reason: "rapidPaneRestore"))
+        XCTAssertTrue(panel.hasWebViewFirstResponder(in: window))
+        XCTAssertEqual(window.nilFirstResponderRequestCount, nilRequestsBeforeRestore + 1)
+        XCTAssertEqual(panel.captureFocusIntent(in: window), .browser(.webView))
+    }
+
+    @MainActor
+    func testMountedContentFocusUsesPublicWebViewResponder() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+
+        let contentResponder = BrowserPanelFakeWebContentResponderView(frame: panel.webView.bounds)
+        contentResponder.autoresizingMask = [.width, .height]
+        panel.webView.addSubview(contentResponder)
+
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+
+        let chromeField = NSTextField(frame: NSRect(x: 20, y: 20, width: 180, height: 24))
+        contentView.addSubview(chromeField)
+        XCTAssertTrue(window.makeFirstResponder(chromeField))
+
+        let intent = PanelFocusIntent.browser(.webView)
+        panel.prepareFocusIntentForActivation(intent)
+        XCTAssertTrue(panel.requestMountedContentWebViewFocus(in: window, reason: "testContentFocus"))
+        XCTAssertTrue(window.firstResponder === panel.webView)
+        XCTAssertEqual(panel.captureFocusIntent(in: window), .browser(.webView))
+    }
+
+    @MainActor
+    func testMountedContentFocusDoesNotChasePrivateWebKitSubviews() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+
+        let containerResponder = BrowserPanelFakeWebContentResponderView(frame: panel.webView.bounds)
+        containerResponder.autoresizingMask = [.width, .height]
+        panel.webView.addSubview(containerResponder)
+
+        let contentResponder = BrowserPanelFakeWebContentResponderView(frame: containerResponder.bounds)
+        contentResponder.autoresizingMask = [.width, .height]
+        containerResponder.addSubview(contentResponder)
+
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+
+        let chromeField = NSTextField(frame: NSRect(x: 20, y: 20, width: 180, height: 24))
+        contentView.addSubview(chromeField)
+        XCTAssertTrue(window.makeFirstResponder(chromeField))
+
+        panel.prepareFocusIntentForActivation(.browser(.webView))
+        XCTAssertTrue(panel.requestMountedContentWebViewFocus(in: window, reason: "deepContentFocus"))
+        XCTAssertTrue(window.firstResponder === panel.webView)
+        XCTAssertEqual(panel.actualFocus(in: window), .browserWebViewWrapper(panel.id))
+    }
+
+    @MainActor
+    func testYieldWebContentFocusDoesNotBounceThroughNilResponder() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+
+        let contentResponder = BrowserPanelFakeWebContentResponderView(frame: panel.webView.bounds)
+        contentResponder.autoresizingMask = [.width, .height]
+        panel.webView.addSubview(contentResponder)
+
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+        panel.prepareFocusIntentForActivation(.browser(.webView))
+        XCTAssertTrue(panel.requestMountedContentWebViewFocus(in: window, reason: "yieldPreserve"))
+        XCTAssertTrue(window.firstResponder === panel.webView)
+
+        XCTAssertTrue(window.makeFirstResponder(contentResponder))
+        XCTAssertTrue(window.firstResponder === contentResponder)
+
+        let nilRequestsBeforeYield = window.nilFirstResponderRequestCount
+        XCTAssertTrue(panel.yieldFocusIntent(.browser(.webView), in: window))
+
+        XCTAssertTrue(window.firstResponder === contentResponder)
+        XCTAssertEqual(window.nilFirstResponderRequestCount, nilRequestsBeforeYield)
     }
 
     func testStartFindIssuesDurableRequestUntilAcknowledged() throws {
@@ -454,7 +800,7 @@ final class BrowserPanelFindFocusRequestTests: XCTestCase {
 
     func testPendingFindDismissRestoreWaitsForPaneFocusAndOverlayTeardownBeforeTakingWebViewFocus() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let window = NSWindow(
+        let window = BrowserPanelKeyStateTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -502,7 +848,7 @@ final class BrowserPanelFindFocusRequestTests: XCTestCase {
     @MainActor
     func testFindDismissRestoreWaitsForFocusedFindFieldEditingToEndAfterOverlayTeardown() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let window = NSWindow(
+        let window = BrowserPanelKeyStateTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -553,7 +899,7 @@ final class BrowserPanelFindFocusRequestTests: XCTestCase {
     @MainActor
     func testExplicitWebViewFocusKeepsExistingWebContentResponder() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let window = NSWindow(
+        let window = BrowserPanelKeyStateTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -581,13 +927,14 @@ final class BrowserPanelFindFocusRequestTests: XCTestCase {
 
         XCTAssertTrue(panel.requestExplicitWebViewFocus())
         XCTAssertTrue(window.firstResponder === contentResponder)
+        XCTAssertEqual(panel.actualFocus(in: window), .browserWebContent(panel.id))
         XCTAssertEqual(panel.captureFocusIntent(in: window), .browser(.webView))
     }
 
     @MainActor
-    func testExplicitWebViewFocusPromotesWrapperToWebContentResponder() throws {
+    func testExplicitWebViewFocusKeepsPublicWebViewResponder() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let window = NSWindow(
+        let window = BrowserPanelKeyStateTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -613,14 +960,14 @@ final class BrowserPanelFindFocusRequestTests: XCTestCase {
         cmuxWebView.allowsFirstResponderAcquisition = false
 
         XCTAssertTrue(panel.requestExplicitWebViewFocus())
-        XCTAssertTrue(window.firstResponder === contentResponder)
+        XCTAssertTrue(window.firstResponder === panel.webView)
         XCTAssertEqual(panel.captureFocusIntent(in: window), .browser(.webView))
     }
 
     @MainActor
-    func testExplicitWebViewFocusUsesWKWebViewWrapperWhenLeavingBrowserChrome() throws {
+    func testExplicitWebViewFocusUsesPublicWebViewWhenLeavingBrowserChrome() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let window = NSWindow(
+        let window = BrowserPanelKeyStateTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -641,14 +988,14 @@ final class BrowserPanelFindFocusRequestTests: XCTestCase {
 
         XCTAssertTrue(window.makeFirstResponder(chromeField))
         XCTAssertTrue(panel.requestExplicitWebViewFocus())
-        XCTAssertTrue(window.firstResponder === panel.webView)
+        XCTAssertTrue(panel.hasWebViewFirstResponder(in: window))
         XCTAssertEqual(panel.captureFocusIntent(in: window), .browser(.webView))
     }
 
     @MainActor
     func testExplicitWebViewFocusYieldsOwnedBrowserFindFieldResponder() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let window = NSWindow(
+        let window = BrowserPanelKeyStateTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -678,7 +1025,7 @@ final class BrowserPanelFindFocusRequestTests: XCTestCase {
     @MainActor
     func testExplicitWebViewFocusBypassesStaleFalseResponderPolicy() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let window = NSWindow(
+        let window = BrowserPanelKeyStateTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -705,7 +1052,7 @@ final class BrowserPanelFindFocusRequestTests: XCTestCase {
     @MainActor
     func testWindowActivationReassertsFocusedWebContentIntent() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let window = NSWindow(
+        let window = BrowserPanelKeyStateTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -730,16 +1077,216 @@ final class BrowserPanelFindFocusRequestTests: XCTestCase {
         panel.notePanelFocusChanged(true)
         cmuxWebView.allowsFirstResponderAcquisition = false
 
+        let nilRequestsBeforeReassert = window.nilFirstResponderRequestCount
         XCTAssertTrue(panel.reassertWebContentFocusAfterWindowActivation(in: window, reason: "test"))
-        XCTAssertTrue(window.firstResponder === panel.webView)
+        XCTAssertTrue(panel.hasWebViewFirstResponder(in: window))
+        XCTAssertEqual(window.nilFirstResponderRequestCount, nilRequestsBeforeReassert + 1)
         XCTAssertTrue(cmuxWebView.allowsFirstResponderAcquisition)
+        XCTAssertEqual(panel.captureFocusIntent(in: window), .browser(.webView))
+    }
+
+    @MainActor
+    func testWindowResignSuspendsWebContentPolicyButKeepsWebIntent() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+        contentView.layoutSubtreeIfNeeded()
+
+        let cmuxWebView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        cmuxWebView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(panel.webView))
+
+        panel.notePanelFocusChanged(true)
+        XCTAssertTrue(cmuxWebView.allowsFirstResponderAcquisition)
+
+        panel.noteOwningWindowDidResignKey(window, reason: "test")
+
+        XCTAssertFalse(cmuxWebView.allowsFirstResponderAcquisition)
+        XCTAssertEqual(panel.preferredFocusIntentForActivation(), .browser(.webView))
+        XCTAssertEqual(panel.captureFocusIntent(in: window), .browser(.webView))
+    }
+
+    @MainActor
+    func testExplicitWebViewFocusDoesNotClaimInactiveWindow() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+        contentView.layoutSubtreeIfNeeded()
+
+        window.testIsKeyWindow = false
+        let cmuxWebView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        cmuxWebView.allowsFirstResponderAcquisition = false
+
+        XCTAssertFalse(panel.requestExplicitWebViewFocus())
+
+        XCTAssertFalse(cmuxWebView.allowsFirstResponderAcquisition)
+        XCTAssertFalse(window.firstResponder === panel.webView)
+        XCTAssertEqual(panel.preferredFocusIntentForActivation(), .browser(.webView))
+    }
+
+    @MainActor
+    func testMountedHostWindowAttachReplaysWebFocusAfterOffWindowAddressBarCommit() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        panel.notePanelFocusChanged(true)
+        let requestId = panel.requestAddressBarFocus()
+        panel.acknowledgeAddressBarFocusRequest(requestId)
+        panel.noteAddressBarBlurred(reason: "testNavigationCommit")
+
+        let cmuxWebView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        XCTAssertFalse(cmuxWebView.allowsFirstResponderAcquisition)
+        XCTAssertEqual(panel.preferredFocusIntentForActivation(), .browser(.webView))
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+        contentView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            panel.noteMountedWebViewHostDidMoveToWindow(
+                window,
+                shouldFocusWebView: true,
+                isPanelFocused: true,
+                reason: "test"
+            )
+        )
+        XCTAssertTrue(cmuxWebView.allowsFirstResponderAcquisition)
+        XCTAssertTrue(panel.hasWebViewFirstResponder(in: window))
+        XCTAssertEqual(panel.captureFocusIntent(in: window), .browser(.webView))
+    }
+
+    @MainActor
+    func testNavigationFinishReassertsFocusedWebContentIntent() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+        contentView.layoutSubtreeIfNeeded()
+
+        let cmuxWebView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        cmuxWebView.allowsFirstResponderAcquisition = false
+        panel.notePanelFocusChanged(true)
+
+        XCTAssertTrue(
+            panel.reassertFocusedWebContentAfterNavigationFinish(
+                panel.webView,
+                reason: "test"
+            )
+        )
+
+        XCTAssertTrue(cmuxWebView.allowsFirstResponderAcquisition)
+        XCTAssertTrue(panel.hasWebViewFirstResponder(in: window))
+        XCTAssertEqual(panel.captureFocusIntent(in: window), .browser(.webView))
+    }
+
+    @MainActor
+    func testNavigationFinishDoesNotStealFocusWhenPaneBlurred() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+        let terminalSurrogate = BrowserPanelFakeWebContentResponderView(
+            frame: NSRect(x: 20, y: 20, width: 180, height: 24)
+        )
+        contentView.addSubview(terminalSurrogate)
+        contentView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(window.makeFirstResponder(terminalSurrogate))
+        panel.notePanelFocusChanged(false)
+
+        XCTAssertFalse(
+            panel.reassertFocusedWebContentAfterNavigationFinish(
+                panel.webView,
+                reason: "test"
+            )
+        )
+
+        XCTAssertTrue(window.firstResponder === terminalSurrogate)
+    }
+
+    @MainActor
+    func testWindowBecomeKeyResumesSuspendedWebContentFocus() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = BrowserPanelKeyStateTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.webView.frame = contentView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.webView)
+        contentView.layoutSubtreeIfNeeded()
+
+        let cmuxWebView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        cmuxWebView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(panel.webView))
+
+        panel.notePanelFocusChanged(true)
+        panel.noteOwningWindowDidResignKey(window, reason: "test")
+        XCTAssertFalse(cmuxWebView.allowsFirstResponderAcquisition)
+
+        window.testIsKeyWindow = true
+        XCTAssertTrue(panel.noteOwningWindowDidBecomeKey(window, reason: "test"))
+
+        XCTAssertTrue(cmuxWebView.allowsFirstResponderAcquisition)
+        XCTAssertTrue(panel.hasWebViewFirstResponder(in: window))
         XCTAssertEqual(panel.captureFocusIntent(in: window), .browser(.webView))
     }
 
     @MainActor
     func testWindowActivationDoesNotStealAddressBarIntent() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let window = NSWindow(
+        let window = BrowserPanelKeyStateTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -774,7 +1321,7 @@ final class BrowserPanelFindFocusRequestTests: XCTestCase {
     @MainActor
     func testFindDismissRestoreBypassesStaleFalseResponderPolicy() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let window = NSWindow(
+        let window = BrowserPanelKeyStateTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable],
             backing: .buffered,

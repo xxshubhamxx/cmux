@@ -175,7 +175,14 @@ enum CmuxTypingTiming {
 
     @inline(__always)
     private static func eventFields(_ event: NSEvent) -> String {
-        "eventType=\(event.type.rawValue) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)"
+        switch event.type {
+        case .keyDown, .keyUp:
+            return "eventType=\(event.type.rawValue) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)"
+        case .flagsChanged:
+            return "eventType=\(event.type.rawValue) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue)"
+        default:
+            return "eventType=\(event.type.rawValue) mods=\(event.modifierFlags.rawValue)"
+        }
     }
 
     @inline(__always)
@@ -2299,6 +2306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObserver: NSObjectProtocol?
+    private var windowResignKeyObserver: NSObjectProtocol?
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
@@ -12957,15 +12965,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func installMainWindowKeyObserver() {
-        guard windowKeyObserver == nil else { return }
-        windowKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let self, let window = note.object as? NSWindow else { return }
-            self.setActiveMainWindow(window)
-            self.reassertFocusedBrowserAfterWindowBecameKey(window)
+        if windowKeyObserver == nil {
+            windowKeyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                guard let self, let window = note.object as? NSWindow else { return }
+                self.setActiveMainWindow(window)
+                self.reassertFocusedBrowserAfterWindowBecameKey(window)
+            }
+        }
+        if windowResignKeyObserver == nil {
+            windowResignKeyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                guard let self, let window = note.object as? NSWindow else { return }
+                self.suspendFocusedBrowserAfterWindowResignedKey(window)
+            }
         }
     }
 
@@ -13050,8 +13069,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
                 return
             }
-            panel.noteWebViewFocused()
-            if self.browserAddressBarFocusedPanelId == panel.id {
+            let hasContentFirstResponder = webView.window.map { panel.hasWebContentFirstResponder(in: $0) } ?? false
+            if hasContentFirstResponder {
+                panel.noteWebViewFocused()
+            }
+            if hasContentFirstResponder, self.browserAddressBarFocusedPanelId == panel.id {
                 self.browserAddressBarFocusedPanelId = nil
                 self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
@@ -13164,9 +13186,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let workspace = context.tabManager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
               let browserPanel = workspace.browserPanel(for: panelId) else { return }
-        _ = browserPanel.reassertWebContentFocusAfterWindowActivation(
-            in: window,
+        _ = browserPanel.noteOwningWindowDidBecomeKey(
+            window,
             reason: "window.didBecomeKey"
+        )
+    }
+
+    private func suspendFocusedBrowserAfterWindowResignedKey(_ window: NSWindow) {
+        guard let context = contextForMainTerminalWindow(window),
+              let workspace = context.tabManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let browserPanel = workspace.browserPanel(for: panelId) else { return }
+        browserPanel.noteOwningWindowDidResignKey(
+            window,
+            reason: "window.didResignKey"
         )
     }
 
@@ -14281,8 +14314,12 @@ private extension NSApplication {
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
+        let isSpaceKeyDown = event.type == .keyDown && event.keyCode == 49
         if event.type == .keyDown {
             CmuxTypingTiming.logEventDelay(path: "app.sendEvent", event: event)
+            if isSpaceKeyDown {
+                cmuxLogBrowserSpaceAppProbe(stage: "app.sendEvent.enter", event: event)
+            }
         }
         defer {
             if event.type == .keyDown {
@@ -14307,16 +14344,69 @@ private extension NSApplication {
             preferredWindow: event.window ?? keyWindow ?? mainWindow,
             source: "appSendEvent"
         ) == true {
+#if DEBUG
+            if isSpaceKeyDown {
+                cmuxLogBrowserSpaceAppProbe(stage: "app.sendEvent.routePaneFocus", event: event, result: true)
+            }
+#endif
             return
         }
         if AppDelegate.shared?.handleBrowserSearchOverlayCommandEvent(
             event,
             preferredWindow: event.window ?? keyWindow ?? mainWindow
         ) == true {
+#if DEBUG
+            if isSpaceKeyDown {
+                cmuxLogBrowserSpaceAppProbe(stage: "app.sendEvent.routeSearchOverlay", event: event, result: true)
+            }
+#endif
             return
         }
         cmux_applicationSendEvent(event)
+#if DEBUG
+        if isSpaceKeyDown {
+            cmuxLogBrowserSpaceAppProbe(stage: "app.sendEvent.exit", event: event)
+        }
+#endif
     }
+
+#if DEBUG
+    private func cmuxLogBrowserSpaceAppProbe(
+        stage: String,
+        event: NSEvent,
+        result: Bool? = nil
+    ) {
+        let targetWindow = event.window ?? keyWindow ?? mainWindow
+        let firstResponder = targetWindow?.firstResponder
+        let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let firstResponderWebView: CmuxWebView? = {
+            if let webView = firstResponder as? CmuxWebView {
+                return webView
+            }
+            guard let view = firstResponder as? NSView else { return nil }
+            var current: NSView? = view
+            while let candidate = current {
+                if let webView = candidate as? CmuxWebView {
+                    return webView
+                }
+                current = candidate.superview
+            }
+            return nil
+        }()
+        let resultSuffix = result.map { " result=\($0 ? 1 : 0)" } ?? ""
+        let charsHex = event.characters?.unicodeScalars
+            .map { String(format: "%04X", $0.value) }
+            .joined(separator: ",") ?? "nil"
+        dlog(
+            "browser.space.app stage=\(stage) keyWin=\(keyWindow?.windowNumber ?? -1) " +
+            "mainWin=\(mainWindow?.windowNumber ?? -1) eventWin=\(event.window?.windowNumber ?? -1) " +
+            "targetWin=\(targetWindow?.windowNumber ?? -1) fr=\(firstResponderType) " +
+            "frWeb=\(firstResponderWebView.map { String(describing: ObjectIdentifier($0)) } ?? "nil") " +
+            "charsHex=\(charsHex) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)" +
+            resultSuffix
+        )
+    }
+#endif
 
     @objc func cmux_sendAction(_ action: Selector, to target: Any?, from sender: Any?) -> Bool {
         if let event = currentEvent,
@@ -14445,6 +14535,7 @@ private extension NSWindow {
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
+        let isSpaceKeyDown = event.type == .keyDown && event.keyCode == 49
         var contextSetupMs: Double = 0
         var focusRepairMs: Double = 0
         var folderGuardMs: Double = 0
@@ -14505,6 +14596,9 @@ private extension NSWindow {
 #if DEBUG
         if event.type == .keyDown {
             contextSetupMs = (ProcessInfo.processInfo.systemUptime - contextSetupStart) * 1000.0
+            if isSpaceKeyDown {
+                cmuxLogBrowserSpaceProbe(stage: "window.sendEvent.afterContext", event: event)
+            }
         }
         let focusRepairStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
 #endif
@@ -14517,6 +14611,9 @@ private extension NSWindow {
 #if DEBUG
         if event.type == .keyDown {
             focusRepairMs = (ProcessInfo.processInfo.systemUptime - focusRepairStart) * 1000.0
+            if isSpaceKeyDown {
+                cmuxLogBrowserSpaceProbe(stage: "window.sendEvent.afterFocusRepair", event: event)
+            }
         }
         let folderGuardStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
 #endif
@@ -14527,6 +14624,11 @@ private extension NSWindow {
         }
 
         if cmux_routeBrowserSearchOverlayCommandKeyDown(event) {
+#if DEBUG
+            if isSpaceKeyDown {
+                cmuxLogBrowserSpaceProbe(stage: "window.sendEvent.routeSearchOverlay", event: event, result: true)
+            }
+#endif
             return
         }
 
@@ -14536,6 +14638,11 @@ private extension NSWindow {
                preferredWindow: self,
                source: "windowSendEvent"
            ) == true {
+#if DEBUG
+            if isSpaceKeyDown {
+                cmuxLogBrowserSpaceProbe(stage: "window.sendEvent.routePaneFocus", event: event, result: true)
+            }
+#endif
             return
         }
 
@@ -14545,8 +14652,14 @@ private extension NSWindow {
             if event.type == .keyDown {
                 folderGuardMs = (ProcessInfo.processInfo.systemUptime - folderGuardStart) * 1000.0
                 let originalDispatchStart = ProcessInfo.processInfo.systemUptime
+                if isSpaceKeyDown {
+                    cmuxLogBrowserSpaceProbe(stage: "window.sendEvent.beforeOriginalDispatch", event: event)
+                }
                 cmux_sendEvent(event)
                 originalDispatchMs = (ProcessInfo.processInfo.systemUptime - originalDispatchStart) * 1000.0
+                if isSpaceKeyDown {
+                    cmuxLogBrowserSpaceProbe(stage: "window.sendEvent.afterOriginalDispatch", event: event)
+                }
                 return
             }
 #endif
@@ -14576,6 +14689,9 @@ private extension NSWindow {
 #if DEBUG
         if event.type == .keyDown {
             originalDispatchMs = (ProcessInfo.processInfo.systemUptime - originalDispatchStart) * 1000.0
+            if isSpaceKeyDown {
+                cmuxLogBrowserSpaceProbe(stage: "window.sendEvent.afterOriginalDispatch", event: event)
+            }
         }
 #endif
 
@@ -14601,6 +14717,43 @@ private extension NSWindow {
 #endif
         return true
     }
+
+#if DEBUG
+    private func cmuxLogBrowserSpaceProbe(
+        stage: String,
+        event: NSEvent,
+        explicitWebView: CmuxWebView? = nil,
+        result: Bool? = nil,
+        route: String? = nil
+    ) {
+        let firstResponder = firstResponder
+        let responderWebView = explicitWebView ?? firstResponder.flatMap {
+            Self.cmuxOwningWebView(for: $0, in: self, event: event)
+        }
+        let hitView = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+        let hitWebView = hitView.flatMap { Self.cmuxOwningWebView(for: $0) }
+        let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let hitViewType = hitView.map { String(describing: type(of: $0)) } ?? "nil"
+        let responderWebID = responderWebView.map { String(describing: ObjectIdentifier($0)) } ?? "nil"
+        let hitWebID = hitWebView.map { String(describing: ObjectIdentifier($0)) } ?? "nil"
+        let routeSuffix = route.map { " route=\($0)" } ?? ""
+        let resultSuffix = result.map { " result=\($0 ? 1 : 0)" } ?? ""
+        dlog(
+            "browser.space.window stage=\(stage) window=\(ObjectIdentifier(self)) " +
+            "win=\(windowNumber) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) " +
+            "repeat=\(event.isARepeat ? 1 : 0) chars=\(event.characters ?? "nil") " +
+            "fr=\(firstResponderType) responderWeb=\(responderWebID) " +
+            "hit=\(hitViewType) hitWeb=\(hitWebID)\(routeSuffix)\(resultSuffix)"
+        )
+
+        let webView = explicitWebView ?? responderWebView ?? hitWebView
+        webView?.debugLogSpaceFocusProbe(
+            stage: stage,
+            event: event,
+            extra: "windowProbe=1\(routeSuffix)\(resultSuffix)"
+        )
+    }
+#endif
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
 #if DEBUG
@@ -14645,6 +14798,15 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
+#if DEBUG
+        if event.keyCode == 49 {
+            cmuxLogBrowserSpaceProbe(
+                stage: "window.performKeyEquivalent.enter",
+                event: event,
+                explicitWebView: firstResponderWebView
+            )
+        }
+#endif
         if AppDelegate.shared?.handleBrowserSearchOverlayCommandEvent(
             event,
             preferredWindow: self
@@ -14770,6 +14932,13 @@ private extension NSWindow {
             if cmuxBrowserSpaceForwardingDepth > 0 {
 #if DEBUG
                 dlog("  → browser Space reentry; using normal dispatch")
+                cmuxLogBrowserSpaceProbe(
+                    stage: "window.performKeyEquivalent.spaceReentry",
+                    event: event,
+                    explicitWebView: firstResponderWebView,
+                    result: false,
+                    route: "normalDispatch"
+                )
 #endif
                 return false
             }
@@ -14777,8 +14946,23 @@ private extension NSWindow {
             defer { cmuxBrowserSpaceForwardingDepth = max(0, cmuxBrowserSpaceForwardingDepth - 1) }
 #if DEBUG
             dlog("  → browser Space routed to firstResponder.keyDown")
+            cmuxLogBrowserSpaceProbe(
+                stage: "window.performKeyEquivalent.spaceForward",
+                event: event,
+                explicitWebView: firstResponderWebView,
+                route: "firstResponder.keyDown"
+            )
 #endif
             self.firstResponder?.keyDown(with: event)
+#if DEBUG
+            cmuxLogBrowserSpaceProbe(
+                stage: "window.performKeyEquivalent.spaceForward.done",
+                event: event,
+                explicitWebView: firstResponderWebView,
+                result: true,
+                route: "firstResponder.keyDown"
+            )
+#endif
             return true
         }
 
@@ -14843,6 +15027,15 @@ private extension NSWindow {
         let result = cmux_performKeyEquivalent(with: event)
 #if DEBUG
         if result { dlog("  → consumed by original performKeyEquivalent") }
+        if event.keyCode == 49 {
+            cmuxLogBrowserSpaceProbe(
+                stage: "window.performKeyEquivalent.originalResult",
+                event: event,
+                explicitWebView: firstResponderWebView,
+                result: result,
+                route: "original"
+            )
+        }
 #endif
         return result
     }

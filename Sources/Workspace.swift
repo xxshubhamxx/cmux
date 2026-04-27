@@ -7119,6 +7119,59 @@ struct ClosedBrowserPanelRestoreSnapshot {
     let fallbackAnchorPaneId: UUID?
 }
 
+private struct WorkspaceFocusTransaction: Equatable {
+    let id: UInt64
+    let target: WorkspaceFocusTarget
+    let reason: String
+}
+
+private struct WorkspaceFocusTransactionCoordinator {
+    private var nextTransactionId: UInt64 = 1
+    private(set) var active: WorkspaceFocusTransaction?
+    private(set) var lastTarget: WorkspaceFocusTarget = .none
+    private(set) var lastActual: WorkspaceFocusActual = .none
+
+    mutating func begin(target: WorkspaceFocusTarget, reason: String) -> WorkspaceFocusTransaction {
+        let transaction = WorkspaceFocusTransaction(
+            id: nextTransactionId,
+            target: target,
+            reason: reason
+        )
+        nextTransactionId &+= 1
+        active = transaction
+        lastTarget = target
+#if DEBUG
+        dlog(
+            "focus.tx.begin id=\(transaction.id) " +
+            "target=\(target.debugDescription) reason=\(reason)"
+        )
+#endif
+        return transaction
+    }
+
+    mutating func end(_ transaction: WorkspaceFocusTransaction, actual: WorkspaceFocusActual) {
+        guard active == transaction else {
+#if DEBUG
+            dlog(
+                "focus.tx.end.stale id=\(transaction.id) " +
+                "target=\(transaction.target.debugDescription) actual=\(actual.debugDescription) " +
+                "active=\(active?.id.description ?? "nil")"
+            )
+#endif
+            return
+        }
+        active = nil
+        lastActual = actual
+#if DEBUG
+        dlog(
+            "focus.tx.end id=\(transaction.id) " +
+            "target=\(transaction.target.debugDescription) actual=\(actual.debugDescription) " +
+            "reason=\(transaction.reason)"
+        )
+#endif
+    }
+}
+
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one WorkspaceLayoutController that manages split panes and nested surfaces.
 @MainActor
@@ -7684,6 +7737,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingTabSelection: PendingTabSelectionRequest?
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
+    private var focusTransactions = WorkspaceFocusTransactionCoordinator()
 #if DEBUG
     private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
     private var debugLastDidMoveTabTimestamp: TimeInterval = 0
@@ -12299,6 +12353,10 @@ extension Workspace: WorkspaceLayoutDelegate {
         let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
         panel.prepareFocusIntentForActivation(activationIntent)
         let panelId = effectiveFocusedPanelId
+        let focusTransaction = focusTransactions.begin(
+            target: focusTarget(panelId: panelId, panel: panel, intent: activationIntent),
+            reason: "applyTabSelection"
+        )
 
         syncPinnedStateForTab(selectedTabId, panelId: selectedPanelId)
 
@@ -12386,6 +12444,18 @@ extension Workspace: WorkspaceLayoutDelegate {
         if shouldRestoreFocusIntentAfterActivation(activationIntent) {
             _ = panel.restoreFocusIntent(activationIntent)
         }
+        if let focusWindow = activationWindow(for: panel) {
+            yieldForeignOwnedFocusIfNeeded(
+                in: focusWindow,
+                targetPanelId: panelId,
+                targetIntent: activationIntent
+            )
+        }
+
+        focusTransactions.end(
+            focusTransaction,
+            actual: focusActual(for: panel, panelId: panelId, in: activationWindow(for: panel))
+        )
 
         // Update current directory if this is a terminal
         if let dir = surfaceState.directory {
@@ -12412,6 +12482,65 @@ extension Workspace: WorkspaceLayoutDelegate {
             "prevPanel=\(prevPanelShort)"
         )
 #endif
+    }
+
+    private func focusTarget(
+        panelId: UUID,
+        panel: any Panel,
+        intent: PanelFocusIntent
+    ) -> WorkspaceFocusTarget {
+        switch intent {
+        case .panel:
+            return .panel(panelId)
+        case .terminal(.surface):
+            return .terminalSurface(panelId)
+        case .terminal(.findField):
+            return .terminalFindField(panelId)
+        case .browser(.webView):
+            return .browserWebContent(panelId)
+        case .browser(.addressBar):
+            return .browserAddressBar(
+                panelId,
+                requestId: (panel as? BrowserPanel)?.pendingAddressBarFocusRequestId
+            )
+        case .browser(.findField):
+            return .browserFindField(
+                panelId,
+                requestId: (panel as? BrowserPanel)?.pendingFindFieldFocusRequestId
+            )
+        }
+    }
+
+    private func focusActual(
+        for panel: any Panel,
+        panelId: UUID,
+        in window: NSWindow?
+    ) -> WorkspaceFocusActual {
+        if let browserPanel = panel as? BrowserPanel {
+            return browserPanel.actualFocus(in: window)
+        }
+
+        guard let window, let responder = window.firstResponder else {
+            return .none
+        }
+        guard let ownedIntent = panel.ownedFocusIntent(for: responder, in: window) else {
+            return .none
+        }
+
+        switch ownedIntent {
+        case .panel:
+            return .panel(panelId)
+        case .terminal(.surface):
+            return .terminalSurface(panelId)
+        case .terminal(.findField):
+            return .terminalFindField(panelId)
+        case .browser(.webView):
+            return .browserWebContent(panelId)
+        case .browser(.addressBar):
+            return .browserAddressBar(panelId)
+        case .browser(.findField):
+            return .browserFindField(panelId)
+        }
     }
 
     private func activatePanel(

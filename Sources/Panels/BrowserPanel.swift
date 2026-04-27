@@ -1897,10 +1897,6 @@ final class BrowserPanel: Panel, ObservableObject {
     /// This is state-based, not time-based, so it does not outlive the WebView first-responder handoff.
     private var suppressOmnibarAutofocusWhileWebViewFocused = false
 
-    /// Prevent forcing web-view focus when another UI path requested omnibar focus.
-    /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
-    private var suppressWebViewFocusUntil: Date?
-    private var suppressWebViewFocusForAddressBar: Bool = false
     private let blankURLString = "about:blank"
     /// Published URL being displayed
     @Published private(set) var currentURL: URL?
@@ -2213,13 +2209,147 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
+    private struct BrowserFocusCoordinator: Equatable {
+        enum Phase: Equatable {
+            case paneInactive
+            case addressBar
+            case findField
+            case webContentSuppressed
+            case webContentWaitingForWindow
+            case webContentSuspendedWindow
+            case webContentActive
+        }
+
+        private(set) var subfocusState: BrowserSubfocusState = .webView
+        private(set) var isPaneFocused = false
+        private(set) var isWebContentSuspendedByWindowResign = false
+        private(set) var isAddressBarSuppressingWebFocus = false
+        private(set) var suppressWebViewFocusUntil: Date?
+
+        var pendingAddressBarFocusRequestId: UUID? {
+            subfocusState.pendingAddressBarFocusRequestId
+        }
+
+        var preferredFocusIntent: BrowserPanelFocusIntent {
+            subfocusState.intent
+        }
+
+        func phase(searchActive: Bool, hasWindow: Bool, windowIsKey: Bool) -> Phase {
+            guard isPaneFocused else { return .paneInactive }
+            switch subfocusState {
+            case .addressBar:
+                return .addressBar
+            case .findField:
+                return .findField
+            case .webView:
+                break
+            }
+            if shouldSuppressWebViewFocus(searchActive: searchActive) {
+                return .webContentSuppressed
+            }
+            guard hasWindow, windowIsKey else { return .webContentWaitingForWindow }
+            if isWebContentSuspendedByWindowResign {
+                return .webContentSuspendedWindow
+            }
+            return .webContentActive
+        }
+
+        func shouldSuppressWebViewFocus(searchActive: Bool, now: Date = Date()) -> Bool {
+            if isAddressBarSuppressingWebFocus {
+                return true
+            }
+            if searchActive {
+                return true
+            }
+            if let suppressWebViewFocusUntil {
+                return now < suppressWebViewFocusUntil
+            }
+            return false
+        }
+
+        func shouldAllowWebViewFirstResponder(
+            searchActive: Bool,
+            hasWindow: Bool,
+            windowIsKey: Bool,
+            now: Date = Date()
+        ) -> Bool {
+            guard isPaneFocused,
+                  !shouldSuppressWebViewFocus(searchActive: searchActive, now: now),
+                  !isWebContentSuspendedByWindowResign,
+                  hasWindow,
+                  windowIsKey else {
+                return false
+            }
+            return true
+        }
+
+        func canApplyWebContentFocus(
+            searchActive: Bool,
+            windowIsKey: Bool,
+            now: Date = Date()
+        ) -> Bool {
+            windowIsKey &&
+                !isWebContentSuspendedByWindowResign &&
+                !shouldSuppressWebViewFocus(searchActive: searchActive, now: now)
+        }
+
+        mutating func setSubfocusState(_ next: BrowserSubfocusState) {
+            subfocusState = next
+        }
+
+        mutating func setPaneFocused(_ focused: Bool) {
+            isPaneFocused = focused
+        }
+
+        mutating func setTemporaryWebViewFocusSuppression(for seconds: TimeInterval, now: Date = Date()) {
+            suppressWebViewFocusUntil = now.addingTimeInterval(seconds)
+        }
+
+        mutating func clearTemporaryWebViewFocusSuppression() {
+            suppressWebViewFocusUntil = nil
+        }
+
+        @discardableResult
+        mutating func beginAddressBarSuppression() -> Bool {
+            let didEnter = !isAddressBarSuppressingWebFocus
+            isAddressBarSuppressingWebFocus = true
+            return didEnter
+        }
+
+        @discardableResult
+        mutating func endAddressBarSuppression() -> Bool {
+            let didExit = isAddressBarSuppressingWebFocus
+            isAddressBarSuppressingWebFocus = false
+            return didExit
+        }
+
+        @discardableResult
+        mutating func suspendWebContentFocusForWindowResign(shouldSuspend: Bool) -> Bool {
+            guard shouldSuspend else { return false }
+            let didChange = !isWebContentSuspendedByWindowResign
+            isWebContentSuspendedByWindowResign = true
+            return didChange
+        }
+
+        @discardableResult
+        mutating func resumeWebContentFocusIfWindowIsKey(windowIsKey: Bool) -> Bool {
+            guard windowIsKey, isWebContentSuspendedByWindowResign else { return false }
+            isWebContentSuspendedByWindowResign = false
+            return true
+        }
+
+        mutating func clearWindowSuspension() {
+            isWebContentSuspendedByWindowResign = false
+        }
+    }
+
     /// Semantic in-panel focus target owned by BrowserPanel, not by overlay-local state.
     @Published private var subfocusState: BrowserSubfocusState = .webView
     private var findFocusCoordinator = BrowserFindFocusCoordinator()
-    private var isPaneFocusedForBrowserRestore = false
+    private var focusCoordinator = BrowserFocusCoordinator()
 
     var pendingAddressBarFocusRequestId: UUID? {
-        subfocusState.pendingAddressBarFocusRequestId
+        focusCoordinator.pendingAddressBarFocusRequestId
     }
 
     var pendingFindFieldFocusRequestId: UUID? {
@@ -2227,7 +2357,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     var preferredFocusIntent: BrowserPanelFocusIntent {
-        subfocusState.intent
+        focusCoordinator.preferredFocusIntent
     }
 
     var pendingWebContentRestoreRequestId: UUID? {
@@ -2640,15 +2770,6 @@ final class BrowserPanel: Panel, ObservableObject {
                 in: .page
             )
         )
-        // Keep a native cache of whether the focused page element can currently accept
-        // plain-text paste so Cmd+Shift+V is only consumed when the browser can use it.
-        configuration.userContentController.addUserScript(
-            WKUserScript(
-                source: CmuxWebView.pasteAsPlainTextFocusTrackingBootstrapScriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
@@ -2690,6 +2811,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.refreshFavicon(from: webView)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
+                self.reassertFocusedWebContentAfterNavigationFinish(webView, reason: "navigation.didFinish")
             }
         }
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL in
@@ -3385,8 +3507,10 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
-        isPaneFocusedForBrowserRestore = true
+        focusCoordinator.setPaneFocused(true)
+        resumeWebContentFocusIfWindowIsKey(window, reason: "focus")
         allowWebViewFirstResponder(reason: "focus")
+        guard canApplyWebContentFocus(in: window, reason: "focus") else { return }
 
         // If nothing meaningful is loaded yet, prefer letting the omnibar take focus.
         if !webView.isLoading {
@@ -3395,11 +3519,12 @@ final class BrowserPanel: Panel, ObservableObject {
                 return
             }
         }
-        if hasWebContentFirstResponder(in: window) {
-            noteWebViewFocused()
-            return
-        }
-        if acquireWebViewFirstResponder(in: window) {
+        let focusResult = acquireWebViewFirstResponder(
+            in: window,
+            reason: "focus",
+            forceWrapperReactivation: true
+        )
+        if focusResult.didFocusResponder {
             noteWebViewFocused()
         }
     }
@@ -3413,58 +3538,157 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
 
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
-        isPaneFocusedForBrowserRestore = true
+        focusCoordinator.setPaneFocused(true)
+        resumeWebContentFocusIfWindowIsKey(window, reason: "explicitWebViewFocus")
         allowWebViewFirstResponder(reason: "explicitWebViewFocus")
-
-        if hasWebContentFirstResponder(in: window) {
-            suppressOmnibarAutofocusForExplicitWebViewFocus(reason: "alreadyFocused")
-            noteWebViewFocused()
-            return true
-        }
+        guard canApplyWebContentFocus(in: window, reason: "explicitWebViewFocus") else { return false }
 
         yieldOwnedBrowserTextResponderIfNeeded(in: window)
 
-        guard acquireWebViewFirstResponder(in: window) else { return false }
+        let focusResult = acquireWebViewFirstResponder(
+            in: window,
+            reason: "explicitWebViewFocus",
+            forceWrapperReactivation: true
+        )
+        guard focusResult.didFocusResponder else { return false }
         suppressOmnibarAutofocusForExplicitWebViewFocus(reason: "explicitFocus")
-        noteWebViewFocused()
+        if focusResult.didFocusResponder {
+            noteWebViewFocused()
+        }
 
         return true
     }
 
     @discardableResult
-    private func acquireWebViewFirstResponder(in window: NSWindow) -> Bool {
-        acquireWebViewFirstResponder(webView, in: window)
+    private func acquireWebViewFirstResponder(
+        in window: NSWindow,
+        reason: String,
+        forceWrapperReactivation: Bool = false
+    ) -> CmuxWebContentFirstResponderResult {
+        acquireWebViewFirstResponder(
+            webView,
+            in: window,
+            reason: reason,
+            forceWrapperReactivation: forceWrapperReactivation
+        )
     }
 
     @discardableResult
-    private func acquireWebViewFirstResponder(_ targetWebView: WKWebView, in window: NSWindow) -> Bool {
-        let focused: Bool
+    private func acquireWebViewFirstResponder(
+        _ targetWebView: WKWebView,
+        in window: NSWindow,
+        reason: String,
+        forceWrapperReactivation: Bool = false
+    ) -> CmuxWebContentFirstResponderResult {
+        let result: CmuxWebContentFirstResponderResult
         if let cmuxWebView = targetWebView as? CmuxWebView {
-            focused = cmuxWebView.requestWebContentFirstResponder(in: window)
+            if forceWrapperReactivation {
+                result = cmuxWebView.reassertWebContentFirstResponder(
+                    in: window,
+                    reason: reason,
+                    forceWrapperReactivation: true
+                )
+            } else {
+                result = cmuxWebView.requestWebContentFirstResponder(in: window)
+            }
         } else {
-            focused = window.makeFirstResponder(targetWebView)
+            if forceWrapperReactivation {
+                _ = window.makeFirstResponder(nil)
+            }
+            result = window.makeFirstResponder(targetWebView) ? .wrapperOnly : .failed
         }
 #if DEBUG
         dlog(
             "browser.focus.acquireWebContent.panel panel=\(id.uuidString.prefix(5)) " +
-            "focused=\(focused ? 1 : 0) " +
+            "reason=\(reason) force=\(forceWrapperReactivation ? 1 : 0) " +
+            "result=\(result.debugDescription) " +
+            "focused=\(result.didFocusResponder ? 1 : 0) " +
+            "content=\(result.didFocusContent ? 1 : 0) " +
+            "fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+        )
+#endif
+        return result
+    }
+
+    @discardableResult
+    func requestMountedContentWebViewFocus(in window: NSWindow, reason: String) -> Bool {
+        guard webView.window === window, !webView.isHiddenOrHasHiddenAncestor else { return false }
+        focusCoordinator.setPaneFocused(true)
+        resumeWebContentFocusIfWindowIsKey(window, reason: "mounted.\(reason)")
+        allowWebViewFirstResponder(reason: "mounted.\(reason)")
+        guard canApplyWebContentFocus(in: window, reason: "mounted.\(reason)") else { return false }
+        let focusResult = acquireWebViewFirstResponder(
+            in: window,
+            reason: "mounted.\(reason)",
+            forceWrapperReactivation: true
+        )
+        if focusResult.didFocusResponder {
+            suppressOmnibarAutofocusForExplicitWebViewFocus(reason: reason)
+        }
+        if focusResult.didFocusResponder {
+            noteWebViewFocused()
+        }
+        return focusResult.didFocusResponder
+    }
+
+    @discardableResult
+    func noteMountedWebViewHostDidMoveToWindow(
+        _ window: NSWindow,
+        shouldFocusWebView: Bool,
+        isPanelFocused: Bool,
+        reason: String
+    ) -> Bool {
+        refreshWebViewFirstResponderPolicy(reason: "mountedHost.\(reason)")
+        guard shouldFocusWebView, isPanelFocused else {
+#if DEBUG
+            dlog(
+                "browser.focus.mountedHost.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) shouldFocus=\(shouldFocusWebView ? 1 : 0) " +
+                "panelFocused=\(isPanelFocused ? 1 : 0)"
+            )
+#endif
+            return false
+        }
+        let focused = requestMountedContentWebViewFocus(
+            in: window,
+            reason: "mountedHost.\(reason)"
+        )
+#if DEBUG
+        dlog(
+            "browser.focus.mountedHost panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) result=\(focused ? 1 : 0) " +
             "fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
         )
 #endif
         return focused
     }
 
-    @discardableResult
-    func requestMountedContentWebViewFocus(in window: NSWindow, reason: String) -> Bool {
-        guard webView.window === window, !webView.isHiddenOrHasHiddenAncestor else { return false }
-        isPaneFocusedForBrowserRestore = true
-        allowWebViewFirstResponder(reason: "mounted.\(reason)")
-        let focused = acquireWebViewFirstResponder(in: window)
-        if focused {
-            suppressOmnibarAutofocusForExplicitWebViewFocus(reason: reason)
-            noteWebViewFocused()
+    func noteOwningWindowDidResignKey(_ window: NSWindow, reason: String) {
+        guard webView.window === window else { return }
+        if preferredFocusIntentForActivation() == .browser(.webView) ||
+            hasWebViewFirstResponder(in: window) {
+            focusCoordinator.suspendWebContentFocusForWindowResign(shouldSuspend: true)
         }
-        return focused
+        refreshWebViewFirstResponderPolicy(reason: "windowResign.\(reason)")
+#if DEBUG
+        dlog(
+            "browser.focus.windowKey.suspend panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) suspended=\(focusCoordinator.isWebContentSuspendedByWindowResign ? 1 : 0) " +
+            "intent=\(String(describing: preferredFocusIntentForActivation())) " +
+            "fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+        )
+#endif
+    }
+
+    @discardableResult
+    func noteOwningWindowDidBecomeKey(_ window: NSWindow, reason: String) -> Bool {
+        guard webView.window === window else { return false }
+        focusCoordinator.clearWindowSuspension()
+        refreshWebViewFirstResponderPolicy(reason: "windowKey.\(reason)")
+        if drivePendingWebContentRestoreIfPossible(trigger: "windowKey.\(reason)") {
+            return true
+        }
+        return reassertWebContentFocusAfterWindowActivation(in: window, reason: reason)
     }
 
     @discardableResult
@@ -3496,28 +3720,92 @@ final class BrowserPanel: Panel, ObservableObject {
             return false
         }
 
-        isPaneFocusedForBrowserRestore = true
+        focusCoordinator.setPaneFocused(true)
+        focusCoordinator.clearWindowSuspension()
         allowWebViewFirstResponder(reason: "windowKey.\(reason)")
-        let focused: Bool
+        let focusResult: CmuxWebContentFirstResponderResult
         if let cmuxWebView = webView as? CmuxWebView {
-            focused = cmuxWebView.reassertWebContentFirstResponder(in: window, reason: reason)
+            focusResult = cmuxWebView.reassertWebContentFirstResponder(
+                in: window,
+                reason: reason,
+                forceWrapperReactivation: true
+            )
         } else if window.firstResponder === webView {
             _ = window.makeFirstResponder(nil)
-            focused = window.makeFirstResponder(webView)
+            focusResult = window.makeFirstResponder(webView) ? .wrapperOnly : .failed
         } else {
-            focused = window.makeFirstResponder(webView)
+            focusResult = window.makeFirstResponder(webView) ? .wrapperOnly : .failed
         }
-        if focused {
+        if focusResult.didFocusResponder {
             noteWebViewFocused()
         }
 #if DEBUG
         dlog(
             "browser.focus.windowKey.reassert panel=\(id.uuidString.prefix(5)) " +
-            "reason=\(reason) result=\(focused ? 1 : 0) " +
+            "reason=\(reason) result=\(focusResult.debugDescription) " +
+            "focused=\(focusResult.didFocusResponder ? 1 : 0) " +
+            "content=\(focusResult.didFocusContent ? 1 : 0) " +
             "fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
         )
 #endif
-        return focused
+        return focusResult.didFocusResponder
+    }
+
+    @discardableResult
+    func reassertFocusedWebContentAfterNavigationFinish(
+        _ finishedWebView: WKWebView,
+        reason: String
+    ) -> Bool {
+        guard finishedWebView === webView,
+              let window = webView.window,
+              window.isKeyWindow,
+              focusCoordinator.isPaneFocused,
+              preferredFocusIntentForActivation() == .browser(.webView),
+              !shouldSuppressWebViewFocus(),
+              !webView.isHiddenOrHasHiddenAncestor else {
+#if DEBUG
+            dlog(
+                "browser.focus.navigation.reassert.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) " +
+                "sameWeb=\(finishedWebView === webView ? 1 : 0) " +
+                "win=\(webView.window?.windowNumber ?? -1) " +
+                "key=\(webView.window?.isKeyWindow == true ? 1 : 0) " +
+                "paneFocused=\(focusCoordinator.isPaneFocused ? 1 : 0) " +
+                "intent=\(String(describing: preferredFocusIntentForActivation())) " +
+                "suppress=\(shouldSuppressWebViewFocus() ? 1 : 0) " +
+                "hidden=\(webView.isHiddenOrHasHiddenAncestor ? 1 : 0)"
+            )
+#endif
+            return false
+        }
+
+        focusCoordinator.setPaneFocused(true)
+        focusCoordinator.clearWindowSuspension()
+        allowWebViewFirstResponder(reason: reason)
+        let focusResult: CmuxWebContentFirstResponderResult
+        if let cmuxWebView = webView as? CmuxWebView {
+            focusResult = cmuxWebView.reassertWebContentFirstResponder(
+                in: window,
+                reason: reason,
+                forceWrapperReactivation: true
+            )
+        } else {
+            _ = window.makeFirstResponder(nil)
+            focusResult = window.makeFirstResponder(webView) ? .wrapperOnly : .failed
+        }
+        if focusResult.didFocusResponder {
+            noteWebViewFocused()
+        }
+#if DEBUG
+        dlog(
+            "browser.focus.navigation.reassert panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) result=\(focusResult.debugDescription) " +
+            "focused=\(focusResult.didFocusResponder ? 1 : 0) " +
+            "content=\(focusResult.didFocusContent ? 1 : 0) " +
+            "fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+        )
+#endif
+        return focusResult.didFocusResponder
     }
 
     func hasWebViewFirstResponder(in window: NSWindow) -> Bool {
@@ -3527,6 +3815,31 @@ final class BrowserPanel: Panel, ObservableObject {
     func hasWebContentFirstResponder(in window: NSWindow) -> Bool {
         guard let responder = window.firstResponder else { return false }
         return responder !== webView && Self.responderChainContains(responder, target: webView)
+    }
+
+    func actualFocus(in window: NSWindow?) -> WorkspaceFocusActual {
+        if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id {
+            return .browserAddressBar(id)
+        }
+
+        if let responder = window?.firstResponder {
+            if browserSearchOverlayPanelId(for: responder) == id {
+                return .browserFindField(id)
+            }
+            if let window,
+               BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) == id {
+                return .browserFindField(id)
+            }
+        }
+
+        guard let window else { return .none }
+        if hasWebContentFirstResponder(in: window) {
+            return .browserWebContent(id)
+        }
+        if hasWebViewFirstResponder(in: window) {
+            return .browserWebViewWrapper(id)
+        }
+        return .none
     }
 
     private func yieldOwnedBrowserTextResponderIfNeeded(in window: NSWindow) {
@@ -3542,18 +3855,38 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func unfocus() {
-        isPaneFocusedForBrowserRestore = false
+        focusCoordinator.setPaneFocused(false)
         setWebViewFirstResponderPolicy(false, reason: "unfocus")
-        guard let window = webView.window else { return }
-        if Self.responderChainContains(window.firstResponder, target: webView) {
-            window.makeFirstResponder(nil)
-        }
+        guard let window = webView.window,
+              Self.responderChainContains(window.firstResponder, target: webView) else { return }
+#if DEBUG
+        dlog(
+            "browser.focus.unfocus.preserveWebResponder panel=\(id.uuidString.prefix(5)) " +
+            "fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+        )
+#endif
+    }
+
+    @discardableResult
+    func resignWebViewFirstResponderIfOwned(reason: String) -> Bool {
+        guard let window = webView.window,
+              Self.responderChainContains(window.firstResponder, target: webView) else { return false }
+        let result = window.makeFirstResponder(nil)
+#if DEBUG
+        dlog(
+            "browser.focus.resignWebResponder panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) result=\(result ? 1 : 0) " +
+            "fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+        )
+#endif
+        return result
     }
 
     func close() {
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
         // WorkspaceSplit/SwiftUI reshuffles views during close.
         unfocus()
+        resignWebViewFirstResponderIfOwned(reason: "close")
         setBrowserPortalVisibility(
             visibleInUI: false,
             zPriority: 0,
@@ -4272,7 +4605,7 @@ extension BrowserPanel {
 
         updateSubfocusState(.addressBar(.active))
         clearOmnibarAutofocusSuppression(reason: "reset")
-        suppressWebViewFocusUntil = nil
+        focusCoordinator.clearTemporaryWebViewFocusSuppression()
         endSuppressWebViewFocusForAddressBar()
         searchState = nil
 
@@ -5173,7 +5506,7 @@ extension BrowserPanel {
             findFocusCoordinator.noteFindOverlayDisappeared()
             drivePendingWebContentRestoreIfPossible(trigger: "findOverlayDisappear.\(source)")
             if !hadPendingRestore,
-               isPaneFocusedForBrowserRestore,
+               focusCoordinator.isPaneFocused,
                let window = webView.window,
                !webView.isHiddenOrHasHiddenAncestor,
                !Self.responderChainContains(window.firstResponder, target: webView) {
@@ -5280,7 +5613,7 @@ extension BrowserPanel {
     }
 
     func suppressWebViewFocus(for seconds: TimeInterval) {
-        suppressWebViewFocusUntil = Date().addingTimeInterval(seconds)
+        focusCoordinator.setTemporaryWebViewFocusSuppression(for: seconds)
         refreshWebViewFirstResponderPolicy(reason: "suppressWebViewFocus")
 #if DEBUG
         dlog(
@@ -5291,7 +5624,7 @@ extension BrowserPanel {
     }
 
     func clearWebViewFocusSuppression() {
-        suppressWebViewFocusUntil = nil
+        focusCoordinator.clearTemporaryWebViewFocusSuppression()
         refreshWebViewFirstResponderPolicy(reason: "clearWebViewFocusSuppression")
 #if DEBUG
         dlog("browser.focus.webView.suppress.clear panel=\(id.uuidString.prefix(5))")
@@ -5305,36 +5638,24 @@ extension BrowserPanel {
     }
 
     func shouldSuppressWebViewFocus() -> Bool {
-        if suppressWebViewFocusForAddressBar {
-            return true
-        }
-        if searchState != nil {
-            return true
-        }
-        if let until = suppressWebViewFocusUntil {
-            return Date() < until
-        }
-        return false
+        focusCoordinator.shouldSuppressWebViewFocus(searchActive: searchState != nil)
     }
 
     func beginSuppressWebViewFocusForAddressBar() {
-        let enteringAddressBar = !suppressWebViewFocusForAddressBar
-        if enteringAddressBar {
+        if focusCoordinator.beginAddressBarSuppression() {
 #if DEBUG
             dlog("browser.focus.addressBarSuppress.begin panel=\(id.uuidString.prefix(5))")
 #endif
         }
-        suppressWebViewFocusForAddressBar = true
         refreshWebViewFirstResponderPolicy(reason: "addressBarSuppress.begin")
     }
 
     func endSuppressWebViewFocusForAddressBar() {
-        if suppressWebViewFocusForAddressBar {
+        if focusCoordinator.endAddressBarSuppression() {
 #if DEBUG
             dlog("browser.focus.addressBarSuppress.end panel=\(id.uuidString.prefix(5))")
 #endif
         }
-        suppressWebViewFocusForAddressBar = false
         refreshWebViewFirstResponderPolicy(reason: "addressBarSuppress.end")
     }
 
@@ -5364,8 +5685,26 @@ extension BrowserPanel {
     }
 
     func noteWebViewFocused(source: BrowserWebViewFocusSource = .explicit) {
+        if let window = webView.window {
+            resumeWebContentFocusIfWindowIsKey(
+                window,
+                reason: "webViewFocused.\(String(describing: source))"
+            )
+        }
+        if let window = webView.window,
+           (!window.isKeyWindow || focusCoordinator.isWebContentSuspendedByWindowResign) {
+#if DEBUG
+            dlog(
+                "browser.focus.webViewFocused.skip panel=\(id.uuidString.prefix(5)) " +
+                "source=\(String(describing: source)) cause=window_inactive " +
+                "key=\(window.isKeyWindow ? 1 : 0) " +
+                "suspended=\(focusCoordinator.isWebContentSuspendedByWindowResign ? 1 : 0)"
+            )
+#endif
+            return
+        }
         if source == .passiveObservation {
-            switch subfocusState {
+            switch focusCoordinator.subfocusState {
             case .webView:
                 break
             case .addressBar, .findField:
@@ -5374,7 +5713,7 @@ extension BrowserPanel {
         }
         if source == .explicit {
             endSuppressWebViewFocusForAddressBar()
-            isPaneFocusedForBrowserRestore = true
+            focusCoordinator.setPaneFocused(true)
         }
         updateSubfocusState(.webView)
         if source == .explicit {
@@ -5385,22 +5724,71 @@ extension BrowserPanel {
     }
 
     func notePanelFocusChanged(_ focused: Bool) {
-        isPaneFocusedForBrowserRestore = focused
+        focusCoordinator.setPaneFocused(focused)
+        if focused, let window = webView.window {
+            resumeWebContentFocusIfWindowIsKey(window, reason: "paneFocused")
+        }
         refreshWebViewFirstResponderPolicy(reason: focused ? "paneFocused" : "paneBlurred")
+#if DEBUG
+        dlog(
+            "browser.focus.panelFocus panel=\(id.uuidString.prefix(5)) focused=\(focused ? 1 : 0) " +
+            "pref=\(String(describing: preferredFocusIntent)) subfocus=\(String(reflecting: focusCoordinator.subfocusState)) " +
+            "search=\(searchState == nil ? 0 : 1) suppressWeb=\(shouldSuppressWebViewFocus() ? 1 : 0)"
+        )
+#endif
         guard focused else { return }
         drivePendingWebContentRestoreIfPossible(trigger: "paneFocused")
         requestFindFieldFocusForFocusedPaneIfNeeded(reason: "paneFocused")
     }
 
     private func allowWebViewFirstResponder(reason: String) {
-        setWebViewFirstResponderPolicy(!shouldSuppressWebViewFocus(), reason: reason)
+        setWebViewFirstResponderPolicy(shouldAllowWebViewFirstResponder(), reason: reason)
     }
 
     func refreshWebViewFirstResponderPolicy(reason: String) {
         setWebViewFirstResponderPolicy(
-            isPaneFocusedForBrowserRestore && !shouldSuppressWebViewFocus(),
+            shouldAllowWebViewFirstResponder(),
             reason: reason
         )
+    }
+
+    private func shouldAllowWebViewFirstResponder() -> Bool {
+        focusCoordinator.shouldAllowWebViewFirstResponder(
+            searchActive: searchState != nil,
+            hasWindow: webView.window != nil,
+            windowIsKey: webView.window?.isKeyWindow == true
+        )
+    }
+
+    private func resumeWebContentFocusIfWindowIsKey(_ window: NSWindow, reason: String) {
+        guard focusCoordinator.resumeWebContentFocusIfWindowIsKey(
+            windowIsKey: window.isKeyWindow
+        ) else { return }
+#if DEBUG
+        dlog(
+            "browser.focus.windowKey.resume panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason)"
+        )
+#endif
+    }
+
+    private func canApplyWebContentFocus(in window: NSWindow, reason: String) -> Bool {
+        guard focusCoordinator.canApplyWebContentFocus(
+            searchActive: searchState != nil,
+            windowIsKey: window.isKeyWindow
+        ) else {
+#if DEBUG
+            dlog(
+                "browser.focus.webContent.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) cause=window_inactive " +
+                "key=\(window.isKeyWindow ? 1 : 0) " +
+                "suspended=\(focusCoordinator.isWebContentSuspendedByWindowResign ? 1 : 0) " +
+                "suppress=\(shouldSuppressWebViewFocus() ? 1 : 0)"
+            )
+#endif
+            return false
+        }
+        return true
     }
 
     private func setWebViewFirstResponderPolicy(_ allowed: Bool, reason: String) {
@@ -5412,8 +5800,10 @@ extension BrowserPanel {
                 "web=\(ObjectIdentifier(cmuxWebView)) " +
                 "old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
                 "new=\(allowed ? 1 : 0) reason=\(reason) " +
-                "paneFocused=\(isPaneFocusedForBrowserRestore ? 1 : 0) " +
-                "suppress=\(shouldSuppressWebViewFocus() ? 1 : 0)"
+                "paneFocused=\(focusCoordinator.isPaneFocused ? 1 : 0) " +
+                "suppress=\(shouldSuppressWebViewFocus() ? 1 : 0) " +
+                "key=\(webView.window?.isKeyWindow == true ? 1 : 0) " +
+                "suspended=\(focusCoordinator.isWebContentSuspendedByWindowResign ? 1 : 0)"
             )
 #endif
         }
@@ -5426,7 +5816,7 @@ extension BrowserPanel {
 
     func noteAddressBarBlurred(reason: String) {
         let wasAddressBarFocused: Bool
-        if case .addressBar = subfocusState {
+        if case .addressBar = focusCoordinator.subfocusState {
             wasAddressBarFocused = true
             updateSubfocusState(.webView)
         } else {
@@ -5537,7 +5927,7 @@ extension BrowserPanel {
 
     func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
         guard case .browser(let target) = intent else { return }
-        isPaneFocusedForBrowserRestore = true
+        focusCoordinator.setPaneFocused(true)
 
         switch target {
         case .webView:
@@ -5574,7 +5964,6 @@ extension BrowserPanel {
 
         switch target {
         case .webView:
-            noteWebViewFocused()
             focus()
             return true
         case .addressBar:
@@ -5646,7 +6035,13 @@ extension BrowserPanel {
             return yielded
         case .webView:
             guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
-            return window.makeFirstResponder(nil)
+#if DEBUG
+            dlog(
+                "focus.handoff.yield panel=\(id.uuidString.prefix(5)) " +
+                "target=browserWeb mode=preserveUntilTarget fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+            )
+#endif
+            return true
         }
     }
 
@@ -5671,21 +6066,41 @@ extension BrowserPanel {
     }
 
     private func updateSubfocusState(_ next: BrowserSubfocusState) {
-        guard subfocusState != next else { return }
+        guard focusCoordinator.subfocusState != next else { return }
+#if DEBUG
+        let previous = String(reflecting: focusCoordinator.subfocusState)
+        let phase = String(
+            describing: focusCoordinator.phase(
+                searchActive: searchState != nil,
+                hasWindow: webView.window != nil,
+                windowIsKey: webView.window?.isKeyWindow == true
+            )
+        )
+#endif
         if next != .webView {
             clearOmnibarAutofocusSuppression(reason: "subfocus.\(String(describing: next))")
         }
+        focusCoordinator.setSubfocusState(next)
         subfocusState = next
+#if DEBUG
+        dlog(
+            "browser.focus.subfocus panel=\(id.uuidString.prefix(5)) old=\(previous) " +
+            "new=\(String(reflecting: next)) search=\(searchState == nil ? 0 : 1) " +
+            "paneFocused=\(focusCoordinator.isPaneFocused ? 1 : 0) " +
+            "suppressWeb=\(shouldSuppressWebViewFocus() ? 1 : 0) " +
+            "phase=\(phase)"
+        )
+#endif
     }
 
     private func clearAddressBarSubfocus() {
-        if case .addressBar = subfocusState {
+        if case .addressBar = focusCoordinator.subfocusState {
             updateSubfocusState(.webView)
         }
     }
 
     private func clearFindFieldSubfocus() {
-        if case .findField = subfocusState {
+        if case .findField = focusCoordinator.subfocusState {
             updateSubfocusState(.webView)
         }
         findFocusCoordinator.cancelFindFocus()
@@ -5701,6 +6116,12 @@ extension BrowserPanel {
         let complete: (Bool) -> Void = completion ?? { _ in }
 
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else {
+            beforeRestore?()
+            complete(false)
+            return false
+        }
+        resumeWebContentFocusIfWindowIsKey(window, reason: "transition.\(reason)")
+        guard canApplyWebContentFocus(in: window, reason: "transition.\(reason)") else {
             beforeRestore?()
             complete(false)
             return false
@@ -5723,47 +6144,62 @@ extension BrowserPanel {
             yieldedFindFieldResponder = false
         }
 
-        isPaneFocusedForBrowserRestore = true
+        focusCoordinator.setPaneFocused(true)
         allowWebViewFirstResponder(reason: "transition.\(reason)")
-        let focusedWebView = acquireWebViewFirstResponder(in: window)
-        if focusedWebView {
+        let initialFocusResult = acquireWebViewFirstResponder(
+            in: window,
+            reason: "transition.\(reason)",
+            forceWrapperReactivation: true
+        )
+        if initialFocusResult.didFocusResponder {
             noteWebViewFocused()
         }
 #if DEBUG
         debugLogWebContentFocusSnapshot(
             event: "webContent.return.begin",
-            detail: "reason=\(reason) yieldedFind=\(yieldedFindFieldResponder ? 1 : 0) webViewResponder=\(focusedWebView ? 1 : 0)"
+            detail: "reason=\(reason) yieldedFind=\(yieldedFindFieldResponder ? 1 : 0) " +
+                "result=\(initialFocusResult.debugDescription) focused=\(initialFocusResult.didFocusResponder ? 1 : 0)"
         )
 #endif
 
         beforeRestore?()
         guard let refreshedWindow = webView.window,
               !webView.isHiddenOrHasHiddenAncestor else {
-            complete(focusedWebView)
-            return focusedWebView
+            complete(initialFocusResult.didFocusResponder)
+            return initialFocusResult.didFocusResponder
         }
-        let reacquiredWebContentResponder = acquireWebViewFirstResponder(in: refreshedWindow)
-        let hasWebViewResponder =
-            reacquiredWebContentResponder ||
-            Self.responderChainContains(refreshedWindow.firstResponder, target: webView)
-        if hasWebViewResponder {
+        guard canApplyWebContentFocus(in: refreshedWindow, reason: "transition.\(reason).reacquire") else {
+            complete(initialFocusResult.didFocusResponder)
+            return initialFocusResult.didFocusResponder
+        }
+        let reacquiredFocusResult = acquireWebViewFirstResponder(
+            in: refreshedWindow,
+            reason: "transition.\(reason).reacquire",
+            forceWrapperReactivation: true
+        )
+        let hasWebFocusResponder =
+            reacquiredFocusResult.didFocusResponder ||
+            hasWebViewFirstResponder(in: refreshedWindow)
+        let hasNativeWebContentResponder = hasWebContentFirstResponder(in: refreshedWindow)
+        if hasWebFocusResponder {
             noteWebViewFocused()
         }
 #if DEBUG
         dlog(
             "browser.focus.webContent.return panel=\(id.uuidString.prefix(5)) " +
-            "reason=\(reason) focused=\(hasWebViewResponder ? 1 : 0) " +
-            "webViewResponder=\(hasWebViewResponder ? 1 : 0) " +
-            "reacquired=\(reacquiredWebContentResponder ? 1 : 0)"
+            "reason=\(reason) focused=\(hasWebFocusResponder ? 1 : 0) " +
+            "content=\(hasNativeWebContentResponder ? 1 : 0) " +
+            "reacquired=\(reacquiredFocusResult.debugDescription)"
         )
         debugLogWebContentFocusSnapshot(
             event: "webContent.return.end",
-            detail: "reason=\(reason) focused=\(hasWebViewResponder ? 1 : 0) webViewResponder=\(hasWebViewResponder ? 1 : 0) reacquired=\(reacquiredWebContentResponder ? 1 : 0)"
+            detail: "reason=\(reason) focused=\(hasWebFocusResponder ? 1 : 0) " +
+                "content=\(hasNativeWebContentResponder ? 1 : 0) reacquired=\(reacquiredFocusResult.debugDescription)"
         )
 #endif
-        complete(hasWebViewResponder)
+        complete(hasWebFocusResponder)
 
-        return focusedWebView
+        return initialFocusResult.didFocusResponder || hasWebFocusResponder
     }
 
     private func clearPendingWebContentRestore() {
@@ -5799,7 +6235,7 @@ extension BrowserPanel {
             return false
         }
 
-        guard isPaneFocusedForBrowserRestore else {
+        guard focusCoordinator.isPaneFocused else {
 #if DEBUG
             dlog(
                 "browser.focus.webContent.pending.skip panel=\(id.uuidString.prefix(5)) " +
@@ -5830,6 +6266,18 @@ extension BrowserPanel {
                 "reason=\(pendingRestore.reason) source=findDismiss " +
                 "trigger=\(trigger) cause=webview_unavailable " +
                 "hasWindow=\(webView.window == nil ? 0 : 1) hidden=\(webView.isHiddenOrHasHiddenAncestor ? 1 : 0)"
+            )
+#endif
+            return false
+        }
+        resumeWebContentFocusIfWindowIsKey(window, reason: "pending.\(trigger)")
+        guard canApplyWebContentFocus(in: window, reason: "pending.\(trigger)") else {
+#if DEBUG
+            dlog(
+                "browser.focus.webContent.pending.skip panel=\(id.uuidString.prefix(5)) " +
+                "request=\(pendingRestore.requestId.uuidString.prefix(8)) " +
+                "reason=\(pendingRestore.reason) source=findDismiss " +
+                "trigger=\(trigger) cause=window_inactive"
             )
 #endif
             return false
@@ -5916,7 +6364,7 @@ extension BrowserPanel {
         let panelId = id.uuidString.prefix(5)
         let searchActive = searchState != nil ? 1 : 0
         let preferred = String(describing: preferredFocusIntent)
-        let subfocus = String(reflecting: subfocusState)
+        let subfocus = String(reflecting: focusCoordinator.subfocusState)
         let window = webView.window
         let firstResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         let detailSuffix = detail.isEmpty ? "" : " \(detail)"

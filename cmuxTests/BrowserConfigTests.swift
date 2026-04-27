@@ -849,6 +849,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             window.orderOut(nil)
         }
 
+        webView.allowsFirstResponderAcquisition = true
         XCTAssertTrue(window.makeFirstResponder(webView))
         guard let event = makeKeyDownEvent(
             key: "`",
@@ -905,6 +906,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             window.orderOut(nil)
         }
 
+        webView.allowsFirstResponderAcquisition = true
         XCTAssertTrue(window.makeFirstResponder(inspectorView))
         guard let event = makeKeyDownEvent(
             key: "f",

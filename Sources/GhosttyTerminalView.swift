@@ -11708,7 +11708,9 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func ownedPanelFocusIntent(for responder: NSResponder) -> TerminalPanelFocusIntent? {
-        if isCurrentSurfaceSearchResponder(responder) {
+        if surfaceView.terminalSurface?.searchState != nil,
+           isCurrentSurfaceSearchResponder(responder),
+           isSearchOverlayOrDescendant(responder) {
             return .findField
         }
 

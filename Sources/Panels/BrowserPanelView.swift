@@ -6170,6 +6170,35 @@ struct WebViewRepresentable: NSViewRepresentable {
         return false
     }
 
+    private static func paneStillOwnsPanel(_ panel: BrowserPanel, paneId: PaneID) -> Bool {
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
+              let currentPaneId = workspace.paneId(forPanelId: panel.id) else {
+            return false
+        }
+        return currentPaneId.id == paneId.id
+    }
+
+    private static func replayMountedWebViewFocusIfNeeded(
+        panel: BrowserPanel,
+        webView: WKWebView,
+        host: NSView,
+        paneId: PaneID,
+        shouldFocusWebView: Bool,
+        isPanelFocused: Bool,
+        reason: String
+    ) {
+        guard paneStillOwnsPanel(panel, paneId: paneId) else { return }
+        guard let window = webView.window ?? host.window else { return }
+        _ = panel.noteMountedWebViewHostDidMoveToWindow(
+            window,
+            shouldFocusWebView: shouldFocusWebView,
+            isPanelFocused: isPanelFocused,
+            reason: reason
+        )
+    }
+
     private static func isLikelyInspectorResponder(_ responder: NSResponder?) -> Bool {
         guard let responder else { return false }
         let responderType = String(describing: type(of: responder))
@@ -6401,6 +6430,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.desiredPortalVisibleInUI = false
         coordinator.desiredPortalZPriority = 0
         coordinator.attachGeneration += 1
+        let generation = coordinator.attachGeneration
 
         if panel.releasePortalHostIfOwned(
             hostId: ObjectIdentifier(host),
@@ -6410,6 +6440,21 @@ struct WebViewRepresentable: NSViewRepresentable {
                 webView: webView,
                 source: "viewStateChanged.localInlineHosting",
                 preserveCurrentSuperview: true
+            )
+        }
+
+        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak browserPanel = panel] in
+            guard let host, let webView, let coordinator, let browserPanel else { return }
+            guard coordinator.attachGeneration == generation else { return }
+            guard host.window != nil else { return }
+            Self.replayMountedWebViewFocusIfNeeded(
+                panel: browserPanel,
+                webView: webView,
+                host: host,
+                paneId: paneId,
+                shouldFocusWebView: shouldFocusWebView,
+                isPanelFocused: isPanelFocused,
+                reason: "localHost.didMoveToWindow"
             )
         }
 
@@ -6692,6 +6737,15 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             coordinator.lastPortalHostId = ObjectIdentifier(host)
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
+            Self.replayMountedWebViewFocusIfNeeded(
+                panel: browserPanel,
+                webView: webView,
+                host: host,
+                paneId: paneId,
+                shouldFocusWebView: shouldFocusWebView,
+                isPanelFocused: isPanelFocused,
+                reason: "portalHost.didMoveToWindow"
+            )
         }
         host.onGeometryChanged = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
             guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
@@ -6730,6 +6784,15 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
+            Self.replayMountedWebViewFocusIfNeeded(
+                panel: browserPanel,
+                webView: webView,
+                host: host,
+                paneId: paneId,
+                shouldFocusWebView: shouldFocusWebView,
+                isPanelFocused: isPanelFocused,
+                reason: "portalHost.geometryChanged"
+            )
         }
 
         if !shouldAttachWebView {
@@ -6863,8 +6926,15 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
             return
         }
-        if isPanelFocused && responderChainContains(window.firstResponder, target: webView) {
+        if isPanelFocused && panel.hasWebContentFirstResponder(in: window) {
             panel.noteWebViewFocused(source: .passiveObservation)
+        } else if isPanelFocused && panel.hasWebViewFirstResponder(in: window) {
+#if DEBUG
+            dlog(
+                "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                "action=observe actual=\(panel.actualFocus(in: window).debugDescription)"
+            )
+#endif
         }
         if shouldFocusWebView {
             if panel.shouldSuppressWebViewFocus() {
@@ -6876,11 +6946,11 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 return
             }
-            if panel.hasWebContentFirstResponder(in: window) {
+            if window.firstResponder === webView {
 #if DEBUG
                 dlog(
                     "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
-                    "action=skip reason=already_web_content_responder"
+                    "action=skip reason=already_web_view_responder"
                 )
 #endif
                 return
@@ -6889,20 +6959,28 @@ struct WebViewRepresentable: NSViewRepresentable {
 #if DEBUG
             dlog(
                 "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
-                "action=focus result=\(result ? 1 : 0) fr=\(responderDescription(window.firstResponder))"
+                "action=focus result=\(result ? 1 : 0) " +
+                "actual=\(panel.actualFocus(in: window).debugDescription) " +
+                "fr=\(responderDescription(window.firstResponder))"
             )
 #endif
         } else if !isPanelFocused && responderChainContains(window.firstResponder, target: webView) {
-            // Only force-resign WebView focus when this panel itself is not focused.
-            // If the panel is focused but the omnibar-focus state is briefly stale, aggressively
-            // clearing first responder here can undo programmatic webview focus (socket tests).
-            let result = window.makeFirstResponder(nil)
+            if webView.isHiddenOrHasHiddenAncestor {
+                let result = panel.resignWebViewFirstResponderIfOwned(reason: "content.apply.hidden")
 #if DEBUG
-            dlog(
-                "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
-                "action=resign result=\(result ? 1 : 0) fr=\(responderDescription(window.firstResponder))"
-            )
+                dlog(
+                    "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                    "action=resignHidden result=\(result ? 1 : 0) fr=\(responderDescription(window.firstResponder))"
+                )
 #endif
+            } else {
+#if DEBUG
+                dlog(
+                    "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                    "action=preserve reason=panel_unfocused fr=\(responderDescription(window.firstResponder))"
+                )
+#endif
+            }
         }
     }
 
@@ -6919,24 +6997,36 @@ struct WebViewRepresentable: NSViewRepresentable {
         guard let webView = coordinator.webView else { return }
         let panel = coordinator.panel
 
-        // If we're being torn down while the WKWebView (or one of its subviews) is first responder,
-        // resign it before detaching.
         let window = webView.window ?? nsView.window
         if let window {
             let state = firstResponderResignState(window.firstResponder, webView: webView)
             if state.needsResign {
-                #if DEBUG
-                if let panel {
-                    logDevToolsState(
-                        panel,
-                        event: "dismantle.resignFirstResponder",
-                        generation: coordinator.attachGeneration,
-                        retryCount: 0,
-                        details: attachContext(webView: webView, host: nsView) + " " + state.flags
-                    )
+                if webView.isHiddenOrHasHiddenAncestor {
+                    #if DEBUG
+                    if let panel {
+                        logDevToolsState(
+                            panel,
+                            event: "dismantle.resignFirstResponder",
+                            generation: coordinator.attachGeneration,
+                            retryCount: 0,
+                            details: attachContext(webView: webView, host: nsView) + " " + state.flags
+                        )
+                    }
+                    #endif
+                    window.makeFirstResponder(nil)
+                } else {
+                    #if DEBUG
+                    if let panel {
+                        logDevToolsState(
+                            panel,
+                            event: "dismantle.preserveFirstResponder",
+                            generation: coordinator.attachGeneration,
+                            retryCount: 0,
+                            details: attachContext(webView: webView, host: nsView) + " " + state.flags
+                        )
+                    }
+                    #endif
                 }
-                #endif
-                window.makeFirstResponder(nil)
             }
         }
 

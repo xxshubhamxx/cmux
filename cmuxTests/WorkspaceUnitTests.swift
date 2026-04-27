@@ -4884,8 +4884,21 @@ final class WorkspaceSurfaceRegistryTests: XCTestCase {
 
 @MainActor
 final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
-    private func makeWindow() -> NSWindow {
-        NSWindow(
+    private final class FocusHandoffTestWindow: NSWindow {
+        var nilFirstResponderRequestCount = 0
+
+        override var isKeyWindow: Bool { true }
+
+        override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+            if responder == nil {
+                nilFirstResponderRequestCount += 1
+            }
+            return super.makeFirstResponder(responder)
+        }
+    }
+
+    private func makeWindow() -> FocusHandoffTestWindow {
+        FocusHandoffTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -4923,6 +4936,51 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             stack.append(contentsOf: current.subviews)
         }
         return nil
+    }
+
+    func testSwitchingFromBrowserToTerminalPreservesBrowserResponderUntilTerminalFocus() throws {
+        let workspace = Workspace()
+        guard let terminalPanelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: terminalPanelId),
+              let browserPanel = workspace.splitBrowserPanel(
+                  fromPanelId: terminalPanelId,
+                  orientation: .horizontal,
+                  focus: true
+              ) else {
+            XCTFail("Expected terminal/browser split setup to succeed")
+            return
+        }
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+
+        terminalPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        browserPanel.webView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
+        contentView.addSubview(terminalPanel.hostedView)
+        contentView.addSubview(browserPanel.webView)
+
+        terminalPanel.hostedView.setVisibleInUI(true)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        let cmuxWebView = try XCTUnwrap(browserPanel.webView as? CmuxWebView)
+        cmuxWebView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(browserPanel.webView))
+        XCTAssertTrue(window.firstResponder === browserPanel.webView)
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+
+        let nilRequestsBeforeSwitch = window.nilFirstResponderRequestCount
+        workspace.focusPanel(terminalPanelId)
+
+        XCTAssertEqual(
+            window.nilFirstResponderRequestCount,
+            nilRequestsBeforeSwitch,
+            "Expected browser WebView first responder handoff to avoid a nil responder bounce"
+        )
+        XCTAssertFalse(window.firstResponder === browserPanel.webView)
+        XCTAssertTrue(window.firstResponder === surfaceView(in: terminalPanel.hostedView))
     }
 
     func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
@@ -5072,7 +5130,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         leftPanel.hostedView.suppressReparentFocus()
 
         XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(leftPanel.hostedView.isSurfaceViewFirstResponder())
 
         XCTAssertFalse(
             leftPanel.surface.debugDesiredFocusState(),
