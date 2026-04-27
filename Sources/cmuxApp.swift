@@ -2619,6 +2619,9 @@ private enum PDFPreviewChromeDebugAction {
     case zoomOut
     case actualSize
     case zoomIn
+    case zoomToFit
+    case rotateLeft
+    case rotateRight
 
     var title: String {
         switch self {
@@ -2628,6 +2631,12 @@ private enum PDFPreviewChromeDebugAction {
             String(localized: "filePreview.pdf.actualSize", defaultValue: "Actual Size")
         case .zoomIn:
             String(localized: "filePreview.pdf.zoomIn", defaultValue: "Zoom In")
+        case .zoomToFit:
+            String(localized: "filePreview.pdf.zoomToFit", defaultValue: "Zoom to Fit")
+        case .rotateLeft:
+            String(localized: "filePreview.pdf.rotateLeft", defaultValue: "Rotate Left")
+        case .rotateRight:
+            String(localized: "filePreview.pdf.rotateRight", defaultValue: "Rotate Right")
         }
     }
 
@@ -2639,6 +2648,12 @@ private enum PDFPreviewChromeDebugAction {
             "1.magnifyingglass"
         case .zoomIn:
             "plus.magnifyingglass"
+        case .zoomToFit:
+            "arrow.up.left.and.arrow.down.right"
+        case .rotateLeft:
+            "rotate.left"
+        case .rotateRight:
+            "rotate.right"
         }
     }
 }
@@ -2819,7 +2834,10 @@ private struct PDFPreviewChromeDebugSample: View {
             chromeStyleVariant: variant,
             zoomOut: { model.record(.zoomOut) },
             actualSize: { model.record(.actualSize) },
-            zoomIn: { model.record(.zoomIn) }
+            zoomIn: { model.record(.zoomIn) },
+            zoomToFit: { model.record(.zoomToFit) },
+            rotateLeft: { model.record(.rotateLeft) },
+            rotateRight: { model.record(.rotateRight) }
         )
     }
 }
@@ -2829,6 +2847,9 @@ private final class PDFPreviewChromeDebugWindowController: NSWindowController, N
     private static let zoomOutItemID = NSToolbarItem.Identifier("cmux.pdfPreviewChromeDebug.zoomOut")
     private static let actualSizeItemID = NSToolbarItem.Identifier("cmux.pdfPreviewChromeDebug.actualSize")
     private static let zoomInItemID = NSToolbarItem.Identifier("cmux.pdfPreviewChromeDebug.zoomIn")
+    private static let zoomToFitItemID = NSToolbarItem.Identifier("cmux.pdfPreviewChromeDebug.zoomToFit")
+    private static let rotateLeftItemID = NSToolbarItem.Identifier("cmux.pdfPreviewChromeDebug.rotateLeft")
+    private static let rotateRightItemID = NSToolbarItem.Identifier("cmux.pdfPreviewChromeDebug.rotateRight")
 
     private let model = PDFPreviewChromeDebugModel()
 
@@ -2885,6 +2906,18 @@ private final class PDFPreviewChromeDebugWindowController: NSWindowController, N
         model.record(.zoomIn)
     }
 
+    @objc private func toolbarZoomToFit(_ sender: Any?) {
+        model.record(.zoomToFit)
+    }
+
+    @objc private func toolbarRotateLeft(_ sender: Any?) {
+        model.record(.rotateLeft)
+    }
+
+    @objc private func toolbarRotateRight(_ sender: Any?) {
+        model.record(.rotateRight)
+    }
+
     private func makeToolbarItem(
         identifier: NSToolbarItem.Identifier,
         action: PDFPreviewChromeDebugAction,
@@ -2909,6 +2942,9 @@ extension PDFPreviewChromeDebugWindowController: NSToolbarDelegate {
             Self.zoomOutItemID,
             Self.actualSizeItemID,
             Self.zoomInItemID,
+            Self.zoomToFitItemID,
+            Self.rotateLeftItemID,
+            Self.rotateRightItemID,
         ]
     }
 
@@ -2918,6 +2954,9 @@ extension PDFPreviewChromeDebugWindowController: NSToolbarDelegate {
             Self.zoomOutItemID,
             Self.actualSizeItemID,
             Self.zoomInItemID,
+            Self.zoomToFitItemID,
+            Self.rotateLeftItemID,
+            Self.rotateRightItemID,
         ]
     }
 
@@ -2933,6 +2972,12 @@ extension PDFPreviewChromeDebugWindowController: NSToolbarDelegate {
             makeToolbarItem(identifier: itemIdentifier, action: .actualSize, selector: #selector(toolbarActualSize(_:)))
         case Self.zoomInItemID:
             makeToolbarItem(identifier: itemIdentifier, action: .zoomIn, selector: #selector(toolbarZoomIn(_:)))
+        case Self.zoomToFitItemID:
+            makeToolbarItem(identifier: itemIdentifier, action: .zoomToFit, selector: #selector(toolbarZoomToFit(_:)))
+        case Self.rotateLeftItemID:
+            makeToolbarItem(identifier: itemIdentifier, action: .rotateLeft, selector: #selector(toolbarRotateLeft(_:)))
+        case Self.rotateRightItemID:
+            makeToolbarItem(identifier: itemIdentifier, action: .rotateRight, selector: #selector(toolbarRotateRight(_:)))
         default:
             nil
         }

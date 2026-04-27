@@ -956,11 +956,15 @@ struct FilePreviewPDFZoomChromeView: View {
     let zoomOut: () -> Void
     let actualSize: () -> Void
     let zoomIn: () -> Void
+    let zoomToFit: () -> Void
+    let rotateLeft: () -> Void
+    let rotateRight: () -> Void
 
     var body: some View {
         if chromeStyleVariant == .systemControlGroup {
             ControlGroup {
                 zoomButtons(includeDividers: false)
+                secondaryButtons(includeDividers: false)
             } label: {
                 Label(
                     String(localized: "filePreview.pdf.zoomControls", defaultValue: "Zoom Controls"),
@@ -969,11 +973,19 @@ struct FilePreviewPDFZoomChromeView: View {
             }
             .controlSize(.regular)
         } else {
-            HStack(spacing: 0) {
-                zoomButtons(includeDividers: true)
+            HStack(spacing: 10) {
+                HStack(spacing: 0) {
+                    zoomButtons(includeDividers: true)
+                }
+                .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
+                .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
+
+                HStack(spacing: 0) {
+                    secondaryButtons(includeDividers: true)
+                }
+                .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
+                .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
             }
-            .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
-            .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
         }
     }
 
@@ -999,6 +1011,31 @@ struct FilePreviewPDFZoomChromeView: View {
             systemName: "plus.magnifyingglass",
             label: String(localized: "filePreview.pdf.zoomIn", defaultValue: "Zoom In"),
             action: zoomIn
+        )
+    }
+
+    @ViewBuilder
+    private func secondaryButtons(includeDividers: Bool) -> some View {
+        chromeButton(
+            systemName: "arrow.up.left.and.arrow.down.right",
+            label: String(localized: "filePreview.pdf.zoomToFit", defaultValue: "Zoom to Fit"),
+            action: zoomToFit
+        )
+        if includeDividers {
+            chromeDivider
+        }
+        chromeButton(
+            systemName: "rotate.left",
+            label: String(localized: "filePreview.pdf.rotateLeft", defaultValue: "Rotate Left"),
+            action: rotateLeft
+        )
+        if includeDividers {
+            chromeDivider
+        }
+        chromeButton(
+            systemName: "rotate.right",
+            label: String(localized: "filePreview.pdf.rotateRight", defaultValue: "Rotate Right"),
+            action: rotateRight
         )
     }
 
@@ -1471,6 +1508,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         static let maximumSidebarWidth: CGFloat = 320
         static let minimumContentWidth: CGFloat = 260
         static let floatingChromeHeight: CGFloat = 40
+        static let floatingControlsWidth: CGFloat = 266
         static let floatingChromeCornerRadius: CGFloat = 20
     }
 
@@ -1715,7 +1753,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 
             zoomChromeHost.topAnchor.constraint(equalTo: chromeHost.topAnchor, constant: 10),
             zoomChromeHost.trailingAnchor.constraint(equalTo: chromeHost.trailingAnchor, constant: -10),
-            zoomChromeHost.widthAnchor.constraint(equalToConstant: 128),
+            zoomChromeHost.widthAnchor.constraint(equalToConstant: Metrics.floatingControlsWidth),
             zoomChromeHost.heightAnchor.constraint(equalToConstant: Metrics.floatingChromeHeight),
 
             titleStack.leadingAnchor.constraint(equalTo: sidebarChromeHost.trailingAnchor, constant: 12),
@@ -1750,7 +1788,10 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             chromeStyleVariant: chromeStyleVariant,
             zoomOut: { [weak self] in self?.zoomOut() },
             actualSize: { [weak self] in self?.actualSize() },
-            zoomIn: { [weak self] in self?.zoomIn() }
+            zoomIn: { [weak self] in self?.zoomIn() },
+            zoomToFit: { [weak self] in self?.zoomToFit() },
+            rotateLeft: { [weak self] in self?.rotateLeft() },
+            rotateRight: { [weak self] in self?.rotateRight() }
         ))
     }
 
@@ -1771,6 +1812,14 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     @objc private func actualSize() {
         pdfView.autoScales = false
         setPDFScaleFactor(1.0, preservingVisibleCenter: true)
+    }
+
+    @objc private func rotateLeft() {
+        rotateCurrentPDFPage(by: -90)
+    }
+
+    @objc private func rotateRight() {
+        rotateCurrentPDFPage(by: 90)
     }
 
     @objc private func toggleSidebar() {
