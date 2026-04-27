@@ -139,7 +139,27 @@ private enum NotificationsPopoverVisibilityUserInfoKey {
     static let isShown = "isShown"
 }
 
+final class NotificationsPopoverVisibilityState: ObservableObject {
+    static let shared = NotificationsPopoverVisibilityState()
+
+    @Published private(set) var isShown = false
+
+    private init() {}
+
+    func setShown(_ newValue: Bool) {
+        if Thread.isMainThread {
+            guard isShown != newValue else { return }
+            isShown = newValue
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.setShown(newValue)
+            }
+        }
+    }
+}
+
 private func postNotificationsPopoverVisibilityDidChange(isShown: Bool) {
+    NotificationsPopoverVisibilityState.shared.setShown(isShown)
     NotificationCenter.default.post(
         name: .cmuxNotificationsPopoverVisibilityDidChange,
         object: nil,
@@ -269,6 +289,7 @@ struct TitlebarControlsView: View {
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
+    @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
@@ -314,7 +335,10 @@ struct TitlebarControlsView: View {
         if visibilityMode == .alwaysVisible {
             return true
         }
-        return isHoveringControls || isNotificationsPopoverShown || shouldShowTitlebarShortcutHints
+        return isHoveringControls
+            || isNotificationsPopoverShown
+            || popoverVisibilityState.isShown
+            || shouldShowTitlebarShortcutHints
     }
 
     var body: some View {
@@ -558,37 +582,44 @@ struct HiddenTitlebarSidebarControlsView: View {
     let onToggleNotifications: (NSView?) -> Void
     let onNewTab: () -> Void
     @StateObject private var viewModel = TitlebarControlsViewModel()
+    @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var isHoveringHost = false
     @State private var isNotificationsPopoverShown = false
 
     private let hostWidth: CGFloat = 124
     private let hostHeight: CGFloat = 28
     private var shouldPinControls: Bool {
-        isHoveringHost || isNotificationsPopoverShown
+        isHoveringHost || isNotificationsPopoverShown || popoverVisibilityState.isShown
     }
 
     var body: some View {
-        TitlebarControlsView(
-            notificationStore: notificationStore,
-            viewModel: viewModel,
-            onToggleSidebar: onToggleSidebar,
-            onToggleNotifications: { [viewModel] in
-                onToggleNotifications(viewModel.notificationsAnchorView)
-            },
-            onNewTab: onNewTab,
-            visibilityMode: shouldPinControls ? .alwaysVisible : .onHover
-        )
-        .frame(width: hostWidth, height: hostHeight, alignment: .leading)
-        .background(
+        ZStack(alignment: .leading) {
             PassthroughHoverTrackingView { isHovering in
                 isHoveringHost = isHovering
             }
-        )
+            .frame(width: hostWidth, height: hostHeight)
+
+            TitlebarControlsView(
+                notificationStore: notificationStore,
+                viewModel: viewModel,
+                onToggleSidebar: onToggleSidebar,
+                onToggleNotifications: { [viewModel] in
+                    onToggleNotifications(viewModel.notificationsAnchorView)
+                },
+                onNewTab: onNewTab,
+                visibilityMode: shouldPinControls ? .alwaysVisible : .onHover
+            )
+            .frame(width: hostWidth, height: hostHeight, alignment: .leading)
+        }
+        .frame(width: hostWidth, height: hostHeight, alignment: .leading)
         .onAppear {
             isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown() ?? false
+            popoverVisibilityState.setShown(isNotificationsPopoverShown)
         }
         .onReceive(NotificationCenter.default.publisher(for: .cmuxNotificationsPopoverVisibilityDidChange)) { notification in
-            isNotificationsPopoverShown = (notification.userInfo?[NotificationsPopoverVisibilityUserInfoKey.isShown] as? Bool) ?? false
+            let nextValue = (notification.userInfo?[NotificationsPopoverVisibilityUserInfoKey.isShown] as? Bool) ?? false
+            isNotificationsPopoverShown = nextValue
+            popoverVisibilityState.setShown(nextValue)
         }
         .onDisappear {
             isHoveringHost = false
