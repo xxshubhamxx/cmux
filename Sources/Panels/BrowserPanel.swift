@@ -3859,6 +3859,74 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
+    func repairWebContentFocusForKeyboardInput(in window: NSWindow, reason: String) -> Bool {
+        guard webView.window === window,
+              !webView.isHiddenOrHasHiddenAncestor,
+              !shouldSuppressWebViewFocus() else {
+#if DEBUG
+            dlog(
+                "browser.focus.keyRepair.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) cause=ineligible " +
+                "webWin=\(webView.window?.windowNumber ?? -1) " +
+                "key=\(window.isKeyWindow ? 1 : 0) " +
+                "hidden=\(webView.isHiddenOrHasHiddenAncestor ? 1 : 0) " +
+                "suppress=\(shouldSuppressWebViewFocus() ? 1 : 0)"
+            )
+#endif
+            return false
+        }
+
+        guard preferredFocusIntentForActivation() == .browser(.webView) else {
+#if DEBUG
+            dlog(
+                "browser.focus.keyRepair.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) cause=non_web_intent " +
+                "intent=\(String(describing: preferredFocusIntentForActivation()))"
+            )
+#endif
+            return false
+        }
+
+        switch actualFocus(in: window) {
+        case let .browserWebContent(panelId) where panelId == id:
+            return false
+        case let .browserWebViewWrapper(panelId) where panelId == id:
+            return false
+        case let .browserAddressBar(panelId) where panelId == id:
+            return false
+        case let .browserFindField(panelId) where panelId == id:
+            return false
+        default:
+            break
+        }
+
+        paneController.setPaneFocused(true)
+        paneController.clearWindowSuspension()
+        setWebViewFirstResponderPolicy(true, reason: "keyRepair.\(reason)")
+        let focusResult = acquireWebViewFirstResponder(
+            in: window,
+            reason: "keyRepair.\(reason)",
+            forceWrapperReactivation: true
+        )
+        if focusResult.didFocusResponder {
+            noteWebViewFocused()
+        }
+        if !window.isKeyWindow {
+            refreshWebViewFirstResponderPolicy(reason: "keyRepair.\(reason).restoreInactivePolicy")
+        }
+#if DEBUG
+        dlog(
+            "browser.focus.keyRepair panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) result=\(focusResult.debugDescription) " +
+            "focused=\(focusResult.didFocusResponder ? 1 : 0) " +
+            "content=\(focusResult.didFocusContent ? 1 : 0) " +
+            "fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+        )
+#endif
+        return focusResult.didFocusResponder
+    }
+
+    @discardableResult
     func reassertFocusedWebContentAfterNavigationFinish(
         _ finishedWebView: WKWebView,
         reason: String

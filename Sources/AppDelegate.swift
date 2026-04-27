@@ -5862,6 +5862,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    private func shouldRepairFocusedBrowserKeyboardInput(event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return !normalizedFlags.contains(.command) &&
+            !normalizedFlags.contains(.control) &&
+            !normalizedFlags.contains(.option)
+    }
+
+    private func shouldPreserveNativeTextResponderForFocusedBrowserKeyRepair(
+        _ responder: NSResponder?,
+        in window: NSWindow,
+        event: NSEvent
+    ) -> Bool {
+        guard let responder else { return false }
+        if responder is NSWindow {
+            return false
+        }
+        if NSWindow.cmuxOwningWebView(for: responder, in: window, event: event) != nil {
+            return false
+        }
+        if let textView = responder as? NSTextView {
+            return textView.isEditable || textView.isFieldEditor
+        }
+        if let textField = responder as? NSTextField {
+            return textField.isEditable
+        }
+        if let control = responder as? NSControl {
+            return control.currentEditor() != nil
+        }
+        return false
+    }
+
+    func repairFocusedBrowserKeyboardRoutingIfNeeded(
+        window: NSWindow,
+        event: NSEvent
+    ) {
+        guard shouldRepairFocusedBrowserKeyboardInput(event: event) else { return }
+        guard isMainTerminalWindow(window) else { return }
+        guard window.attachedSheet == nil else { return }
+        guard !isCommandPaletteEffectivelyVisible(in: window) else { return }
+        guard let context = contextForMainWindow(window) ?? contextForMainTerminalWindow(window),
+              let workspace = context.tabManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let browserPanel = workspace.browserPanel(for: panelId) else {
+            return
+        }
+        guard browserPanel.preferredFocusIntentForActivation() == .browser(.webView) else { return }
+
+        let firstResponder = window.firstResponder
+        guard !shouldPreserveNativeTextResponderForFocusedBrowserKeyRepair(
+            firstResponder,
+            in: window,
+            event: event
+        ) else { return }
+
+        switch browserPanel.actualFocus(in: window) {
+        case let .browserWebContent(actualPanelId) where actualPanelId == panelId,
+             let .browserWebViewWrapper(actualPanelId) where actualPanelId == panelId,
+             let .browserAddressBar(actualPanelId) where actualPanelId == panelId,
+             let .browserFindField(actualPanelId) where actualPanelId == panelId:
+            return
+        default:
+            break
+        }
+
+#if DEBUG
+        let before = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "browser.focus.keyRepair.window attempt window=\(ObjectIdentifier(window)) " +
+            "workspace=\(String(workspace.id.uuidString.prefix(5))) " +
+            "panel=\(String(panelId.uuidString.prefix(5))) " +
+            "fr=\(before) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue)"
+        )
+#endif
+
+        let repaired = browserPanel.repairWebContentFocusForKeyboardInput(
+            in: window,
+            reason: "windowSendEvent"
+        )
+
+#if DEBUG
+        let after = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "browser.focus.keyRepair.window result window=\(ObjectIdentifier(window)) " +
+            "panel=\(String(panelId.uuidString.prefix(5))) " +
+            "repaired=\(repaired ? 1 : 0) fr=\(after)"
+        )
+#endif
+    }
+
     func repairFocusedTerminalKeyboardRoutingIfNeeded(
         window: NSWindow,
         event: NSEvent
@@ -14602,6 +14692,10 @@ private extension NSWindow {
         let focusRepairStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
 #endif
         if event.type == .keyDown {
+            AppDelegate.shared?.repairFocusedBrowserKeyboardRoutingIfNeeded(
+                window: self,
+                event: event
+            )
             AppDelegate.shared?.repairFocusedTerminalKeyboardRoutingIfNeeded(
                 window: self,
                 event: event

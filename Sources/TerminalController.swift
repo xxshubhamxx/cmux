@@ -12310,6 +12310,10 @@ class TerminalController {
             storedKey = "\r"
             keyCode = UInt16(kVK_Return)
             charactersIgnoringModifiers = storedKey
+        case "space":
+            storedKey = " "
+            keyCode = UInt16(kVK_Space)
+            charactersIgnoringModifiers = storedKey
         default:
             let key = keyToken.lowercased()
             guard let code = keyCodeForShortcutKey(key) else { return nil }
