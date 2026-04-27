@@ -1,10 +1,10 @@
 import Foundation
 
 enum AuthEnvironment {
-    private static let developmentStackProjectID = "1467bed0-8522-45ee-a8d8-055de324118c"
-    private static let developmentStackPublishableClientKey = "pck_pt4nwry6sdskews2pxk4g2fbe861ak2zvaf3mqendspa0"
-    private static let productionStackProjectID = "8a877114-b905-47c5-8b64-3a2d90679577"
-    private static let productionStackPublishableClientKey = "pck_pqghntgd942k1hg066m7htjakb8g4ybaj66hqj2g2frj0"
+    private static let developmentStackProjectID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+    private static let developmentStackPublishableClientKey = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
+    private static let productionStackProjectID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+    private static let productionStackPublishableClientKey = "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr"
 
     static var callbackScheme: String {
         let environment = ProcessInfo.processInfo.environment

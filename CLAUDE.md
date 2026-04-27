@@ -125,10 +125,10 @@ source ~/.secrets/cmux.env
 set +a
 ```
 
-`~/.secret/cmuxterm.env` is for Stack/web env and does not contain the provider build keys.
-`bun dev` sources `~/.secrets/cmux.env` first when present, then `~/.secret/cmuxterm.env` so
-cmuxterm-specific Stack settings override broader cmux secrets. The web dev loader also accepts
-the legacy `~/.secrets/cmuxterm.env` path while machines migrate.
+`~/.secrets/cmuxterm-dev.env` is for local Stack/web env and does not contain the provider build keys.
+`bun dev` sources `~/.secrets/cmux.env` first when present, then `~/.secrets/cmuxterm-dev.env` so
+cmuxterm-specific Stack settings override broader cmux secrets. The web dev loader still accepts
+the legacy `~/.secret/cmuxterm.env` and `~/.secrets/cmuxterm.env` paths while machines migrate.
 
 ## Backend TypeScript
 

@@ -28,12 +28,14 @@ fi
 
 cmux_secret_file="${CMUXTERM_ENV_FILE:-${CMUX_WEB_ENV_FILE:-}}"
 if [[ -z "$cmux_secret_file" ]]; then
-  if [[ -f "$HOME/.secret/cmuxterm.env" ]]; then
+  if [[ -f "$HOME/.secrets/cmuxterm-dev.env" ]]; then
+    cmux_secret_file="$HOME/.secrets/cmuxterm-dev.env"
+  elif [[ -f "$HOME/.secret/cmuxterm.env" ]]; then
     cmux_secret_file="$HOME/.secret/cmuxterm.env"
   elif [[ -f "$HOME/.secrets/cmuxterm.env" ]]; then
     cmux_secret_file="$HOME/.secrets/cmuxterm.env"
   else
-    echo "Missing cmux web secrets. Expected ~/.secret/cmuxterm.env." >&2
+    echo "Missing cmux web secrets. Expected ~/.secrets/cmuxterm-dev.env." >&2
     return 1 2>/dev/null || exit 1
   fi
 fi
@@ -51,6 +53,9 @@ fi
 # shellcheck disable=SC1090
 source "$cmux_secret_file"
 set +a
+if ! grep -q '^STACK_SUPER_SECRET_ADMIN_KEY=' "$cmux_secret_file"; then
+  unset STACK_SUPER_SECRET_ADMIN_KEY
+fi
 if [[ "$cmux_nounset_was_enabled" == "1" ]]; then
   set -u
 fi
