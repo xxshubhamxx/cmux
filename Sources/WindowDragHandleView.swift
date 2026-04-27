@@ -559,7 +559,7 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
     }
 }
 
-func shouldSuppressMinimalModeTitlebarDoubleClick(
+func shouldHandleMinimalModeTitlebarDoubleClick(
     isEnabled: Bool,
     clickCount: Int,
     point: NSPoint,
@@ -574,7 +574,7 @@ func shouldSuppressMinimalModeTitlebarDoubleClick(
     return point.y >= bounds.maxY - clampedHeight
 }
 
-struct MinimalModeTitlebarDoubleClickGuardView: NSViewRepresentable {
+struct MinimalModeTitlebarDoubleClickHandlerView: NSViewRepresentable {
     var isEnabled: Bool
     var topStripHeight: CGFloat
 
@@ -617,7 +617,7 @@ struct MinimalModeTitlebarDoubleClickGuardView: NSViewRepresentable {
             }
 
             let point = view.convert(event.locationInWindow, from: nil)
-            guard shouldSuppressMinimalModeTitlebarDoubleClick(
+            guard shouldHandleMinimalModeTitlebarDoubleClick(
                 isEnabled: coordinator.isEnabled,
                 clickCount: event.clickCount,
                 point: point,
@@ -627,12 +627,16 @@ struct MinimalModeTitlebarDoubleClickGuardView: NSViewRepresentable {
                 return event
             }
 
+            let result = handleTitlebarDoubleClick(
+                window: window,
+                behavior: .standardAction
+            )
             #if DEBUG
             cmuxDebugLog(
-                "titlebar.minimalDoubleClickGuard.suppressed point=\(windowDragHandleFormatPoint(point)) height=\(String(format: "%.1f", coordinator.topStripHeight))"
+                "titlebar.minimalDoubleClickHandler.result=\(String(describing: result)) point=\(windowDragHandleFormatPoint(point)) height=\(String(format: "%.1f", coordinator.topStripHeight))"
             )
             #endif
-            return nil
+            return result.consumesEvent ? nil : event
         }
 
         return view

@@ -672,11 +672,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(TitlebarDoubleClickHandlingResult.ignored.consumesEvent)
     }
 
-    func testMinimalModeDoubleClickGuardOnlyConsumesTopStripDoubleClicks() {
+    func testMinimalModeDoubleClickHandlerOnlyHandlesTopStripDoubleClicks() {
         let bounds = NSRect(x: 0, y: 0, width: 400, height: 300)
 
         XCTAssertTrue(
-            shouldSuppressMinimalModeTitlebarDoubleClick(
+            shouldHandleMinimalModeTitlebarDoubleClick(
                 isEnabled: true,
                 clickCount: 2,
                 point: NSPoint(x: 200, y: 292),
@@ -685,7 +685,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            shouldSuppressMinimalModeTitlebarDoubleClick(
+            shouldHandleMinimalModeTitlebarDoubleClick(
                 isEnabled: true,
                 clickCount: 2,
                 point: NSPoint(x: 200, y: 240),
@@ -694,7 +694,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            shouldSuppressMinimalModeTitlebarDoubleClick(
+            shouldHandleMinimalModeTitlebarDoubleClick(
                 isEnabled: false,
                 clickCount: 2,
                 point: NSPoint(x: 200, y: 292),
@@ -703,7 +703,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            shouldSuppressMinimalModeTitlebarDoubleClick(
+            shouldHandleMinimalModeTitlebarDoubleClick(
                 isEnabled: true,
                 clickCount: 1,
                 point: NSPoint(x: 200, y: 292),
