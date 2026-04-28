@@ -54,6 +54,8 @@ final class OwlMojoBindingsGeneratorTests: XCTestCase {
         XCTAssertTrue(result.swift.contains("public final class GeneratedOwlFreshSessionMojoTransport"))
         XCTAssertTrue(result.swift.contains("public final class GeneratedOwlFreshWebViewMojoTransport"))
         XCTAssertTrue(result.swift.contains("public final class OwlFreshMojoTransportRecorder"))
+        XCTAssertTrue(result.swift.contains("public protocol OwlFreshMojoPipeBindings"))
+        XCTAssertTrue(result.swift.contains("public final class GeneratedOwlFreshMojoPipeBoundSinks"))
         XCTAssertTrue(result.swift.contains("public static let sourceChecksum = \"\(result.checksum)\""))
     }
 
@@ -148,6 +150,52 @@ final class OwlMojoBindingsGeneratorTests: XCTestCase {
         XCTAssertEqual(session.recordedCalls[5].payloadType, "Void")
         XCTAssertEqual(session.recordedCalls[6].payloadType, "Void")
         XCTAssertEqual(session.recordedCalls[7].payloadType, "UInt32")
+    }
+
+    func testGeneratedPipeBoundSinksForwardTypedCalls() async throws {
+        let pipe = FakePipeBindings()
+        let recorder = OwlFreshMojoTransportRecorder()
+        let sinks = GeneratedOwlFreshMojoPipeBoundSinks(session: nil, pipe: pipe)
+        let session = GeneratedOwlFreshSessionMojoTransport(sink: sinks, recorder: recorder)
+        let webView = GeneratedOwlFreshWebViewMojoTransport(sink: sinks, recorder: recorder)
+        let input = GeneratedOwlFreshInputMojoTransport(sink: sinks, recorder: recorder)
+        let surfaceTree = GeneratedOwlFreshSurfaceTreeHostMojoTransport(sink: sinks, recorder: recorder)
+        let nativeSurface = GeneratedOwlFreshNativeSurfaceHostMojoTransport(sink: sinks, recorder: recorder)
+
+        webView.navigate("https://example.com/")
+        try sinks.throwIfFailed()
+        webView.resize(OwlFreshWebViewResizeRequest(width: 640, height: 480, scale: 2.0))
+        try sinks.throwIfFailed()
+        input.sendKey(OwlFreshKeyEvent(keyDown: true, keyCode: 36, text: "\n", modifiers: 0))
+        try sinks.throwIfFailed()
+        let ok = try await session.flush()
+        let tree = try await surfaceTree.getSurfaceTree()
+        let accepted = try await nativeSurface.acceptActivePopupMenuItem(2)
+
+        XCTAssertTrue(ok)
+        XCTAssertEqual(tree.generation, 42)
+        XCTAssertTrue(accepted)
+        XCTAssertEqual(pipe.calls, [
+            "webViewNavigate:https://example.com/",
+            "webViewResize:640x480@2.0",
+            "inputSendKey:36:\n",
+            "sessionFlush",
+            "surfaceTreeHostGetSurfaceTree",
+            "nativeSurfaceHostAcceptActivePopupMenuItem:2",
+        ])
+        XCTAssertEqual(recorder.recordedCalls.map(\.interface), [
+            "OwlFreshWebView",
+            "OwlFreshWebView",
+            "OwlFreshInput",
+            "OwlFreshSession",
+            "OwlFreshSurfaceTreeHost",
+            "OwlFreshNativeSurfaceHost",
+        ])
+
+        session.bindInput(OwlFreshInputReceiver(handle: 99))
+        XCTAssertThrowsError(try sinks.throwIfFailed()) { error in
+            XCTAssertTrue(String(describing: error).contains("pending handles"))
+        }
     }
 
     func testGeneratedSurfaceTreeDecodesWrappedUnsignedContextID() throws {
@@ -295,6 +343,60 @@ private final class FakeOwlFreshSink:
 
     func cancelActivePopup() async throws -> Bool {
         calls.append("cancelActivePopup")
+        return true
+    }
+}
+
+private final class FakePipeBindings: OwlFreshMojoPipeBindings {
+    var calls: [String] = []
+
+    func sessionFlush(_ session: OpaquePointer?) throws -> Bool {
+        calls.append("sessionFlush")
+        return true
+    }
+
+    func profileGetPath(_ session: OpaquePointer?) throws -> String {
+        calls.append("profileGetPath")
+        return "/tmp/owl-profile"
+    }
+
+    func webViewNavigate(_ session: OpaquePointer?, url: String) throws {
+        calls.append("webViewNavigate:\(url)")
+    }
+
+    func webViewResize(_ session: OpaquePointer?, request: OwlFreshWebViewResizeRequest) throws {
+        calls.append("webViewResize:\(request.width)x\(request.height)@\(request.scale)")
+    }
+
+    func webViewSetFocus(_ session: OpaquePointer?, focused: Bool) throws {
+        calls.append("webViewSetFocus:\(focused)")
+    }
+
+    func inputSendMouse(_ session: OpaquePointer?, event: OwlFreshMouseEvent) throws {
+        calls.append("inputSendMouse:\(event.kind.rawValue)")
+    }
+
+    func inputSendKey(_ session: OpaquePointer?, event: OwlFreshKeyEvent) throws {
+        calls.append("inputSendKey:\(event.keyCode):\(event.text)")
+    }
+
+    func surfaceTreeHostCaptureSurface(_ session: OpaquePointer?) throws -> OwlFreshCaptureResult {
+        calls.append("surfaceTreeHostCaptureSurface")
+        return OwlFreshCaptureResult(png: [1, 2, 3], width: 1, height: 1, captureMode: "fake", error: "")
+    }
+
+    func surfaceTreeHostGetSurfaceTree(_ session: OpaquePointer?) throws -> OwlFreshSurfaceTree {
+        calls.append("surfaceTreeHostGetSurfaceTree")
+        return OwlFreshSurfaceTree(generation: 42, surfaces: [])
+    }
+
+    func nativeSurfaceHostAcceptActivePopupMenuItem(_ session: OpaquePointer?, index: UInt32) throws -> Bool {
+        calls.append("nativeSurfaceHostAcceptActivePopupMenuItem:\(index)")
+        return true
+    }
+
+    func nativeSurfaceHostCancelActivePopup(_ session: OpaquePointer?) throws -> Bool {
+        calls.append("nativeSurfaceHostCancelActivePopup")
         return true
     }
 }

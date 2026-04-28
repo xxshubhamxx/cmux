@@ -946,6 +946,146 @@ public final class GeneratedOwlFreshNativeSurfaceHostMojoTransport: OwlFreshNati
     }
 }
 
+public enum OwlFreshMojoPipeBindingError: Error, CustomStringConvertible {
+    case unsupportedPendingHandle(String)
+
+    public var description: String {
+        switch self {
+        case .unsupportedPendingHandle(let method):
+            return "Swift Mojo pipe binding cannot synthesize pending handles for \(method)"
+        }
+    }
+}
+
+public protocol OwlFreshMojoPipeBindings: AnyObject {
+    func sessionFlush(_ session: OpaquePointer?) throws -> Bool
+    func profileGetPath(_ session: OpaquePointer?) throws -> String
+    func webViewNavigate(_ session: OpaquePointer?, url: String) throws
+    func webViewResize(_ session: OpaquePointer?, request: OwlFreshWebViewResizeRequest) throws
+    func webViewSetFocus(_ session: OpaquePointer?, focused: Bool) throws
+    func inputSendMouse(_ session: OpaquePointer?, event: OwlFreshMouseEvent) throws
+    func inputSendKey(_ session: OpaquePointer?, event: OwlFreshKeyEvent) throws
+    func surfaceTreeHostCaptureSurface(_ session: OpaquePointer?) throws -> OwlFreshCaptureResult
+    func surfaceTreeHostGetSurfaceTree(_ session: OpaquePointer?) throws -> OwlFreshSurfaceTree
+    func nativeSurfaceHostAcceptActivePopupMenuItem(_ session: OpaquePointer?, index: UInt32) throws -> Bool
+    func nativeSurfaceHostCancelActivePopup(_ session: OpaquePointer?) throws -> Bool
+}
+
+public final class GeneratedOwlFreshMojoPipeBoundSinks:
+    OwlFreshSessionMojoSink,
+    OwlFreshProfileMojoSink,
+    OwlFreshWebViewMojoSink,
+    OwlFreshInputMojoSink,
+    OwlFreshSurfaceTreeHostMojoSink,
+    OwlFreshNativeSurfaceHostMojoSink
+{
+    private let session: OpaquePointer?
+    private let pipe: OwlFreshMojoPipeBindings
+    private var lastError: Error?
+
+    public init(session: OpaquePointer?, pipe: OwlFreshMojoPipeBindings) {
+        self.session = session
+        self.pipe = pipe
+    }
+
+    public func throwIfFailed() throws {
+        if let error = lastError {
+            lastError = nil
+            throw error
+        }
+    }
+
+    private func failUnsupportedPendingHandle(_ method: String) {
+        lastError = OwlFreshMojoPipeBindingError.unsupportedPendingHandle(method)
+    }
+
+    private func forward(_ body: () throws -> Void) {
+        do {
+            try body()
+        } catch {
+            lastError = error
+        }
+    }
+
+    public func setClient(_ client: OwlFreshClientRemote) {
+        failUnsupportedPendingHandle("OwlFreshSession.setClient")
+    }
+
+    public func bindProfile(_ profile: OwlFreshProfileReceiver) {
+        failUnsupportedPendingHandle("OwlFreshSession.bindProfile")
+    }
+
+    public func bindWebView(_ webView: OwlFreshWebViewReceiver) {
+        failUnsupportedPendingHandle("OwlFreshSession.bindWebView")
+    }
+
+    public func bindInput(_ input: OwlFreshInputReceiver) {
+        failUnsupportedPendingHandle("OwlFreshSession.bindInput")
+    }
+
+    public func bindSurfaceTree(_ surfaceTree: OwlFreshSurfaceTreeHostReceiver) {
+        failUnsupportedPendingHandle("OwlFreshSession.bindSurfaceTree")
+    }
+
+    public func bindNativeSurfaceHost(_ nativeSurfaceHost: OwlFreshNativeSurfaceHostReceiver) {
+        failUnsupportedPendingHandle("OwlFreshSession.bindNativeSurfaceHost")
+    }
+
+    public func flush() async throws -> Bool {
+        return try pipe.sessionFlush(session)
+    }
+
+    public func getPath() async throws -> String {
+        return try pipe.profileGetPath(session)
+    }
+
+    public func navigate(_ url: String) {
+        forward {
+            try pipe.webViewNavigate(session, url: url)
+        }
+    }
+
+    public func resize(_ request: OwlFreshWebViewResizeRequest) {
+        forward {
+            try pipe.webViewResize(session, request: request)
+        }
+    }
+
+    public func setFocus(_ focused: Bool) {
+        forward {
+            try pipe.webViewSetFocus(session, focused: focused)
+        }
+    }
+
+    public func sendMouse(_ event: OwlFreshMouseEvent) {
+        forward {
+            try pipe.inputSendMouse(session, event: event)
+        }
+    }
+
+    public func sendKey(_ event: OwlFreshKeyEvent) {
+        forward {
+            try pipe.inputSendKey(session, event: event)
+        }
+    }
+
+    public func captureSurface() async throws -> OwlFreshCaptureResult {
+        return try pipe.surfaceTreeHostCaptureSurface(session)
+    }
+
+    public func getSurfaceTree() async throws -> OwlFreshSurfaceTree {
+        return try pipe.surfaceTreeHostGetSurfaceTree(session)
+    }
+
+    public func acceptActivePopupMenuItem(_ index: UInt32) async throws -> Bool {
+        return try pipe.nativeSurfaceHostAcceptActivePopupMenuItem(session, index: index)
+    }
+
+    public func cancelActivePopup() async throws -> Bool {
+        return try pipe.nativeSurfaceHostCancelActivePopup(session)
+    }
+}
+
 public struct MojoSchemaDeclaration: Equatable, Codable {
     public let kind: String
     public let name: String

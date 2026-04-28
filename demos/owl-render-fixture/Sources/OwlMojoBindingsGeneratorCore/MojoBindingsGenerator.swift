@@ -537,6 +537,8 @@ public enum MojoSwiftGenerator {
             output.append("")
         }
 
+        output.append(generatePipeBindings(file: file))
+        output.append("")
         output.append(generateSchema(file: file, checksum: checksum))
         output.append("")
         return SwiftGenerationResult(swift: output.joined(separator: "\n"), checksum: checksum)
@@ -729,6 +731,151 @@ public enum MojoSwiftGenerator {
             return "sink.\(methodName)(\(swiftPropertyName(parameter.name)))"
         }
         return "sink.\(methodName)()"
+    }
+
+    private static func generatePipeBindings(file: MojoFile) -> String {
+        let interfaces = file.declarations.compactMap { declaration -> MojoInterface? in
+            guard case .interface(let interface) = declaration, interface.name != "OwlFreshClient" else {
+                return nil
+            }
+            return interface
+        }
+        let conformances = interfaces
+            .map { "    \($0.name)MojoSink" }
+            .joined(separator: ",\n")
+        var lines: [String] = [
+            "public enum OwlFreshMojoPipeBindingError: Error, CustomStringConvertible {",
+            "    case unsupportedPendingHandle(String)",
+            "",
+            "    public var description: String {",
+            "        switch self {",
+            "        case .unsupportedPendingHandle(let method):",
+            "            return \"Swift Mojo pipe binding cannot synthesize pending handles for \\(method)\"",
+            "        }",
+            "    }",
+            "}",
+            "",
+            "public protocol OwlFreshMojoPipeBindings: AnyObject {",
+        ]
+        for interface in interfaces {
+            for method in interface.methods where isPipeBindable(method) {
+                lines.append("    \(pipeSignature(interface: interface, method: method))")
+            }
+        }
+        lines.append("}")
+        lines.append("")
+        lines.append("public final class GeneratedOwlFreshMojoPipeBoundSinks:")
+        lines.append(conformances)
+        lines.append("{")
+        lines.append("    private let session: OpaquePointer?")
+        lines.append("    private let pipe: OwlFreshMojoPipeBindings")
+        lines.append("    private var lastError: Error?")
+        lines.append("")
+        lines.append("    public init(session: OpaquePointer?, pipe: OwlFreshMojoPipeBindings) {")
+        lines.append("        self.session = session")
+        lines.append("        self.pipe = pipe")
+        lines.append("    }")
+        lines.append("")
+        lines.append("    public func throwIfFailed() throws {")
+        lines.append("        if let error = lastError {")
+        lines.append("            lastError = nil")
+        lines.append("            throw error")
+        lines.append("        }")
+        lines.append("    }")
+        lines.append("")
+        lines.append("    private func failUnsupportedPendingHandle(_ method: String) {")
+        lines.append("        lastError = OwlFreshMojoPipeBindingError.unsupportedPendingHandle(method)")
+        lines.append("    }")
+        lines.append("")
+        lines.append("    private func forward(_ body: () throws -> Void) {")
+        lines.append("        do {")
+        lines.append("            try body()")
+        lines.append("        } catch {")
+        lines.append("            lastError = error")
+        lines.append("        }")
+        lines.append("    }")
+
+        for interface in interfaces {
+            for method in interface.methods {
+                lines.append("")
+                lines.append(generatePipeBoundSinkMethod(interface: interface, method: method))
+            }
+        }
+
+        lines.append("}")
+        return lines.joined(separator: "\n")
+    }
+
+    private static func generatePipeBoundSinkMethod(interface: MojoInterface, method: MojoMethod) -> String {
+        let signature = swiftMethodSignature(interface: interface, method: method)
+        let methodName = lowerCamel(method.name)
+        var lines = ["    public \(signature) {"]
+        guard isPipeBindable(method) else {
+            lines.append("        failUnsupportedPendingHandle(\"\(interface.name).\(methodName)\")")
+            lines.append("    }")
+            return lines.joined(separator: "\n")
+        }
+
+        let call = pipeCall(interface: interface, method: method)
+        if method.responseParameters.isEmpty {
+            lines.append("        forward {")
+            lines.append("            try \(call)")
+            lines.append("        }")
+        } else {
+            lines.append("        return try \(call)")
+        }
+        lines.append("    }")
+        return lines.joined(separator: "\n")
+    }
+
+    private static func pipeSignature(interface: MojoInterface, method: MojoMethod) -> String {
+        let methodName = pipeMethodName(interface: interface, method: method)
+        let response = responseType(method)
+        if shouldGenerateRequestStruct(method) {
+            return "func \(methodName)(_ session: OpaquePointer?, request: \(requestStructName(interface: interface, method: method))) throws\(pipeResponseSuffix(response))"
+        }
+        if let parameter = method.parameters.first {
+            return "func \(methodName)(_ session: OpaquePointer?, \(swiftPropertyName(parameter.name)): \(parameter.type.swiftName)) throws\(pipeResponseSuffix(response))"
+        }
+        return "func \(methodName)(_ session: OpaquePointer?) throws\(pipeResponseSuffix(response))"
+    }
+
+    private static func pipeResponseSuffix(_ response: String) -> String {
+        response.replacingOccurrences(of: " async throws", with: "")
+    }
+
+    private static func pipeCall(interface: MojoInterface, method: MojoMethod) -> String {
+        let methodName = pipeMethodName(interface: interface, method: method)
+        if shouldGenerateRequestStruct(method) {
+            return "pipe.\(methodName)(session, request: request)"
+        }
+        if let parameter = method.parameters.first {
+            let name = swiftPropertyName(parameter.name)
+            return "pipe.\(methodName)(session, \(name): \(name))"
+        }
+        return "pipe.\(methodName)(session)"
+    }
+
+    private static func pipeMethodName(interface: MojoInterface, method: MojoMethod) -> String {
+        let interfaceName = interface.name.hasPrefix("OwlFresh")
+            ? String(interface.name.dropFirst("OwlFresh".count))
+            : interface.name
+        return lowerCamel(interfaceName) + method.name
+    }
+
+    private static func isPipeBindable(_ method: MojoMethod) -> Bool {
+        method.parameters.allSatisfy { !containsPendingHandle($0.type) }
+    }
+
+    private static func containsPendingHandle(_ type: MojoType) -> Bool {
+        switch type {
+        case .pendingRemote, .pendingReceiver:
+            return true
+        case .array(let element):
+            return containsPendingHandle(element)
+        case .primitive, .named:
+            return false
+        }
     }
 
     private static func generateSchema(file: MojoFile, checksum: String) -> String {
