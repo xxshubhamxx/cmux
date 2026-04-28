@@ -1,0 +1,15 @@
+{
+  "name": "aws-m1-ultra-verified-owl-host",
+  "chromiumBaseCommit": "0bd9366db7ef5eebf3cd6e3927b53b86f7b95899",
+  "patchFile": "chromium-patches/aws-m1-ultra-verified-owl-host.patch",
+  "patchSHA256": "2b0a505949fb6b91b4ed22b1185a22d6f397217389604e6fe84165aec6538b1c",
+  "patchLineCount": 3715,
+  "ninjaTargets": [
+    "content_shell",
+    "owl_fresh_mojo_runtime"
+  ],
+  "requiredBuildOutputs": [
+    "out/Release/Content Shell.app/Contents/MacOS/Content Shell",
+    "out/Release/libowl_fresh_mojo_runtime.dylib"
+  ]
+}

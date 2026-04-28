@@ -18,6 +18,7 @@ private struct Options {
     var includeResize: Bool
     var includeLifecycle: Bool
     var includeScale: Bool
+    var includeRecovery: Bool
     var includeGoogle: Bool
     var includeWidgets: Bool
     var inputDiagnosticCapture: Bool
@@ -148,6 +149,20 @@ private struct CaptureResult: Codable {
     let generatedTransportCallCount: Int
 }
 
+private struct CrashRecoveryResult: Codable {
+    let crashedHostPID: Int32
+    let disconnectedEventSeen: Bool
+    let beforeCrashScreenshotPath: String
+    let beforeCrashContextID: UInt32
+    let afterRecoveryCaptureName: String
+    let afterRecoveryScreenshotPath: String
+}
+
+private struct CrashRecoveryRun {
+    let metadata: CrashRecoveryResult
+    let afterCapture: CaptureResult
+}
+
 private struct Summary: Codable {
     let chromiumHost: String
     let mojoRuntimePath: String
@@ -161,6 +176,7 @@ private struct Summary: Codable {
     let mojoBindingDeclarationCount: Int
     let devToolsActivePortFound: Bool
     let remoteDebuggingArgumentFound: Bool
+    let crashRecovery: CrashRecoveryResult?
     let captures: [CaptureResult]
 }
 
@@ -233,6 +249,7 @@ struct OwlLayerHostVerifier {
         var includeResize = ProcessInfo.processInfo.environment["OWL_LAYER_HOST_RESIZE_CHECK"] == "1"
         var includeLifecycle = ProcessInfo.processInfo.environment["OWL_LAYER_HOST_LIFECYCLE_CHECK"] == "1"
         var includeScale = ProcessInfo.processInfo.environment["OWL_LAYER_HOST_SCALE_CHECK"] == "1"
+        var includeRecovery = ProcessInfo.processInfo.environment["OWL_LAYER_HOST_RECOVERY_CHECK"] == "1"
         var includeGoogle = ProcessInfo.processInfo.environment["OWL_LAYER_HOST_GOOGLE_CHECK"] == "1"
         var includeWidgets = ProcessInfo.processInfo.environment["OWL_LAYER_HOST_WIDGET_CHECK"] == "1"
         var inputDiagnosticCapture = false
@@ -283,6 +300,8 @@ struct OwlLayerHostVerifier {
                 includeLifecycle = true
             case "--scale-check":
                 includeScale = true
+            case "--recovery-check":
+                includeRecovery = true
             case "--google-check":
                 includeGoogle = true
             case "--widget-check":
@@ -297,7 +316,7 @@ struct OwlLayerHostVerifier {
                 onlyTargets.insert(arguments[index])
             case "--help":
                 print("""
-                Usage: OwlLayerHostVerifier --chromium-host <path> --mojo-runtime <path> [--output-dir <dir>] [--timeout <seconds>] [--skip-canvas] [--skip-example] [--input-check] [--resize-check] [--lifecycle-check] [--scale-check] [--google-check] [--widget-check] [--input-diagnostic-capture] [--only-target <name>]
+                Usage: OwlLayerHostVerifier --chromium-host <path> --mojo-runtime <path> [--output-dir <dir>] [--timeout <seconds>] [--skip-canvas] [--skip-example] [--input-check] [--resize-check] [--lifecycle-check] [--scale-check] [--recovery-check] [--google-check] [--widget-check] [--input-diagnostic-capture] [--only-target <name>]
                 """)
                 exit(0)
             default:
@@ -324,6 +343,7 @@ struct OwlLayerHostVerifier {
             includeResize: includeResize,
             includeLifecycle: includeLifecycle,
             includeScale: includeScale,
+            includeRecovery: includeRecovery,
             includeGoogle: includeGoogle,
             includeWidgets: includeWidgets,
             inputDiagnosticCapture: inputDiagnosticCapture,
@@ -415,6 +435,11 @@ private final class LayerHostRunner {
         let plainNativeSelectFixture = try writeFixture(
             name: "plain-native-select-fixture",
             html: Fixtures.plainNativeSelectFixture,
+            directory: fixtureDirectory
+        )
+        let crashRecoveryFixture = try writeFixture(
+            name: "crash-recovery-fixture",
+            html: Fixtures.canvasFixture,
             directory: fixtureDirectory
         )
         var targets: [RenderTarget] = []
@@ -984,8 +1009,13 @@ private final class LayerHostRunner {
                 )
             )
         }
+        let recoveryTargetName = "crash-recovery-fixture"
+        let requestedRecoveryTarget = options.onlyTargets.contains(recoveryTargetName)
+        var runCrashRecovery = options.includeRecovery || requestedRecoveryTarget
+
         if !options.onlyTargets.isEmpty {
             let availableTargetNames = Set(targets.map(\.name))
+                .union(runCrashRecovery ? [recoveryTargetName] : [])
             let missingTargets = options.onlyTargets.subtracting(availableTargetNames)
             guard missingTargets.isEmpty else {
                 throw VerifierError.usage(
@@ -993,6 +1023,7 @@ private final class LayerHostRunner {
                 )
             }
             targets = targets.filter { options.onlyTargets.contains($0.name) }
+            runCrashRecovery = requestedRecoveryTarget
         }
 
         let app = NSApplication.shared
@@ -1005,6 +1036,16 @@ private final class LayerHostRunner {
         var captures: [CaptureResult] = []
         for target in targets {
             captures.append(try runCapture(target: target, runtime: runtime, app: app))
+        }
+        var crashRecovery: CrashRecoveryResult?
+        if runCrashRecovery {
+            let result = try runCrashRecoveryGate(
+                fixtureURL: crashRecoveryFixture.absoluteString,
+                runtime: runtime,
+                app: app
+            )
+            captures.append(result.afterCapture)
+            crashRecovery = result.metadata
         }
 
         let summary = Summary(
@@ -1022,6 +1063,7 @@ private final class LayerHostRunner {
             mojoBindingDeclarationCount: OwlFreshMojoSchema.declarations.count,
             devToolsActivePortFound: captures.contains(where: \.profileHadDevToolsActivePort),
             remoteDebuggingArgumentFound: captures.contains { containsRemoteDebuggingArgument($0.hostCommand) },
+            crashRecovery: crashRecovery,
             captures: captures
         )
 
@@ -1290,6 +1332,211 @@ private final class LayerHostRunner {
             to: options.outputDirectory.appendingPathComponent("\(target.name)-failure.json")
         )
         throw VerifierError.timeout("timed out waiting for \(target.name) through Swift LayerHost: \(lastError); lastWindowID=\(lastWindowID.map(String.init) ?? "none"); events=\(sessionEvents.snapshot())")
+    }
+
+    private func runCrashRecoveryGate(
+        fixtureURL: String,
+        runtime: any OwlBrowserRuntime,
+        app: NSApplication
+    ) throws -> CrashRecoveryRun {
+        let profileDirectory = options.outputDirectory
+            .appendingPathComponent("profiles", isDirectory: true)
+            .appendingPathComponent("crash-recovery-before-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: profileDirectory, withIntermediateDirectories: true)
+
+        let sessionEvents = OwlBrowserSessionEvents()
+        let initialURL = ProcessInfo.processInfo.environment["OWL_FRESH_LAYER_FIXTURE"] == nil
+            ? "about:blank"
+            : fixtureURL
+        let session = try runtime.createSession(
+            chromiumHost: options.chromiumHost,
+            initialURL: initialURL,
+            userDataDirectory: profileDirectory.path,
+            events: sessionEvents
+        )
+        var hostPID: Int32 = -1
+        var sessionDestroyed = false
+        defer {
+            if !sessionDestroyed {
+                runtime.destroy(session)
+            }
+            terminateHostProcessIfNeeded(pid: hostPID)
+            pumpApp(app, for: 0.2)
+        }
+
+        let hostController = try OwlBrowserSessionController(
+            pipe: runtime,
+            session: session
+        )
+        try hostController.resize(
+            OwlFreshWebViewResizeRequest(
+                width: UInt32(contentSize.width),
+                height: UInt32(contentSize.height),
+                scale: 1.0
+            )
+        )
+        try hostController.setFocus(true)
+
+        hostPID = runtime.hostPID(session)
+        guard hostPID > 0 else {
+            throw VerifierError.launch("Mojo runtime did not report a valid host PID for crash recovery")
+        }
+
+        try waitForReady(name: "crash-recovery-before", events: sessionEvents, runtime: runtime, app: app)
+        if ProcessInfo.processInfo.environment["OWL_FRESH_LAYER_FIXTURE"] == nil {
+            try hostController.navigate(fixtureURL)
+        }
+        try waitForHostFlush(runtime: runtime, session: session, app: app)
+        let contextID = try waitForInitialWebViewContextID(
+            name: "crash-recovery-before",
+            events: sessionEvents,
+            runtime: runtime,
+            hostController: hostController,
+            app: app
+        )
+        let window = try LayerHostWindow(
+            title: "OWL LayerHost crash-recovery-before",
+            contextID: contextID,
+            size: contentSize
+        )
+        defer {
+            window.close()
+            pumpApp(app, for: 0.2)
+        }
+
+        app.activate(ignoringOtherApps: true)
+        window.show()
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        pumpApp(app, for: 0.2)
+
+        let before = try captureStableHostedWindow(
+            name: "crash-recovery-before-crash.png",
+            expected: [.red, .green, .blue, .dark],
+            runtime: runtime,
+            session: session,
+            events: sessionEvents,
+            hostController: hostController,
+            window: window,
+            size: contentSize,
+            app: app
+        )
+        let hostCommand = processCommandLine(pid: hostPID)
+        try rejectForbiddenRuntimePaths(
+            processCommand: hostCommand,
+            profileDirectory: profileDirectory,
+            name: "crash-recovery-before"
+        )
+
+        guard kill(hostPID, SIGKILL) == 0 else {
+            throw VerifierError.launch("could not kill crash-recovery host pid \(hostPID)")
+        }
+        let disconnectedEventSeen = try waitForDisconnectEvent(
+            name: "crash-recovery-before",
+            pid: hostPID,
+            events: sessionEvents,
+            runtime: runtime,
+            app: app
+        )
+        runtime.destroy(session)
+        sessionDestroyed = true
+
+        let afterTarget = RenderTarget(
+            name: "crash-recovery-fixture",
+            url: fixtureURL,
+            screenshotName: "crash-recovery-after-restart.png",
+            expected: [.red, .green, .blue, .dark],
+            preInputScreenshotName: nil,
+            preInputExpected: nil,
+            inputActions: [],
+            postInputDiagnosticScript: nil,
+            postInputExpectations: []
+        )
+        let afterCapture = try runCapture(target: afterTarget, runtime: runtime, app: app)
+        let metadata = CrashRecoveryResult(
+            crashedHostPID: hostPID,
+            disconnectedEventSeen: disconnectedEventSeen,
+            beforeCrashScreenshotPath: before.path,
+            beforeCrashContextID: before.contextID,
+            afterRecoveryCaptureName: afterCapture.name,
+            afterRecoveryScreenshotPath: afterCapture.screenshotPath
+        )
+        try JSONEncoder.pretty.encode(metadata).write(
+            to: options.outputDirectory.appendingPathComponent("crash-recovery.json")
+        )
+        return CrashRecoveryRun(metadata: metadata, afterCapture: afterCapture)
+    }
+
+    private func captureStableHostedWindow(
+        name: String,
+        expected: Set<ExpectedPixel>,
+        runtime: any OwlBrowserRuntime,
+        session: OpaquePointer,
+        events: OwlBrowserSessionEvents,
+        hostController: OwlBrowserSessionController,
+        window: LayerHostWindow,
+        size: CGSize,
+        app: NSApplication
+    ) throws -> (path: String, contextID: UInt32, stats: PixelStats) {
+        let captureURL = options.outputDirectory.appendingPathComponent(name)
+        let deadline = Date().addingTimeInterval(min(10, options.timeout))
+        var lastStats: PixelStats?
+        var lastError = "no capture attempted"
+        var contextID = events.snapshot().contextID
+        while Date() < deadline {
+            runtime.pollEvents(milliseconds: 50)
+            pumpApp(app, for: 0.05)
+            do {
+                let tree = try hostController.getSurfaceTree()
+                if let surface = tree.surfaces.first(where: { $0.visible && $0.kind == .webView && $0.contextId != 0 }) ??
+                    tree.surfaces.first(where: { $0.visible && $0.contextId != 0 }) {
+                    contextID = surface.contextId
+                }
+                window.update(surfaceTree: tree)
+                window.flushHostedLayer()
+            } catch {
+                lastError = String(describing: error)
+            }
+            guard let windowID = swiftHostWindowID(title: window.title, minimumSize: size) else {
+                lastError = "Swift LayerHost window was not visible in CGWindowList"
+                continue
+            }
+            do {
+                let capture = try captureWindow(windowID: windowID, to: captureURL)
+                let stats = analyze(image: capture.image)
+                lastStats = stats
+                if expected.isSatisfied(by: stats) {
+                    return (captureURL.path, contextID, stats)
+                }
+                lastError = "pixel stats did not match expected set \(expected): \(stats)"
+            } catch {
+                lastError = String(describing: error)
+            }
+        }
+        throw VerifierError.timeout(
+            "timed out waiting for \(name): \(lastError); lastStats=\(String(describing: lastStats)); events=\(events.snapshot())"
+        )
+    }
+
+    private func waitForDisconnectEvent(
+        name: String,
+        pid: Int32,
+        events: OwlBrowserSessionEvents,
+        runtime: any OwlBrowserRuntime,
+        app: NSApplication
+    ) throws -> Bool {
+        let deadline = Date().addingTimeInterval(10)
+        var lastSnapshot = events.snapshot()
+        while Date() < deadline {
+            runtime.pollEvents(milliseconds: 50)
+            pumpApp(app, for: 0.02)
+            lastSnapshot = events.snapshot()
+            if lastSnapshot.disconnected {
+                return true
+            }
+        }
+        throw VerifierError.launch(
+            "\(name) host pid \(pid) was killed, but Mojo disconnect was not observed; last events=\(lastSnapshot)"
+        )
     }
 
     private func waitForContextID(

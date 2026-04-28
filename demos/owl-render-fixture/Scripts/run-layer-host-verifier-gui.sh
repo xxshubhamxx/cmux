@@ -88,6 +88,7 @@ for env_name in \
   OWL_LAYER_HOST_GOOGLE_CHECK \
   OWL_LAYER_HOST_LIFECYCLE_CHECK \
   OWL_LAYER_HOST_ONLY_TARGETS \
+  OWL_LAYER_HOST_RECOVERY_CHECK \
   OWL_LAYER_HOST_RESIZE_CHECK \
   OWL_LAYER_HOST_SCALE_CHECK \
   OWL_LAYER_HOST_WIDGET_CHECK \
@@ -156,6 +157,11 @@ fi
 if [ "${OWL_LAYER_HOST_SCALE_CHECK:-}" = "1" ]; then
   cat >> "$PLIST" <<PLIST
     <string>--scale-check</string>
+PLIST
+fi
+if [ "${OWL_LAYER_HOST_RECOVERY_CHECK:-}" = "1" ]; then
+  cat >> "$PLIST" <<PLIST
+    <string>--recovery-check</string>
 PLIST
 fi
 if [ "${OWL_LAYER_HOST_INPUT_DIAGNOSTIC_CAPTURE:-}" = "1" ]; then

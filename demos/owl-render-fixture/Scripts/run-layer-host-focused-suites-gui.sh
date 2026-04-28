@@ -8,7 +8,7 @@ OUT_ROOT="${OWL_LAYER_HOST_FOCUSED_OUT:-$ROOT_DIR/artifacts/layer-host-focused-g
 RUN_SCRIPT="$SCRIPT_DIR/run-layer-host-verifier-gui.sh"
 
 if [ "$#" -eq 0 ]; then
-  suites=(render input resize lifecycle scale scroll-text)
+  suites=(render input resize lifecycle scale recovery scroll-text)
 else
   suites=("$@")
 fi
@@ -16,7 +16,7 @@ fi
 expanded_suites=()
 for suite in "${suites[@]}"; do
   if [ "$suite" = "all" ]; then
-    expanded_suites+=(render input resize lifecycle scale scroll-text widgets google)
+    expanded_suites+=(render input resize lifecycle scale recovery scroll-text widgets google)
   else
     expanded_suites+=("$suite")
   fi
@@ -25,6 +25,11 @@ suites=("${expanded_suites[@]}")
 
 rm -rf "$OUT_ROOT"
 mkdir -p "$OUT_ROOT"
+
+if [ "${OWL_CHROMIUM_PATCH_CHECK:-1}" != "0" ]; then
+  echo "== OWL Chromium patch check =="
+  "$SCRIPT_DIR/check-chromium-patch.sh" --mode applied | tee "$OUT_ROOT/chromium-patch-check.txt"
+fi
 
 run_suite() {
   local suite="$1"
@@ -67,6 +72,12 @@ run_suite() {
       OWL_LAYER_HOST_ONLY_TARGETS="scale-fixture" \
         "$RUN_SCRIPT"
       ;;
+    recovery)
+      OWL_LAYER_HOST_RENDER_OUT="$out_dir" \
+      OWL_LAYER_HOST_RECOVERY_CHECK=1 \
+      OWL_LAYER_HOST_ONLY_TARGETS="crash-recovery-fixture" \
+        "$RUN_SCRIPT"
+      ;;
     scroll-text)
       OWL_LAYER_HOST_RENDER_OUT="$out_dir" \
       OWL_LAYER_HOST_INPUT_CHECK=1 \
@@ -92,7 +103,7 @@ run_suite() {
       ;;
     *)
       echo "unknown focused suite: $suite" >&2
-      echo "usage: $0 [all|render|input|resize|lifecycle|scale|scroll-text|widgets|google ...]" >&2
+      echo "usage: $0 [all|render|input|resize|lifecycle|scale|recovery|scroll-text|widgets|google ...]" >&2
       exit 2
       ;;
   esac
@@ -118,6 +129,7 @@ report="$OUT_ROOT/focused-suites.txt"
     echo "summary: $suite_dir/summary.json"
     find "$suite_dir" -maxdepth 1 -type f -name "*.png" -print | sort | sed 's/^/png: /'
     find "$suite_dir" -maxdepth 1 -type f -name "*-mojo-dom-state.json" -print | sort | sed 's/^/dom: /'
+    find "$suite_dir" -maxdepth 1 -type f -name "crash-recovery.json" -print | sort | sed 's/^/recovery: /'
     echo
   done
 } > "$report"

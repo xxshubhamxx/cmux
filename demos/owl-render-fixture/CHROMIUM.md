@@ -5,8 +5,18 @@ base commit `0bd9366db7`.
 
 `chromium-patches/aws-m1-ultra-verified-owl-host.patch` captures the exact
 dirty Chromium working tree that produced the verified artifacts. It is a
-checkpoint patch, not an upstream-ready Chromium change. Keep it until the
-Chromium work is split into a smaller proper branch.
+checkpoint patch, not an upstream-ready Chromium change. The companion manifest
+`chromium-patches/aws-m1-ultra-verified-owl-host.json` records the base commit,
+patch SHA-256, patch line count, ninja targets, and required build outputs.
+`Scripts/check-chromium-patch.sh --mode applied` verifies the AWS checkout is
+that base plus that exact patch and has the expected build products.
+`Scripts/check-chromium-patch.sh --mode clean-apply` verifies the patch applies
+cleanly to the recorded base in a temporary shared clone. `Scripts/apply-chromium-patch.sh`
+applies the recorded patch to a clean checkout at the recorded base.
+
+Keep this manifest-pinned patch until the Chromium work is split into a smaller
+proper branch or owned fork. The focused GUI runner keeps the patch check
+enabled by default through `OWL_CHROMIUM_PATCH_CHECK=1`.
 
 The Swift verifier expects a Chromium build with:
 
@@ -56,6 +66,18 @@ The lifecycle fixture now detaches and reattaches the primary Swift
 viewport edge colors to reject blank host gaps. The scale fixture verifies the
 Mojo surface scale is applied to the hosted layer's `contentsScale` and then
 uses the same edge-coverage sampling path.
+
+The recovery fixture starts a real Content Shell session, captures its hosted
+`CAContext` through Swift `CALayerHost`, sends `SIGKILL` to that host, requires a
+Mojo disconnect event, then starts a fresh session and captures the same fixture
+again. This is a host restart gate, not just a process cleanup check.
+
+The current content shell host has real native menu surface coverage for
+`<select>` popups and right-click context menus. It does not yet claim real
+coverage for file pickers, permission prompts, authentication prompts, extension
+bubbles, or macOS color chooser. Those need browser delegate plumbing into the
+Mojo surface tree. Extension bubbles and macOS color chooser are Chrome-browser
+surfaces rather than surfaces exposed by this content shell path.
 
 The AWS build used for the current screenshots was rebuilt with:
 
