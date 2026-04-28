@@ -185,7 +185,8 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
     func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         [
             DragOverlayRoutingPolicy.filePreviewTransferType,
-            Self.bonsplitTransferType
+            Self.bonsplitTransferType,
+            .fileURL
         ]
     }
 
@@ -195,17 +196,23 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
             mirrorTransferDataToDragPasteboard(data)
             return data
         }
+        if type == .fileURL {
+            let fileURL = URL(fileURLWithPath: filePath).standardizedFileURL
+            return fileURL.absoluteString
+        }
         return nil
     }
 
     private func mirrorTransferDataToDragPasteboard(_ transferData: Data) {
         guard !didMirrorTransferDataToDragPasteboard else { return }
         didMirrorTransferDataToDragPasteboard = true
-        let write = { [transferData] in
+        let fileURLString = URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString
+        let write = { [transferData, fileURLString] in
             let pasteboard = NSPasteboard(name: .drag)
-            pasteboard.addTypes([DragOverlayRoutingPolicy.filePreviewTransferType, Self.bonsplitTransferType], owner: nil)
+            pasteboard.addTypes([DragOverlayRoutingPolicy.filePreviewTransferType, Self.bonsplitTransferType, .fileURL], owner: nil)
             pasteboard.setData(transferData, forType: Self.bonsplitTransferType)
             pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+            pasteboard.setString(fileURLString, forType: .fileURL)
         }
         if Thread.isMainThread {
             write()

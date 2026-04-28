@@ -1383,13 +1383,19 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
     }
 
     func testRegistrationIsLazyAndDiscardedFromDragPasteboard() throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/example.txt").standardizedFileURL
         let writer = FilePreviewDragPasteboardWriter(
-            filePath: "/tmp/example.txt",
+            filePath: fileURL.path,
             displayTitle: "example.txt"
         )
         let dragPasteboard = NSPasteboard(name: .drag)
 
         XCTAssertNil(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
+        XCTAssertTrue(writer.writableTypes(for: dragPasteboard).contains(.fileURL))
+        XCTAssertEqual(
+            writer.pasteboardPropertyList(forType: .fileURL) as? String,
+            fileURL.absoluteString
+        )
 
         let filePreviewData = try XCTUnwrap(
             writer.pasteboardPropertyList(forType: DragOverlayRoutingPolicy.filePreviewTransferType) as? Data
@@ -1403,6 +1409,7 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         XCTAssertEqual(FilePreviewDragPasteboardWriter.dragID(from: bonsplitData), dragID)
         XCTAssertEqual(dragPasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType), filePreviewData)
         XCTAssertEqual(dragPasteboard.data(forType: FilePreviewDragPasteboardWriter.bonsplitTransferType), filePreviewData)
+        XCTAssertEqual(dragPasteboard.string(forType: .fileURL), fileURL.absoluteString)
 
         FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: dragPasteboard)
 
