@@ -3959,7 +3959,10 @@ private struct TabBarBackdropLabSample: View {
 
         let titles = [
             String(localized: "debug.tabBarBackdropLab.tab.agentBrowserLogs", defaultValue: "agent-browser logs"),
-            String(localized: "debug.tabBarBackdropLab.tab.terminalTransparency", defaultValue: "cmux terminal transparency"),
+            privacyModeBranded(
+                "Panecho terminal transparency",
+                stable: String(localized: "debug.tabBarBackdropLab.tab.terminalTransparency", defaultValue: "cmux terminal transparency")
+            ),
             String(localized: "debug.tabBarBackdropLab.tab.underlayText", defaultValue: "underlay tab text visible here"),
             String(localized: "debug.tabBarBackdropLab.tab.backdropCheck", defaultValue: "split button backdrop check"),
             String(localized: "debug.tabBarBackdropLab.tab.rightEdgeOverflow", defaultValue: "right edge overflow sample"),
@@ -4042,7 +4045,7 @@ private struct TabBarBackdropLabTerminalPane: View {
         ZStack(alignment: .topLeading) {
             Color(nsColor: color.withAlphaComponent(opacity))
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(String(localized: "debug.tabBarBackdropLab.terminal.prompt", defaultValue: "lawrence in ~/cmux")) \(title)")
+                Text("\(privacyModeBranded("lawrence in ~/Panecho", stable: String(localized: "debug.tabBarBackdropLab.terminal.prompt", defaultValue: "lawrence in ~/cmux"))) \(title)")
                     .foregroundStyle(Color.green)
                 Text(String(localized: "debug.tabBarBackdropLab.terminal.overflow", defaultValue: "tab titles intentionally overflow under the split buttons"))
                     .foregroundStyle(Color.white.opacity(0.78))

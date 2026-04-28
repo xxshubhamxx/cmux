@@ -7539,7 +7539,10 @@ struct ContentView: View {
             )
         )
 
-        let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
+        let cmuxConfigDefaultSubtitle = privacyModeBranded(
+            "Panecho config (cmux.json)",
+            stable: String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
+        )
         for issue in cmuxConfigStore.configurationIssues {
             contributions.append(
                 CommandPaletteCommandContribution(
@@ -7592,14 +7595,20 @@ struct ContentView: View {
     private func commandPaletteCmuxConfigIssueTitle(_ issue: CmuxConfigIssue) -> String {
         switch issue.kind {
         case .schemaError:
-            return String(
-                localized: "command.cmuxConfig.issue.schemaError.title",
-                defaultValue: "cmux.json Schema Error"
+            return privacyModeBranded(
+                "Panecho Config Schema Error",
+                stable: String(
+                    localized: "command.cmuxConfig.issue.schemaError.title",
+                    defaultValue: "cmux.json Schema Error"
+                )
             )
         default:
-            return String(
-                localized: "command.cmuxConfig.issue.warning.title",
-                defaultValue: "cmux.json Configuration Warning"
+            return privacyModeBranded(
+                "Panecho Config Warning",
+                stable: String(
+                    localized: "command.cmuxConfig.issue.warning.title",
+                    defaultValue: "cmux.json Configuration Warning"
+                )
             )
         }
     }
@@ -7625,9 +7634,12 @@ struct ContentView: View {
                 localized: "command.cmuxConfig.issue.schemaError.detail",
                 defaultValue: "%@"
             )
-            let fallback = String(
-                localized: "command.cmuxConfig.issue.schemaError.fallback",
-                defaultValue: "Invalid cmux.json"
+            let fallback = privacyModeBranded(
+                "Invalid Panecho config",
+                stable: String(
+                    localized: "command.cmuxConfig.issue.schemaError.fallback",
+                    defaultValue: "Invalid cmux.json"
+                )
             )
             return String(format: format, issue.message ?? fallback)
         case .newWorkspaceActionRequiresWorkspaceCommand:

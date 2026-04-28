@@ -59,14 +59,20 @@ enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable 
     var detail: String {
         switch self {
         case .realUserConfig:
-            return String(
-                localized: "debug.startupAppearance.profile.realUserConfig.detail",
-                defaultValue: "Loads your actual Ghostty and cmux config files."
+            return privacyModeBranded(
+                "Loads your actual Ghostty and Panecho config files.",
+                stable: String(
+                    localized: "debug.startupAppearance.profile.realUserConfig.detail",
+                    defaultValue: "Loads your actual Ghostty and cmux config files."
+                )
             )
         case .freshInstall:
-            return String(
-                localized: "debug.startupAppearance.profile.freshInstall.detail",
-                defaultValue: "No user theme or terminal colors, so cmux applies its managed default colors."
+            return privacyModeBranded(
+                "No user theme or terminal colors, so Panecho applies its managed default colors.",
+                stable: String(
+                    localized: "debug.startupAppearance.profile.freshInstall.detail",
+                    defaultValue: "No user theme or terminal colors, so cmux applies its managed default colors."
+                )
             )
         case .userThemePair:
             return String(

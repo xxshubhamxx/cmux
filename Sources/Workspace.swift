@@ -11543,13 +11543,19 @@ final class Workspace: Identifiable, ObservableObject {
         let encodedTarget = Data(target.utf8).base64EncodedString()
         // Localized banner strings. Both use %s (not %@) because they're rendered by the
         // POSIX printf inside the shell wrapper, not by Swift's String(format:).
-        let endedLineFormat = String(
-            localized: "remote.disconnectBanner.sessionEnded",
-            defaultValue: "[cmux] remote ssh session ended: %s"
+        let endedLineFormat = privacyModeBranded(
+            "[Panecho] remote ssh session ended: %s",
+            stable: String(
+                localized: "remote.disconnectBanner.sessionEnded",
+                defaultValue: "[cmux] remote ssh session ended: %s"
+            )
         )
-        let reconnectLine = String(
-            localized: "remote.disconnectBanner.reconnectHint",
-            defaultValue: "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+        let reconnectLine = privacyModeBranded(
+            "[Panecho] falling back to a local shell. Reconnect using the same CLI command you launched with.",
+            stable: String(
+                localized: "remote.disconnectBanner.reconnectHint",
+                defaultValue: "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            )
         )
         // Encode the localized lines the same way as the target, so a translator using
         // backticks or $(…) in a translation string can't unexpectedly execute in the
