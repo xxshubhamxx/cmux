@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Carbon.HIToolbox
+import Darwin
 import PDFKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -1446,6 +1447,38 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "edited from text view")
         XCTAssertEqual(panel.textContent, "edited from text view")
         XCTAssertFalse(panel.isDirty)
+        XCTAssertFalse(panel.isSaving)
+    }
+
+    func testSaveTextContentIgnoresConcurrentSaveRequest() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+        panel.updateTextContent("first save")
+
+        try FileManager.default.removeItem(at: url)
+        XCTAssertEqual(mkfifo(url.path, 0o600), 0)
+
+        let firstSave = try XCTUnwrap(panel.saveTextContent())
+        XCTAssertTrue(panel.isSaving)
+
+        panel.updateTextContent("second save")
+        XCTAssertNil(panel.saveTextContent())
+
+        let pipeRead = Task.detached { () throws -> String in
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            return String(data: handle.availableData, encoding: .utf8) ?? ""
+        }
+
+        let savedContent = try await pipeRead.value
+        XCTAssertEqual(savedContent, "first save")
+        await firstSave.value
+
+        XCTAssertEqual(panel.textContent, "second save")
+        XCTAssertTrue(panel.isDirty)
         XCTAssertFalse(panel.isSaving)
     }
 

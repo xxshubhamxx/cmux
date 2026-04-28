@@ -315,3 +315,76 @@ final class FileSearchRipgrepParserTests: XCTestCase {
         XCTAssertNil(FileSearchRipgrepParser.parseMatchLine(line, rootPath: "/tmp/project"))
     }
 }
+
+@MainActor
+final class FileSearchControllerTests: XCTestCase {
+    private struct WaitTimeout: Error {}
+
+    func testSearchIncludesDotfilesWithoutSearchingGitInternals() async throws {
+        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "visible needle\n".write(
+            to: rootURL.appendingPathComponent("visible.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "hidden needle\n".write(
+            to: rootURL.appendingPathComponent(".env"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let gitURL = rootURL.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitURL, withIntermediateDirectories: true)
+        try "git needle\n".write(
+            to: gitURL.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true)
+        let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        XCTAssertEqual(finalSnapshot.status, .matches)
+        XCTAssertTrue(finalSnapshot.results.contains { $0.relativePath == "visible.txt" })
+        XCTAssertTrue(finalSnapshot.results.contains { $0.relativePath == ".env" })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix(".git/") })
+    }
+
+    private func waitForSettledSearchSnapshot(
+        timeout: TimeInterval = 5,
+        _ snapshot: @MainActor @escaping () -> FileSearchSnapshot?
+    ) async throws -> FileSearchSnapshot {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let current = snapshot(), !current.isSearching {
+                return current
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("Timed out waiting for file search to finish")
+        throw WaitTimeout()
+    }
+
+    private static func hasRipgrep() -> Bool {
+        let fileManager = FileManager.default
+        for path in ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "/usr/bin/rg"] where fileManager.isExecutableFile(atPath: path) {
+            return true
+        }
+        let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
+            let path = URL(fileURLWithPath: String(directory)).appendingPathComponent("rg").path
+            if fileManager.isExecutableFile(atPath: path) {
+                return true
+            }
+        }
+        return false
+    }
+}

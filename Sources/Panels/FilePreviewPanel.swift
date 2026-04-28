@@ -701,6 +701,7 @@ final class FilePreviewPanel: Panel, ObservableObject {
     @discardableResult
     func saveTextContent() -> Task<Void, Never>? {
         guard previewMode == .text else { return nil }
+        guard !isSaving else { return nil }
         textLoadGeneration += 1
         saveGeneration += 1
         let generation = saveGeneration

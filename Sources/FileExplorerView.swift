@@ -57,7 +57,7 @@ enum FileSearchRipgrepParser {
     }
 }
 
-private struct FileSearchSnapshot: Equatable {
+struct FileSearchSnapshot: Equatable {
     enum Status: Equatable {
         case idle
         case unsupported
@@ -77,7 +77,7 @@ private struct FileSearchSnapshot: Equatable {
 }
 
 @MainActor
-private final class FileSearchController {
+final class FileSearchController {
     private struct Request: Equatable {
         let query: String
         let rootPath: String
@@ -164,6 +164,9 @@ private final class FileSearchController {
             "--max-columns", "300",
             "--max-columns-preview",
             "--color", "never",
+            "--hidden",
+            "--glob", "!.git",
+            "--glob", "!.git/**",
             "--",
             query,
             rootPath,
