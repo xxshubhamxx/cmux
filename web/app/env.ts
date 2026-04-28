@@ -8,9 +8,10 @@ import { z } from "zod";
 const trimEnv = (value: string | undefined): string | undefined =>
   typeof value === "string" ? value.trim() : value;
 
-const allowPreviewStackPlaceholders =
+const skipEnvValidation =
   process.env.SKIP_ENV_VALIDATION === "1" ||
   process.env.VERCEL_ENV === "preview";
+const allowPreviewStackPlaceholders = process.env.VERCEL_ENV === "preview";
 
 const stackEnv = (
   value: string | undefined,
@@ -49,5 +50,5 @@ export const env = createEnv({
       "preview-secret-server-key"
     ),
   },
-  skipValidation: allowPreviewStackPlaceholders,
+  skipValidation: skipEnvValidation,
 });
