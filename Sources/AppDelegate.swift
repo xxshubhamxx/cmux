@@ -1053,7 +1053,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             configureUserNotifications()
             installMenuBarVisibilityObserver()
             syncApplicationPresentationPreferences()
-            updateController.startUpdaterIfNeeded()
+            if !PrivacyMode.isEnabled {
+                updateController.startUpdaterIfNeeded()
+            }
         }
         titlebarAccessoryController.start()
         windowDecorationsController.start()
@@ -7696,6 +7698,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func triggerSentryTestCrash(_ sender: Any?) {
+        guard !PrivacyMode.isEnabled else { return }
         SentrySDK.crash()
     }
 #endif
