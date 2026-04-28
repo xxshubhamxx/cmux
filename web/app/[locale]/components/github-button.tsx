@@ -2,7 +2,8 @@
 
 import { useTranslations } from "next-intl";
 
-export function GitHubButton() {
+export function GitHubButton({ location }: { location?: string } = {}) {
+  void location;
   const t = useTranslations("common");
   return (
     <a

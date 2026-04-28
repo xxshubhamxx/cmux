@@ -4,11 +4,14 @@ import { useTranslations } from "next-intl";
 
 export function DownloadButton({
   size = "default",
+  location,
   className,
 }: {
   size?: "default" | "sm";
+  location?: string;
   className?: string;
 }) {
+  void location;
   const t = useTranslations("common");
   const isSmall = size === "sm";
   return (
