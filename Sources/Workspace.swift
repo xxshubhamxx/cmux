@@ -608,6 +608,11 @@ extension Workspace {
 
 #if DEBUG
     func debugSeedSessionSnapshotScrollback(charactersPerTerminal: Int) -> (terminals: Int, characters: Int) {
+        for panelId in debugSessionSnapshotScrollbackFallbackPanelIds {
+            restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+        }
+        debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
+
         let targetCharacters = min(
             max(0, charactersPerTerminal),
             SessionPersistencePolicy.maxScrollbackCharactersPerTerminal

@@ -53,7 +53,7 @@ class CmuxPerfRunner:
         self.app_path = pathlib.Path(args.app_path).expanduser() if args.app_path else self.default_app_path()
         self.binary_path = self.app_path / "Contents/MacOS/cmux DEV"
         self.cli_path = self.app_path / "Contents/Resources/bin/cmux"
-        self.fixture_root = pathlib.Path(args.fixture_root or tempfile.mkdtemp(prefix=f"cmux-perf-{self.tag_slug}-"))
+        self.fixture_root = self.make_fixture_root(args.fixture_root)
         self.proc: subprocess.Popen | None = None
         self.result: dict = {
             "tag": self.tag,
@@ -65,6 +65,13 @@ class CmuxPerfRunner:
             "budgets": {},
             "failures": [],
         }
+
+    def make_fixture_root(self, fixture_root_arg: str) -> pathlib.Path:
+        if fixture_root_arg:
+            fixture_parent = pathlib.Path(fixture_root_arg).expanduser()
+            fixture_parent.mkdir(parents=True, exist_ok=True)
+            return pathlib.Path(tempfile.mkdtemp(prefix=f"cmux-perf-{self.tag_slug}-", dir=str(fixture_parent)))
+        return pathlib.Path(tempfile.mkdtemp(prefix=f"cmux-perf-{self.tag_slug}-"))
 
     def default_app_path(self) -> pathlib.Path:
         return pathlib.Path.home() / (
@@ -153,12 +160,16 @@ class CmuxPerfRunner:
         return elapsed
 
     def wait_for_socket(self, timeout_s: float) -> bool:
-        deadline = time.time() + timeout_s
-        while time.time() < deadline:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
             if self.proc and self.proc.poll() is not None:
                 return False
             if self.socket_path.exists():
-                return True
+                try:
+                    self.run_cli(["--json", "list-workspaces"], timeout=5)
+                    return True
+                except Exception:
+                    pass
             time.sleep(0.1)
         return False
 
@@ -173,7 +184,7 @@ class CmuxPerfRunner:
                 proc.kill()
                 proc.wait(timeout=5)
         subprocess.run(
-            ["pkill", "-f", f"cmux DEV {self.tag}.app/Contents/MacOS/cmux DEV"],
+            ["pkill", "-f", re.escape(f"cmux DEV {self.tag}.app/Contents/MacOS/cmux DEV")],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
@@ -435,6 +446,7 @@ class CmuxPerfRunner:
 
     def run(self) -> dict:
         self.check_paths()
+        self.stop_app()
         self.clean_persisted_state()
         try:
             self.launch("launch")

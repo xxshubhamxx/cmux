@@ -3046,7 +3046,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return [
             "include_scrollback": includeScrollback,
             "persist": persist,
-            "saved": snapshot != nil,
+            "built": snapshot != nil,
+            "saved": persist && snapshot != nil,
             "elapsed_ms": Self.debugElapsedMs(since: totalStart),
             "build_ms": buildMs,
             "persist_ms": persistMs.map { $0 as Any } ?? NSNull(),
