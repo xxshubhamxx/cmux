@@ -336,6 +336,28 @@ enum FilePreviewTextLoader {
     }
 }
 
+enum FilePreviewTextSaver {
+    enum Result: Sendable {
+        case saved
+        case failed(fileExists: Bool)
+    }
+
+    static func save(content: String, to url: URL, encoding: String.Encoding) async -> Result {
+        await Task.detached(priority: .userInitiated) {
+            guard let data = content.data(using: encoding) else {
+                return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+            }
+
+            do {
+                try data.write(to: url, options: [])
+                return .saved
+            } catch {
+                return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+            }
+        }.value
+    }
+}
+
 @MainActor
 final class FilePreviewPanel: Panel, ObservableObject {
     let id: UUID
@@ -348,12 +370,15 @@ final class FilePreviewPanel: Panel, ObservableObject {
     @Published private(set) var isFileUnavailable = false
     @Published private(set) var textContent = ""
     @Published private(set) var isDirty = false
+    @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
 
     let previewMode: FilePreviewMode
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
     private var textLoadGeneration = 0
+    private var saveGeneration = 0
+    private var activeSaveGeneration: Int?
     private weak var textView: NSTextView?
     private let focusCoordinator: FilePreviewFocusCoordinator
 
@@ -524,23 +549,37 @@ final class FilePreviewPanel: Panel, ObservableObject {
         }
     }
 
-    func saveTextContent() {
-        guard previewMode == .text else { return }
+    @discardableResult
+    func saveTextContent() -> Task<Void, Never>? {
+        guard previewMode == .text else { return nil }
         textLoadGeneration += 1
+        saveGeneration += 1
+        let generation = saveGeneration
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
             textContent = currentContent
             isDirty = false
-            return
+            return nil
         }
-        do {
-            textContent = currentContent
-            try currentContent.write(to: fileURL, atomically: false, encoding: textEncoding)
-            originalTextContent = textContent
-            isDirty = false
-            isFileUnavailable = false
-        } catch {
-            isFileUnavailable = !FileManager.default.fileExists(atPath: filePath)
+
+        textContent = currentContent
+        isSaving = true
+        activeSaveGeneration = generation
+        let fileURL = fileURL
+        let encoding = textEncoding
+        return Task { [weak self, currentContent, fileURL, encoding, generation] in
+            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
+            guard let self, self.activeSaveGeneration == generation else { return }
+            self.activeSaveGeneration = nil
+            self.isSaving = false
+            switch result {
+            case .saved:
+                self.originalTextContent = currentContent
+                self.isDirty = self.textContent != currentContent
+                self.isFileUnavailable = false
+            case .failed(let fileExists):
+                self.isFileUnavailable = !fileExists
+            }
         }
     }
 
@@ -626,7 +665,7 @@ struct FilePreviewPanelView: View {
                     Image(systemName: "square.and.arrow.down")
                 }
                 .buttonStyle(.borderless)
-                .disabled(!panel.isDirty)
+                .disabled(!panel.isDirty || panel.isSaving)
                 .keyboardShortcut("s", modifiers: .command)
                 .help(String(localized: "filePreview.save", defaultValue: "Save"))
                 .accessibilityLabel(String(localized: "filePreview.save", defaultValue: "Save"))

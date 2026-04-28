@@ -1380,11 +1380,14 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         textView.string = "edited from text view"
         panel.attachTextView(textView)
 
-        panel.saveTextContent()
+        let task = try XCTUnwrap(panel.saveTextContent())
+        XCTAssertTrue(panel.isSaving)
+        await task.value
 
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "edited from text view")
         XCTAssertEqual(panel.textContent, "edited from text view")
         XCTAssertFalse(panel.isDirty)
+        XCTAssertFalse(panel.isSaving)
     }
 
     func testSavingTextViewUsesConfiguredSaveShortcut() async throws {
@@ -1421,6 +1424,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         ))
 
         XCTAssertTrue(textView.performKeyEquivalent(with: event))
+        await waitForPanelSave(panel)
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "saved by configured shortcut")
     }
 
@@ -1431,7 +1435,9 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
         await panel.loadTextContent().value
         panel.updateTextContent("edited")
-        panel.saveTextContent()
+        if let task = panel.saveTextContent() {
+            await task.value
+        }
 
         let data = try Data(contentsOf: url)
         XCTAssertEqual(String(data: data, encoding: .utf16), "edited")
@@ -1455,7 +1461,9 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: linkURL.path)
         await panel.loadTextContent().value
         panel.updateTextContent("edited through link")
-        panel.saveTextContent()
+        if let task = panel.saveTextContent() {
+            await task.value
+        }
 
         XCTAssertEqual(try String(contentsOf: targetURL, encoding: .utf8), "edited through link")
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path), targetURL.path)
@@ -1472,7 +1480,9 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
         await panel.loadTextContent().value
-        panel.saveTextContent()
+        if let task = panel.saveTextContent() {
+            await task.value
+        }
 
         XCTAssertFalse(panel.isDirty)
         XCTAssertFalse(panel.isFileUnavailable)
@@ -1570,6 +1580,20 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         return url
     }
 
+    private func waitForPanelSave(
+        _ panel: FilePreviewPanel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<1000 {
+            if !panel.isSaving {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for file preview save", file: file, line: line)
+    }
+
     private func windowHosting(_ textView: NSTextView) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -1582,6 +1606,57 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         window.contentView?.addSubview(scrollView)
         scrollView.documentView = textView
         return window
+    }
+}
+
+
+final class BonsplitTabDragPayloadTests: XCTestCase {
+    func testRejectsFilePreviewCompatibilityPayload() throws {
+        let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview", includesFilePreviewTransferType: true)
+
+        XCTAssertNil(
+            BonsplitTabDragPayload.transfer(from: pasteboard),
+            "Sidebar workspace drop targets should ignore file-preview drags instead of treating them as movable tabs"
+        )
+    }
+
+    func testAcceptsRealFilePreviewTabPayload() throws {
+        let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview")
+
+        XCTAssertNotNil(
+            BonsplitTabDragPayload.transfer(from: pasteboard),
+            "Existing file-preview tabs should still move through normal Bonsplit tab drag paths"
+        )
+    }
+
+    func testAcceptsRegularCurrentProcessTabPayload() throws {
+        let pasteboard = try makeBonsplitPayloadPasteboard(kind: nil)
+
+        XCTAssertNotNil(BonsplitTabDragPayload.transfer(from: pasteboard))
+    }
+
+    private func makeBonsplitPayloadPasteboard(
+        kind: String?,
+        includesFilePreviewTransferType: Bool = false
+    ) throws -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.bonsplit.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        var tab: [String: Any] = ["id": UUID().uuidString]
+        if let kind {
+            tab["kind"] = kind
+        }
+        let payload: [String: Any] = [
+            "tab": tab,
+            "sourcePaneId": UUID().uuidString,
+            "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier)
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        pasteboard.setData(data, forType: NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier))
+        if includesFilePreviewTransferType {
+            pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        }
+        return pasteboard
     }
 }
 

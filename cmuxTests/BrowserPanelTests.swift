@@ -1993,7 +1993,25 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         XCTAssertEqual(transfer?.tabId, tabId)
         XCTAssertEqual(transfer?.sourcePaneId, sourcePaneId)
         XCTAssertTrue(transfer?.isFromCurrentProcess == true)
-        XCTAssertTrue(transfer?.isFilePreview == true)
+        XCTAssertEqual(transfer?.kind, "filePreview")
+        XCTAssertTrue(transfer?.isFilePreview == false)
+    }
+
+    func testDecodePasteboardUsesDedicatedFilePreviewTransferType() throws {
+        let realTabPasteboard = try makeBonsplitPanePayloadPasteboard(
+            kind: "filePreview",
+            includesFilePreviewTransferType: false
+        )
+        let realTabTransfer = try XCTUnwrap(BrowserPaneDragTransfer.decode(from: realTabPasteboard))
+        XCTAssertFalse(realTabTransfer.isFilePreview)
+        XCTAssertEqual(realTabTransfer.kind, "filePreview")
+
+        let syntheticPasteboard = try makeBonsplitPanePayloadPasteboard(
+            kind: "filePreview",
+            includesFilePreviewTransferType: true
+        )
+        let syntheticTransfer = try XCTUnwrap(BrowserPaneDragTransfer.decode(from: syntheticPasteboard))
+        XCTAssertTrue(syntheticTransfer.isFilePreview)
     }
 
     func testFilePreviewDropDestinationUsesPaneCenterOrSplitZone() {
@@ -2020,6 +2038,30 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         default:
             XCTFail("Edge file-preview drops should split the target pane")
         }
+    }
+
+    private func makeBonsplitPanePayloadPasteboard(
+        kind: String?,
+        includesFilePreviewTransferType: Bool
+    ) throws -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.browser-pane.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        var tab: [String: Any] = ["id": UUID().uuidString]
+        if let kind {
+            tab["kind"] = kind
+        }
+        let payload: [String: Any] = [
+            "tab": tab,
+            "sourcePaneId": UUID().uuidString,
+            "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier)
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        pasteboard.setData(data, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        if includesFilePreviewTransferType {
+            pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        }
+        return pasteboard
     }
 }
 

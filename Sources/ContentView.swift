@@ -14480,7 +14480,7 @@ private enum SidebarTabDragPayload {
     }
 }
 
-private enum BonsplitTabDragPayload {
+enum BonsplitTabDragPayload {
     static let typeIdentifier = "com.splittabbar.tabtransfer"
     static let dropContentType = UTType(exportedAs: typeIdentifier)
     static let dropContentTypes: [UTType] = [dropContentType]
@@ -14489,6 +14489,7 @@ private enum BonsplitTabDragPayload {
     struct Transfer: Decodable {
         struct TabInfo: Decodable {
             let id: UUID
+            let kind: String?
         }
 
         let tab: TabInfo
@@ -14515,7 +14516,13 @@ private enum BonsplitTabDragPayload {
     }
 
     static func currentTransfer() -> Transfer? {
-        let pasteboard = NSPasteboard(name: .drag)
+        transfer(from: NSPasteboard(name: .drag))
+    }
+
+    static func transfer(from pasteboard: NSPasteboard) -> Transfer? {
+        guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types) else {
+            return nil
+        }
         let type = NSPasteboard.PasteboardType(typeIdentifier)
 
         if let data = pasteboard.data(forType: type),
