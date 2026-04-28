@@ -65,4 +65,7 @@ set_plist_value "SUSendProfileInfo" bool false
 delete_plist_key "SUFeedURL"
 delete_plist_key "SUPublicEDKey"
 
+rm -rf "$DEST_APP/Contents/Frameworks/Sentry.framework"
+rm -rf "$DEST_APP/Contents/Resources/PostHog_PostHog.bundle"
+
 echo "Staged $PANECHO_PRODUCT_NAME at $DEST_APP"
