@@ -175,6 +175,7 @@ enum CodexAppServerTranscriptRole: Equatable, Sendable {
 
 enum CodexAppServerTranscriptPresentation: Equatable, Sendable {
     case plain
+    case lifecycleEvent
     case toolCall(name: String?)
     case toolOutput
     case commandOutput
@@ -977,9 +978,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         initialHistoryRestoreTask?.cancel()
         initialHistoryRestoreTask = nil
         initialHistoryRestoreThreadId = nil
-        if isStarted {
-            client.stop()
-        }
+        client.stop()
         isStarted = false
         threadId = nil
         currentTurnId = nil
@@ -1093,6 +1092,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     private func submitSteer(_ text: String) async {
         let cleanedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanedText.isEmpty else { return }
+        let generation = lifecycleGeneration
         let pending = CodexAppServerQueuedPrompt(text: cleanedText, kind: .steer)
         pendingSteers.append(pending)
 
@@ -1106,6 +1106,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                     model: selectedModelParameter,
                     serviceTier: effectiveServiceTier
                 )
+                guard isCurrentLifecycle(generation) else { return }
                 threadId = resolvedThreadId
             }
 
@@ -1116,6 +1117,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                     turnId: activeTurnId,
                     text: cleanedText
                 )
+                guard isCurrentLifecycle(generation) else { return }
                 currentTurnId = returnedTurnId
             } else {
                 let returnedTurnId = try await client.startTurn(
@@ -1125,9 +1127,11 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                     model: selectedModelParameter,
                     serviceTier: effectiveServiceTier
                 )
+                guard isCurrentLifecycle(generation) else { return }
                 currentTurnId = returnedTurnId
             }
         } catch {
+            guard isCurrentLifecycle(generation) else { return }
             pendingSteers.removeAll { $0.id == pending.id }
             queuedFollowUps.insert(
                 CodexAppServerQueuedPrompt(text: cleanedText, kind: .followUp, date: pending.date),

@@ -1945,7 +1945,7 @@ struct CMUXCLI {
         // Codex hooks management (no socket needed)
         if command == "codex" {
             let sub = commandArgs.first?.lowercased()
-            if sub == "help" || sub == "--help" || sub == "-h" {
+            if sub == "help" || preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
                 print("cmux codex")
                 print("")
                 print(codexCommandUsage())
@@ -3551,6 +3551,18 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
+        let helpArgs: ArraySlice<String>
+        if let separatorIndex = commandArgs.firstIndex(of: "--") {
+            helpArgs = commandArgs[..<separatorIndex]
+        } else {
+            helpArgs = commandArgs[...]
+        }
+        if commandArgs.first?.lowercased() == "help"
+            || helpArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
+            print(codexCommandUsage())
+            return
+        }
+
         guard let subcommand = commandArgs.first?.lowercased(),
               !subcommand.hasPrefix("-") else {
             try runCodexOpenCommand(

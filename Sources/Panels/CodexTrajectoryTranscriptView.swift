@@ -411,7 +411,7 @@ private struct CodexTrajectoryToolRun: Hashable {
                 }
             case .hookEvent(let method):
                 runs.append(hookRun(method: method, body: item.body, fallbackTitle: item.title))
-            case .plain, .compaction:
+            case .plain, .lifecycleEvent, .compaction:
                 break
             }
         }
@@ -1203,24 +1203,25 @@ private extension CodexAppServerTranscriptItem {
         switch presentation {
         case .toolCall, .toolOutput, .commandOutput, .hookEvent:
             return true
-        case .plain, .compaction:
+        case .plain, .lifecycleEvent, .compaction:
             return false
         }
     }
 
     var isHiddenCodexLifecycleTranscriptItem: Bool {
-        guard role == .event, presentation == .plain else { return false }
+        guard role == .event else { return false }
+        if presentation == .lifecycleEvent {
+            return true
+        }
+        guard presentation == .plain else { return false }
         let titleText = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let bodyText = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        let quietTitles: Set<String> = [
-            "App server started",
-            "History loaded",
-            "Thread resumed",
+        let quietMethods: Set<String> = [
             "mcpServer/startupStatus/updated",
             "thread/status/changed",
             "thread/tokenUsage/updated",
         ]
-        if quietTitles.contains(titleText) {
+        if quietMethods.contains(titleText) {
             return true
         }
 

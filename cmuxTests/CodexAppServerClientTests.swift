@@ -243,6 +243,14 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertEqual(response["id"] as? String, "request-abc")
     }
 
+    func testRequestIDParserPreservesNumericStringsAsStrings() throws {
+        XCTAssertEqual(CodexAppServerClient.requestID(from: "42"), .string("42"))
+        XCTAssertEqual(CodexAppServerClient.requestID(from: " request-abc "), .string("request-abc"))
+        XCTAssertEqual(CodexAppServerClient.requestID(from: 42), .int(42))
+        XCTAssertNil(CodexAppServerClient.requestID(from: " "))
+        XCTAssertNil(CodexAppServerClient.requestID(from: NSNumber(value: true)))
+    }
+
     func testAppServerEnvironmentIncludesNodeVersionManagerPaths() throws {
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-app-server-\(UUID().uuidString)", isDirectory: true)
@@ -986,7 +994,12 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
 
     func testTranscriptDisplaySuppressesLifecycleNoise() {
         let entries = CodexTrajectoryTranscriptDisplayEntry.entries(from: [
-            CodexAppServerTranscriptItem(role: .event, title: "Thread resumed", body: "thread-id"),
+            CodexAppServerTranscriptItem(
+                role: .event,
+                title: "Thread resumed",
+                body: "thread-id",
+                presentation: .lifecycleEvent
+            ),
             CodexAppServerTranscriptItem(role: .event, title: "mcpServer/startupStatus/updated", body: "{}"),
             CodexAppServerTranscriptItem(role: .event, title: "thread/status/changed", body: "idle"),
             CodexAppServerTranscriptItem(role: .event, title: "Warning", body: "needs attention"),

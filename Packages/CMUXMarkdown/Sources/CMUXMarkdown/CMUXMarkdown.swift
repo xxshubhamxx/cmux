@@ -429,7 +429,12 @@ public struct CMUXMarkdownParser: Sendable {
         var inCode = false
         for character in trimmed {
             if escaped {
-                current.append(character)
+                if character == "|" {
+                    current.append(character)
+                } else {
+                    current.append("\\")
+                    current.append(character)
+                }
                 escaped = false
                 continue
             }

@@ -117,6 +117,7 @@ final class CMUXMarkdownTests: XCTestCase {
         | :--- | ---: | :---: |
         | Tables | **done** | `pretty` |
         | Escaped \\| pipe | 12 | [link](https://example.com) |
+        | Path | C:\\Users\\me | keep backslashes |
         """
 
         let document = CMUXMarkdownParser().parse(markdown)
@@ -126,10 +127,11 @@ final class CMUXMarkdownTests: XCTestCase {
         XCTAssertEqual(block.kind, .table)
         let table = try XCTUnwrap(block.table)
         XCTAssertEqual(table.alignments, [.left, .right, .center])
-        XCTAssertEqual(table.rows.count, 3)
+        XCTAssertEqual(table.rows.count, 4)
         XCTAssertEqual(table.rows[0].cells.map(\.text), ["Feature", "Status", "Notes"])
         XCTAssertEqual(table.rows[1].cells.map(\.text), ["Tables", "done", "pretty"])
         XCTAssertEqual(table.rows[2].cells.map(\.text), ["Escaped | pipe", "12", "link"])
+        XCTAssertEqual(table.rows[3].cells.map(\.text), ["Path", #"C:\Users\me"#, "keep backslashes"])
         XCTAssertTrue(table.rows[0].isHeader)
         XCTAssertFalse(table.rows[1].isHeader)
     }

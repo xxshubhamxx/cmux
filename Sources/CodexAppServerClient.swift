@@ -1046,20 +1046,17 @@ final class CodexAppServerClient: @unchecked Sendable {
         }
     }
 
-    private static func requestID(from value: Any?) -> CodexAppServerRequestID? {
-        if let value = value as? Int {
-            return .int(value)
-        }
+    static func requestID(from value: Any?) -> CodexAppServerRequestID? {
         if let value = value as? NSNumber {
             guard !isBooleanNumber(value) else { return nil }
             return .int(value.intValue)
         }
+        if let value = value as? Int {
+            return .int(value)
+        }
         if let value = value as? String {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
-            if let intValue = Int(trimmed) {
-                return .int(intValue)
-            }
             return .string(trimmed)
         }
         return nil

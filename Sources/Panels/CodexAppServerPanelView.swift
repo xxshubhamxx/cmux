@@ -74,37 +74,19 @@ struct CodexAppServerPanelView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if !panel.pendingRequests.isEmpty {
+            let pendingRequests = panel.pendingRequests
+            if !pendingRequests.isEmpty {
                 Divider()
-                pendingRequests
+                CodexAppServerPendingRequestsSection(
+                    requests: pendingRequests,
+                    themeBackground: themeBackground,
+                    onResolve: { request, decision in
+                        panel.resolvePendingRequest(request, decision: decision)
+                    }
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var pendingRequests: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
-                ForEach(panel.pendingRequests) { request in
-                    CodexAppServerPendingRequestView(
-                        request: request,
-                        onAccept: {
-                            panel.resolvePendingRequest(request, decision: .accept)
-                        },
-                        onDecline: {
-                            panel.resolvePendingRequest(request, decision: .decline)
-                        },
-                        onCancel: {
-                            panel.resolvePendingRequest(request, decision: .cancel)
-                        }
-                    )
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxHeight: 240)
-        .background(Color(nsColor: themeBackground))
     }
 
     private func loadingState(_ phase: CodexAppServerTranscriptLoadingPhase) -> some View {
@@ -1602,6 +1584,37 @@ private struct CodexPromptTextEditor: NSViewRepresentable {
         nsView.textView.onHandleKeyEvent = nil
         nsView.textView.onDidBecomeFirstResponder = nil
         nsView.onMeasuredHeightChange = nil
+    }
+}
+
+private struct CodexAppServerPendingRequestsSection: View {
+    let requests: [CodexAppServerPendingRequest]
+    let themeBackground: NSColor
+    let onResolve: (CodexAppServerPendingRequest, CodexAppServerApprovalDecision) -> Void
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(requests) { request in
+                    CodexAppServerPendingRequestView(
+                        request: request,
+                        onAccept: {
+                            onResolve(request, .accept)
+                        },
+                        onDecline: {
+                            onResolve(request, .decline)
+                        },
+                        onCancel: {
+                            onResolve(request, .cancel)
+                        }
+                    )
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 240)
+        .background(Color(nsColor: themeBackground))
     }
 }
 
