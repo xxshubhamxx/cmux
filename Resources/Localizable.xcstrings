@@ -155,6 +155,57 @@
         }
       }
     },
+    "codexAppServer.loading.resumingThread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resuming conversation…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話を再開中…"
+          }
+        }
+      }
+    },
+    "codexAppServer.loading.restoringHistory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading conversation…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話を読み込み中…"
+          }
+        }
+      }
+    },
+    "codexAppServer.loading.startingServer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting Codex…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex を起動中…"
+          }
+        }
+      }
+    },
     "codexAppServer.error.alreadyRunning": {
       "extractionState": "manual",
       "localizations": {
@@ -457,6 +508,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "履歴 %2$ld 件のうち最新 %1$ld 件を表示しています。"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.historyTruncated.approximateBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Showing the latest %ld history items. Earlier history is omitted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新 %ld 件の履歴を表示しています。以前の履歴は省略されています。"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.hook": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フック"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.hookCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックが完了しました"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.hookStarted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックを開始しました"
           }
         }
       }
@@ -1260,6 +1379,278 @@
         }
       }
     },
+    "codexAppServer.hook.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド: %@"
+          }
+        }
+      }
+    },
+    "codexAppServer.hook.completed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "codexAppServer.hook.count.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$ld hook events"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$ld 件のフックイベント"
+          }
+        }
+      }
+    },
+    "codexAppServer.hook.count.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook event"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックイベント"
+          }
+        }
+      }
+    },
+    "codexAppServer.hook.duration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duration: %ld ms"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間: %ld ms"
+          }
+        }
+      }
+    },
+    "codexAppServer.hook.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フック"
+          }
+        }
+      }
+    },
+    "codexAppServer.hook.order": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Order: %ld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順序: %ld"
+          }
+        }
+      }
+    },
+    "codexAppServer.hook.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース: %@"
+          }
+        }
+      }
+    },
+    "codexAppServer.hook.started": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始"
+          }
+        }
+      }
+    },
+    "codexAppServer.hook.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状態: %@"
+          }
+        }
+      }
+    },
+    "codexAppServer.hook.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hook %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@フック %@"
+          }
+        }
+      }
+    },
+    "codexAppServer.hook.thread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thread: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スレッド: %@"
+          }
+        }
+      }
+    },
+    "codexAppServer.rateLimits.primary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primary"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライマリ"
+          }
+        }
+      }
+    },
+    "codexAppServer.rateLimits.resets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "resets %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にリセット"
+          }
+        }
+      }
+    },
+    "codexAppServer.rateLimits.secondary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secondary"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セカンダリ"
+          }
+        }
+      }
+    },
+    "codexAppServer.rateLimits.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rate limits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レート制限"
+          }
+        }
+      }
+    },
     "codexAppServer.header.title": {
       "extractionState": "manual",
       "localizations": {
@@ -1311,19 +1702,206 @@
         }
       }
     },
+    "codexAppServer.composer.status.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5.5"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5.5"
+          }
+        }
+      }
+    },
+    "codexAppServer.composer.status.thinking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5.5 Thinking"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5.5 思考中"
+          }
+        }
+      }
+    },
+    "codexAppServer.composerDebug.bottomAnchored": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bottom anchored"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下固定"
+          }
+        }
+      }
+    },
+    "codexAppServer.composerDebug.legacyTopAligned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy top aligned"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "従来の上揃え"
+          }
+        }
+      }
+    },
+    "codexAppServer.composerDebug.pinnedControls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned controls"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロール固定"
+          }
+        }
+      }
+    },
+    "codexAppServer.composerDebug.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type, then press Shift+Enter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力して Shift+Enter を押す"
+          }
+        }
+      }
+    },
+    "codexAppServer.composerDebug.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composer layout lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンポーザー レイアウト ラボ"
+          }
+        }
+      }
+    },
+    "codexAppServer.queue.followUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queued"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キュー済み"
+          }
+        }
+      }
+    },
+    "codexAppServer.queue.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+%ld more"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他%ld件"
+          }
+        }
+      }
+    },
+    "codexAppServer.queue.steer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steering"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "誘導中"
+          }
+        }
+      }
+    },
+    "codexAppServer.queueDebug.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queued message lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューメッセージ ラボ"
+          }
+        }
+      }
+    },
     "codexAppServer.prompt.placeholder": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ask Codex about this workspace"
+            "value": "Ask anything"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このワークスペースについて Codex に質問"
+            "value": "何でも質問"
           }
         }
       }
@@ -1426,6 +2004,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "失敗"
+          }
+        }
+      }
+    },
+    "codexAppServer.sidebar.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex Error: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex エラー: %@"
           }
         }
       }
@@ -40926,6 +41521,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Системна"
+          }
+        }
+      }
+    },
+    "menu.codexDebug.showComposerLayoutLab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Composer Layout Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンポーザー レイアウト ラボを表示"
+          }
+        }
+      }
+    },
+    "menu.codexDebug.showQueueLayoutLab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Queue Layout Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キュー レイアウト ラボを表示"
           }
         }
       }

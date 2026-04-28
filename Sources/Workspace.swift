@@ -7379,6 +7379,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
+    private static let codexAppServerErrorStatusKey = "codex_app_server.error"
     private static let remoteNotificationCooldown: TimeInterval = 5 * 60
     private static let sshControlMasterCleanupQueue = DispatchQueue(
         label: "com.cmux.remote-ssh.control-master-cleanup",
@@ -8235,9 +8236,36 @@ final class Workspace: Identifiable, ObservableObject {
         updateCodexAppServerPanelDisplay(codexPanel)
     }
 
+    private func syncCodexAppServerSidebarStatus() {
+        let failedMessages = panels.values.compactMap { panel in
+            guard let codexPanel = panel as? CodexAppServerPanel else { return nil }
+            guard case let .failed(message) = codexPanel.status else { return nil }
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        guard let failedMessage = failedMessages.first else {
+            statusEntries.removeValue(forKey: Self.codexAppServerErrorStatusKey)
+            return
+        }
+
+        statusEntries[Self.codexAppServerErrorStatusKey] = SidebarStatusEntry(
+            key: Self.codexAppServerErrorStatusKey,
+            value: String(
+                format: String(localized: "codexAppServer.sidebar.error", defaultValue: "Codex Error: %@"),
+                failedMessage
+            ),
+            icon: "exclamationmark.triangle.fill",
+            color: "#ff453a",
+            priority: 100,
+            timestamp: Date()
+        )
+    }
+
     private func updateCodexAppServerPanelDisplay(_ codexPanel: CodexAppServerPanel) {
         let nextTitle = codexPanel.displayTitle
         _ = updatePanelTitle(panelId: codexPanel.id, title: nextTitle)
+        syncCodexAppServerSidebarStatus()
 
         guard let tabId = surfaceIdFromPanelId(codexPanel.id),
               let existing = bonsplitController.tab(tabId) else { return }
@@ -10627,6 +10655,7 @@ final class Workspace: Identifiable, ObservableObject {
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontPoints = nil
+        statusEntries.removeValue(forKey: Self.codexAppServerErrorStatusKey)
     }
 
     /// Close a panel.
@@ -13303,6 +13332,7 @@ extension Workspace: BonsplitDelegate {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
         }
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
+        syncCodexAppServerSidebarStatus()
 
         // Keep the workspace invariant for normal close paths.
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
@@ -13466,6 +13496,7 @@ extension Workspace: BonsplitDelegate {
             }
 
             syncRemotePortScanTTYs()
+            syncCodexAppServerSidebarStatus()
             let closedSet = Set(closedPanelIds)
             surfaceIdToPanelId = surfaceIdToPanelId.filter { !closedSet.contains($0.value) }
             recomputeListeningPorts()
