@@ -9,8 +9,9 @@ the swallowed-space failure mode.
 
 import os
 import sys
+import tempfile
 import time
-import urllib.parse
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,15 +19,12 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+_TEMP_FILES: list[Path] = []
 
 
 def _must(condition: bool, message: str) -> None:
     if not condition:
         raise cmuxError(message)
-
-
-def _data_url(html: str) -> str:
-    return "data:text/html;charset=utf-8," + urllib.parse.quote(html)
 
 
 def _wait_until(
@@ -87,8 +85,7 @@ def _state(client: cmux, surface_id: str) -> dict[str, Any]:
 
 
 def _test_page() -> str:
-    return _data_url(
-        """
+    html = """
 <!doctype html>
 <html>
   <head>
@@ -130,8 +127,13 @@ def _test_page() -> str:
     </script>
   </body>
 </html>
-        """.strip()
-    )
+    """.strip()
+    fd, raw_path = tempfile.mkstemp(prefix="cmux-space-key-event-", suffix=".html")
+    os.close(fd)
+    path = Path(raw_path)
+    path.write_text(html, encoding="utf-8")
+    _TEMP_FILES.append(path)
+    return path.resolve().as_uri()
 
 
 def _focus_browser_input(client: cmux, surface_id: str) -> None:
@@ -238,17 +240,24 @@ def main() -> int:
     ]
 
     failed = 0
-    with cmux(SOCKET_PATH) as client:
-        client.activate_app()
-        for name, fn in tests:
+    try:
+        with cmux(SOCKET_PATH) as client:
+            client.activate_app()
+            for name, fn in tests:
+                try:
+                    ok, message = fn(client)
+                except Exception as exc:  # noqa: BLE001
+                    ok, message = False, str(exc)
+                status = "PASS" if ok else "FAIL"
+                print(f"{status}: {name} - {message}")
+                if not ok:
+                    failed += 1
+    finally:
+        for path in _TEMP_FILES:
             try:
-                ok, message = fn(client)
-            except Exception as exc:  # noqa: BLE001
-                ok, message = False, str(exc)
-            status = "PASS" if ok else "FAIL"
-            print(f"{status}: {name} - {message}")
-            if not ok:
-                failed += 1
+                path.unlink()
+            except OSError:
+                pass
 
     if failed:
         print(f"\n{failed} test(s) failed.")
