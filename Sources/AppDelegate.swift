@@ -7944,6 +7944,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
         guard tabManager != nil else { return }
         let startWithHiddenSidebar = env["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] == "1"
+        let showRightSidebar = env["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1"
 
         let deadline = Date().addingTimeInterval(20.0)
         func hasMainTerminalWindow() -> Bool {
@@ -8018,6 +8019,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
             if startWithHiddenSidebar {
                 self.sidebarState?.isVisible = false
+            }
+            if showRightSidebar {
+                self.fileExplorerState?.mode = .files
+                self.fileExplorerState?.isVisible = true
             }
             self.writeBonsplitTabDragUITestData([
                 "ready": "1",

@@ -572,10 +572,10 @@ final class BonsplitTabDragUITests: XCTestCase {
         if let windowSize {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_WINDOW_SIZE"] = windowSize
         }
-        app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
         if showRightSidebar {
-            app.launchArguments += ["-fileExplorer.isVisible", "YES", "-rightSidebar.mode", "files"]
+            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
         }
+        app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
