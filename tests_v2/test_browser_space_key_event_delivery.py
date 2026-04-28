@@ -256,7 +256,6 @@ def main() -> int:
     failed = 0
     try:
         with cmux(SOCKET_PATH) as client:
-            client.activate_app()
             for name, fn in tests:
                 try:
                     ok, message = fn(client)
