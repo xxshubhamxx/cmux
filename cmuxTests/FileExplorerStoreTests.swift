@@ -358,6 +358,35 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix(".git/") })
     }
 
+    func testSearchRefreshesWhenContentRevisionChanges() async throws {
+        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
+        let emptySnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+        XCTAssertEqual(emptySnapshot.status, .noMatches)
+
+        try "fresh needle\n".write(
+            to: rootURL.appendingPathComponent("fresh.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 2)
+        let refreshedSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        XCTAssertEqual(refreshedSnapshot.status, .matches)
+        XCTAssertEqual(refreshedSnapshot.results.map(\.relativePath), ["fresh.txt"])
+    }
+
     private func waitForSettledSearchSnapshot(
         timeout: TimeInterval = 5,
         _ snapshot: @MainActor @escaping () -> FileSearchSnapshot?

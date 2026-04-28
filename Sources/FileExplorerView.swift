@@ -82,11 +82,13 @@ final class FileSearchController {
         let query: String
         let rootPath: String
         let isLocal: Bool
+        let contentRevision: Int
     }
 
     private struct CacheKey: Hashable {
         let query: String
         let rootPath: String
+        let contentRevision: Int
     }
 
     private struct CacheEntry {
@@ -112,9 +114,14 @@ final class FileSearchController {
     private var cache: [CacheKey: CacheEntry] = [:]
     private var cacheOrder: [CacheKey] = []
 
-    func search(query rawQuery: String, rootPath: String, isLocal: Bool) {
+    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        let nextRequest = Request(query: query, rootPath: rootPath, isLocal: isLocal)
+        let nextRequest = Request(
+            query: query,
+            rootPath: rootPath,
+            isLocal: isLocal,
+            contentRevision: contentRevision
+        )
         guard nextRequest != request else { return }
         request = nextRequest
 
@@ -135,7 +142,7 @@ final class FileSearchController {
             emit(status: .noMatches, isSearching: false)
             return
         }
-        let cacheKey = CacheKey(query: query, rootPath: rootPath)
+        let cacheKey = CacheKey(query: query, rootPath: rootPath, contentRevision: contentRevision)
         if let cached = cache[cacheKey] {
             results = cached.results
             emit(status: cached.status, isSearching: false)
@@ -277,7 +284,11 @@ final class FileSearchController {
         guard let request, request.isLocal, !request.query.isEmpty, !request.rootPath.isEmpty else {
             return
         }
-        let key = CacheKey(query: request.query, rootPath: request.rootPath)
+        let key = CacheKey(
+            query: request.query,
+            rootPath: request.rootPath,
+            contentRevision: request.contentRevision
+        )
         cache[key] = CacheEntry(results: results, status: status)
         cacheOrder.removeAll { $0 == key }
         cacheOrder.append(key)
@@ -913,6 +924,7 @@ final class FileExplorerContainerView: NSView {
     private var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
+    private var currentContentRevision = 0
     private var isSearchVisible = false
     private var presentation: FileExplorerPanelPresentation
     private let coordinator: FileExplorerPanelView.Coordinator
@@ -1158,6 +1170,7 @@ final class FileExplorerContainerView: NSView {
     func updateHeader(store: FileExplorerStore) {
         currentRootPath = store.rootPath
         currentProviderIsLocal = store.provider is LocalFileExplorerProvider
+        currentContentRevision = store.contentRevision
         headerView.update(displayPath: store.displayRootPath)
         refreshSearchIfNeeded()
     }
@@ -1291,7 +1304,8 @@ final class FileExplorerContainerView: NSView {
         searchController.search(
             query: searchField.stringValue,
             rootPath: currentRootPath,
-            isLocal: currentProviderIsLocal
+            isLocal: currentProviderIsLocal,
+            contentRevision: currentContentRevision
         )
     }
 

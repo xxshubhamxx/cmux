@@ -702,9 +702,6 @@ final class FilePreviewPanel: Panel, ObservableObject {
     func saveTextContent() -> Task<Void, Never>? {
         guard previewMode == .text else { return nil }
         guard !isSaving else { return nil }
-        textLoadGeneration += 1
-        saveGeneration += 1
-        let generation = saveGeneration
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
             textContent = currentContent
@@ -712,6 +709,9 @@ final class FilePreviewPanel: Panel, ObservableObject {
             return nil
         }
 
+        textLoadGeneration += 1
+        saveGeneration += 1
+        let generation = saveGeneration
         textContent = currentContent
         isSaving = true
         activeSaveGeneration = generation

@@ -1482,6 +1482,24 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertFalse(panel.isSaving)
     }
 
+    func testCleanSaveDoesNotCancelPendingTextLoad() async throws {
+        let url = try temporaryTextFile(contents: "", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+
+        try "loaded after clean save".write(to: url, atomically: true, encoding: .utf8)
+
+        let loadTask = panel.loadTextContent()
+        XCTAssertNil(panel.saveTextContent())
+        await loadTask.value
+
+        XCTAssertEqual(panel.textContent, "loaded after clean save")
+        XCTAssertFalse(panel.isDirty)
+        XCTAssertFalse(panel.isFileUnavailable)
+    }
+
     func testSavingTextViewUsesConfiguredSaveShortcut() async throws {
         KeyboardShortcutSettings.resetAll()
         defer { KeyboardShortcutSettings.resetAll() }
