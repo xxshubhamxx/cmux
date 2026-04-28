@@ -2765,8 +2765,12 @@ private final class SidebarDebugWindowController: NSWindowController, NSWindowDe
 private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL
 
-    private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
-    private let docsURL = URL(string: "https://cmux.com/docs")
+    private let githubURL = URL(string: PrivacyMode.isEnabled
+        ? "https://github.com/xxshubhamxx/cmux"
+        : "https://github.com/manaflow-ai/cmux")
+    private let docsURL = URL(string: PrivacyMode.isEnabled
+        ? "https://github.com/xxshubhamxx/cmux#readme"
+        : "https://cmux.com/docs")
 
     private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
     private var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
@@ -2810,7 +2814,9 @@ private struct AboutPanelView: View {
                     }
                     let commitText = commit ?? "—"
                     let commitURL = commit.flatMap { hash in
-                        URL(string: "https://github.com/manaflow-ai/cmux/commit/\(hash)")
+                        URL(string: PrivacyMode.isEnabled
+                            ? "https://github.com/xxshubhamxx/cmux/commit/\(hash)"
+                            : "https://github.com/manaflow-ai/cmux/commit/\(hash)")
                     }
                     AboutPropertyRow(label: String(localized: "about.commit", defaultValue: "Commit"), text: commitText, url: commitURL)
                 }
@@ -5324,7 +5330,9 @@ struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
-    private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
+	private let shortcutChordsDocsURL = URL(string: PrivacyMode.isEnabled
+		? "https://github.com/xxshubhamxx/cmux#readme"
+		: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
     @Environment(\.openWindow) private var openWindow
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
