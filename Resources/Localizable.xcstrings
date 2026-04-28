@@ -1708,13 +1708,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "5.5"
+            "value": "Ready"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "5.5"
+            "value": "準備完了"
           }
         }
       }
@@ -1725,13 +1725,81 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "5.5 Thinking"
+            "value": "Thinking"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "5.5 思考中"
+            "value": "思考中"
+          }
+        }
+      }
+    },
+    "codexAppServer.composer.contextRemaining": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context %ld%% left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキスト残り%ld%%"
+          }
+        }
+      }
+    },
+    "codexAppServer.composer.fastOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高速オフ"
+          }
+        }
+      }
+    },
+    "codexAppServer.composer.fastOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast on"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高速オン"
+          }
+        }
+      }
+    },
+    "codexAppServer.composer.model.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
           }
         }
       }
