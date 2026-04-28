@@ -16,6 +16,8 @@ private struct Options {
     var includeExample: Bool
     var includeInput: Bool
     var includeResize: Bool
+    var includeLifecycle: Bool
+    var includeScale: Bool
     var includeGoogle: Bool
     var includeWidgets: Bool
     var inputDiagnosticCapture: Bool
@@ -57,6 +59,9 @@ private enum InputAction {
     case waitForJavaScript(label: String, script: String, expectations: [JavaScriptExpectation])
     case waitForSurfaceTree(label: String, expectations: [SurfaceTreeExpectation])
     case captureWindow(name: String, expected: Set<ExpectedPixel>)
+    case detachReattachHost(name: String, expected: Set<ExpectedPixel>)
+    case hideShowHostWindow(name: String, expected: Set<ExpectedPixel>)
+    case verifySurfaceScale(name: String, minimumScale: Float)
     case verifyWindowEdgeCoverage(name: String)
     case captureNativeMenu(label: String, name: String, expected: Set<ExpectedPixel>, response: NativeMenuResponse)
     case acceptActivePopupMenuItem(UInt32)
@@ -116,6 +121,14 @@ private struct PixelStats: Codable {
     let darkPixels: Int
     let lightPixels: Int
     let nonWhitePixels: Int
+}
+
+private struct SurfaceScaleSnapshot: Codable {
+    let surfaceID: UInt64
+    let contextID: UInt32
+    let surfaceScale: Float
+    let hostedLayerContentsScale: Double
+    let popupLayerCount: Int
 }
 
 private struct CaptureResult: Codable {
@@ -218,6 +231,8 @@ struct OwlLayerHostVerifier {
         var includeExample = true
         var includeInput = false
         var includeResize = ProcessInfo.processInfo.environment["OWL_LAYER_HOST_RESIZE_CHECK"] == "1"
+        var includeLifecycle = ProcessInfo.processInfo.environment["OWL_LAYER_HOST_LIFECYCLE_CHECK"] == "1"
+        var includeScale = ProcessInfo.processInfo.environment["OWL_LAYER_HOST_SCALE_CHECK"] == "1"
         var includeGoogle = ProcessInfo.processInfo.environment["OWL_LAYER_HOST_GOOGLE_CHECK"] == "1"
         var includeWidgets = ProcessInfo.processInfo.environment["OWL_LAYER_HOST_WIDGET_CHECK"] == "1"
         var inputDiagnosticCapture = false
@@ -264,6 +279,10 @@ struct OwlLayerHostVerifier {
                 includeInput = true
             case "--resize-check":
                 includeResize = true
+            case "--lifecycle-check":
+                includeLifecycle = true
+            case "--scale-check":
+                includeScale = true
             case "--google-check":
                 includeGoogle = true
             case "--widget-check":
@@ -278,7 +297,7 @@ struct OwlLayerHostVerifier {
                 onlyTargets.insert(arguments[index])
             case "--help":
                 print("""
-                Usage: OwlLayerHostVerifier --chromium-host <path> --mojo-runtime <path> [--output-dir <dir>] [--timeout <seconds>] [--skip-canvas] [--skip-example] [--input-check] [--resize-check] [--google-check] [--widget-check] [--input-diagnostic-capture] [--only-target <name>]
+                Usage: OwlLayerHostVerifier --chromium-host <path> --mojo-runtime <path> [--output-dir <dir>] [--timeout <seconds>] [--skip-canvas] [--skip-example] [--input-check] [--resize-check] [--lifecycle-check] [--scale-check] [--google-check] [--widget-check] [--input-diagnostic-capture] [--only-target <name>]
                 """)
                 exit(0)
             default:
@@ -303,6 +322,8 @@ struct OwlLayerHostVerifier {
             includeExample: includeExample,
             includeInput: includeInput,
             includeResize: includeResize,
+            includeLifecycle: includeLifecycle,
+            includeScale: includeScale,
             includeGoogle: includeGoogle,
             includeWidgets: includeWidgets,
             inputDiagnosticCapture: inputDiagnosticCapture,
@@ -563,6 +584,92 @@ private final class LayerHostRunner {
                         postInputExpectations: [
                             JavaScriptExpectation(key: "mode", value: .string("restored")),
                             JavaScriptExpectation(key: "status", value: .string("OWL_RESIZE_ROUNDTRIP_OK")),
+                        ]
+                    )
+                )
+            }
+            let requestedLifecycleTargets = options.onlyTargets.contains("lifecycle-fixture")
+            if options.includeLifecycle || requestedLifecycleTargets {
+                let lifecycleExpected: Set<ExpectedPixel> = [.red, .blue, .dark, .nonWhite]
+                targets.append(
+                    RenderTarget(
+                        name: "lifecycle-fixture",
+                        url: resizeFixture.absoluteString,
+                        screenshotName: "lifecycle-after.png",
+                        expected: lifecycleExpected,
+                        preInputScreenshotName: "lifecycle-before.png",
+                        preInputExpected: lifecycleExpected,
+                        inputActions: [
+                            .waitForJavaScript(
+                                label: "lifecycle fixture ready",
+                                script: """
+                                ({
+                                  mode: window.owlResizeState?.mode || "",
+                                  status: document.getElementById("status")?.textContent || ""
+                                })
+                                """,
+                                expectations: [
+                                    JavaScriptExpectation(key: "mode", value: .string("initial")),
+                                    JavaScriptExpectation(key: "status", value: .string("OWL_RESIZE_READY")),
+                                ]
+                            ),
+                            .captureWindow(name: "lifecycle-before-detach.png", expected: lifecycleExpected),
+                            .detachReattachHost(name: "lifecycle-after-reattach.png", expected: lifecycleExpected),
+                            .hideShowHostWindow(name: "lifecycle-after-hide-show.png", expected: lifecycleExpected),
+                            .verifyWindowEdgeCoverage(name: "lifecycle-edge-coverage.png"),
+                        ],
+                        postInputDiagnosticScript: """
+                        ({
+                          mode: window.owlResizeState?.mode || "",
+                          status: document.getElementById("status")?.textContent || ""
+                        })
+                        """,
+                        postInputExpectations: [
+                            JavaScriptExpectation(key: "mode", value: .string("initial")),
+                            JavaScriptExpectation(key: "status", value: .string("OWL_RESIZE_READY")),
+                        ]
+                    )
+                )
+            }
+            let requestedScaleTargets = options.onlyTargets.contains("scale-fixture")
+            if options.includeScale || requestedScaleTargets {
+                let scaleExpected: Set<ExpectedPixel> = [.red, .blue, .dark, .nonWhite]
+                targets.append(
+                    RenderTarget(
+                        name: "scale-fixture",
+                        url: resizeFixture.absoluteString,
+                        screenshotName: "scale-fixture-after.png",
+                        expected: scaleExpected,
+                        preInputScreenshotName: "scale-fixture-before.png",
+                        preInputExpected: scaleExpected,
+                        inputActions: [
+                            .waitForJavaScript(
+                                label: "scale fixture ready",
+                                script: """
+                                ({
+                                  devicePixelRatio: window.devicePixelRatio || 0,
+                                  mode: window.owlResizeState?.mode || "",
+                                  status: document.getElementById("status")?.textContent || ""
+                                })
+                                """,
+                                expectations: [
+                                    JavaScriptExpectation(key: "mode", value: .string("initial")),
+                                    JavaScriptExpectation(key: "status", value: .string("OWL_RESIZE_READY")),
+                                ]
+                            ),
+                            .verifySurfaceScale(name: "scale-fixture-surface-scale.json", minimumScale: 1.0),
+                            .captureWindow(name: "scale-fixture-scale-applied.png", expected: scaleExpected),
+                            .verifyWindowEdgeCoverage(name: "scale-fixture-edge-coverage.png"),
+                        ],
+                        postInputDiagnosticScript: """
+                        ({
+                          mode: window.owlResizeState?.mode || "",
+                          status: document.getElementById("status")?.textContent || ""
+                        })
+                        """,
+                        postInputExpectations: [
+                            JavaScriptExpectation(key: "mode", value: .string("initial")),
+                            JavaScriptExpectation(key: "status", value: .string("OWL_RESIZE_READY")),
                         ]
                     )
                 )
@@ -892,7 +999,7 @@ private final class LayerHostRunner {
         app.setActivationPolicy(.regular)
         app.finishLaunching()
 
-        let runtime = try OwlDynamicLibraryBrowserRuntime(path: options.mojoRuntimePath)
+        let runtime = try DynamicLibraryBrowserRuntime(path: options.mojoRuntimePath)
         try runtime.initialize()
 
         var captures: [CaptureResult] = []
@@ -910,7 +1017,7 @@ private final class LayerHostRunner {
                 : "chromium-layer-fixture-ca-context",
             controlTransport: "mojo",
             swiftHostTransport: OwlFreshGeneratedMojoTransport.name,
-            mojoRuntime: "OwlDynamicLibraryBrowserRuntime over OwlCBrowserRuntime generated Mojo pipe bindings",
+            mojoRuntime: runtime.runtimeDescription,
             mojoBindingSourceChecksum: OwlFreshMojoSchema.sourceChecksum,
             mojoBindingDeclarationCount: OwlFreshMojoSchema.declarations.count,
             devToolsActivePortFound: captures.contains(where: \.profileHadDevToolsActivePort),
@@ -1412,6 +1519,53 @@ private final class LayerHostRunner {
                 guard expected.isSatisfied(by: stats) else {
                     throw VerifierError.pixelCheck("\(target.name) \(name) pixels did not match \(expected): \(stats)")
                 }
+            case .detachReattachHost(let name, let expected):
+                let tree = try hostController.getSurfaceTree()
+                window.update(surfaceTree: tree)
+                try window.detachAndReattachPrimaryHost(surfaceTree: tree)
+                pumpApp(app, for: 0.1)
+                guard let windowID = swiftHostWindowID(title: window.title, minimumSize: currentSize) else {
+                    throw VerifierError.capture("Swift LayerHost window was not visible for \(name)")
+                }
+                let captureURL = options.outputDirectory.appendingPathComponent(name)
+                let capture = try captureWindow(windowID: windowID, to: captureURL)
+                let stats = analyze(image: capture.image)
+                guard expected.isSatisfied(by: stats) else {
+                    throw VerifierError.pixelCheck("\(target.name) \(name) pixels did not survive detach/reattach \(expected): \(stats)")
+                }
+            case .hideShowHostWindow(let name, let expected):
+                window.hide()
+                pumpApp(app, for: 0.1)
+                window.show()
+                window.update(surfaceTree: try hostController.getSurfaceTree())
+                window.flushHostedLayer()
+                pumpApp(app, for: 0.1)
+                guard let windowID = swiftHostWindowID(title: window.title, minimumSize: currentSize) else {
+                    throw VerifierError.capture("Swift LayerHost window was not visible for \(name)")
+                }
+                let captureURL = options.outputDirectory.appendingPathComponent(name)
+                let capture = try captureWindow(windowID: windowID, to: captureURL)
+                let stats = analyze(image: capture.image)
+                guard expected.isSatisfied(by: stats) else {
+                    throw VerifierError.pixelCheck("\(target.name) \(name) pixels did not survive hide/show \(expected): \(stats)")
+                }
+            case .verifySurfaceScale(let name, let minimumScale):
+                let tree = try hostController.getSurfaceTree()
+                window.update(surfaceTree: tree)
+                let snapshot = try window.surfaceScaleSnapshot(surfaceTree: tree)
+                guard snapshot.surfaceScale >= minimumScale else {
+                    throw VerifierError.pixelCheck(
+                        "\(target.name) expected surface scale >= \(minimumScale), got \(snapshot.surfaceScale)"
+                    )
+                }
+                guard abs(snapshot.hostedLayerContentsScale - Double(snapshot.surfaceScale)) < 0.01 else {
+                    throw VerifierError.pixelCheck(
+                        "\(target.name) hosted layer contentsScale \(snapshot.hostedLayerContentsScale) does not match surface scale \(snapshot.surfaceScale)"
+                    )
+                }
+                try JSONEncoder.pretty.encode(snapshot).write(
+                    to: options.outputDirectory.appendingPathComponent(name)
+                )
             case .verifyWindowEdgeCoverage(let name):
                 window.update(surfaceTree: try hostController.getSurfaceTree())
                 window.flushHostedLayer()
@@ -1777,7 +1931,8 @@ private final class LayerHostWindow {
     private let window: NSWindow
     private let contentView: NSView
     private let rootLayer: CALayer
-    private let hostLayer: CALayer
+    private var hostLayer: CALayer
+    private var primaryContentsScale: CGFloat
     private var popupHostLayers: [UInt64: CALayer] = [:]
 
     init(title: String, contextID: UInt32, size: CGSize) throws {
@@ -1802,6 +1957,7 @@ private final class LayerHostWindow {
         hostLayer.zPosition = 0
         rootLayer.addSublayer(hostLayer)
         self.hostLayer = hostLayer
+        self.primaryContentsScale = hostLayer.contentsScale
 
         window = NSWindow(
             contentRect: frame,
@@ -1829,6 +1985,10 @@ private final class LayerHostWindow {
 
     func close() {
         window.close()
+    }
+
+    func hide() {
+        window.orderOut(nil)
     }
 
     func resize(to size: CGSize) {
@@ -1868,14 +2028,17 @@ private final class LayerHostWindow {
         }
 
         let origin = CGPoint(x: CGFloat(primary.x), y: CGFloat(primary.y))
+        let primaryScale = contentsScale(for: primary)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         hostLayer.isHidden = false
+        hostLayer.contentsScale = primaryScale
         hostLayer.setValue(NSNumber(value: primary.contextId), forKey: "contextId")
         hostLayer.frame = CGRect(origin: .zero, size: rootLayer.bounds.size)
         hostLayer.bounds = rootLayer.bounds
         hostLayer.position = CGPoint.zero
         hostLayer.zPosition = CGFloat(primary.zIndex)
+        primaryContentsScale = primaryScale
 
         let renderPopupSurfaces = visibleSurfaces.filter { surface in
             surface.contextId != 0 && surface.surfaceId != primary.surfaceId
@@ -1900,6 +2063,7 @@ private final class LayerHostWindow {
                     continue
                 }
             }
+            layer.contentsScale = contentsScale(for: surface)
             layer.frame = frame(for: surface, origin: origin)
             layer.bounds = CGRect(origin: .zero, size: layer.frame.size)
             layer.position = layer.frame.origin
@@ -1909,6 +2073,42 @@ private final class LayerHostWindow {
         CATransaction.commit()
 
         flushHostedLayer()
+    }
+
+    func detachAndReattachPrimaryHost(surfaceTree: OwlFreshSurfaceTree) throws {
+        guard let primary = primarySurface(in: surfaceTree) else {
+            throw VerifierError.layerHost("cannot detach and reattach primary host without a visible web-view surface")
+        }
+        let replacement = try makeCALayerHost(contextID: primary.contextId)
+        replacement.anchorPoint = CGPoint.zero
+        replacement.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        replacement.contentsScale = contentsScale(for: primary)
+        replacement.frame = CGRect(origin: .zero, size: rootLayer.bounds.size)
+        replacement.bounds = rootLayer.bounds
+        replacement.position = CGPoint.zero
+        replacement.zPosition = CGFloat(primary.zIndex)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        hostLayer.removeFromSuperlayer()
+        rootLayer.insertSublayer(replacement, at: 0)
+        hostLayer = replacement
+        primaryContentsScale = replacement.contentsScale
+        CATransaction.commit()
+        flushHostedLayer()
+    }
+
+    func surfaceScaleSnapshot(surfaceTree: OwlFreshSurfaceTree) throws -> SurfaceScaleSnapshot {
+        guard let primary = primarySurface(in: surfaceTree) else {
+            throw VerifierError.layerHost("cannot verify surface scale without a visible web-view surface")
+        }
+        return SurfaceScaleSnapshot(
+            surfaceID: primary.surfaceId,
+            contextID: primary.contextId,
+            surfaceScale: primary.scale,
+            hostedLayerContentsScale: Double(primaryContentsScale),
+            popupLayerCount: popupHostLayers.count
+        )
     }
 
     func presentNativeMenuAndCapture(
@@ -1968,6 +2168,16 @@ private final class LayerHostWindow {
             width: CGFloat(surface.width),
             height: CGFloat(surface.height)
         )
+    }
+
+    private func primarySurface(in surfaceTree: OwlFreshSurfaceTree) -> OwlFreshSurfaceInfo? {
+        let visibleSurfaces = surfaceTree.surfaces.filter(\.visible)
+        return visibleSurfaces.first(where: { $0.kind == .webView && $0.contextId != 0 }) ??
+            visibleSurfaces.first(where: { $0.contextId != 0 })
+    }
+
+    private func contentsScale(for surface: OwlFreshSurfaceInfo) -> CGFloat {
+        max(CGFloat(surface.scale), 1.0)
     }
 
     func flushHostedLayer() {

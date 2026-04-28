@@ -2,6 +2,8 @@ import Foundation
 import OwlMojoBindingsGenerated
 
 public protocol OwlBrowserRuntime: OwlFreshMojoPipeBindings {
+    var runtimeDescription: String { get }
+
     func initialize() throws
     func createSession(
         chromiumHost: String,
@@ -16,6 +18,10 @@ public protocol OwlBrowserRuntime: OwlFreshMojoPipeBindings {
 }
 
 public extension OwlBrowserRuntime {
+    var runtimeDescription: String {
+        "\(String(describing: type(of: self))) generated Mojo pipe bindings"
+    }
+
     func captureSurfacePNG(_ session: OpaquePointer?, to url: URL) throws -> OwlBrowserSurfaceCapture {
         let result = try surfaceTreeHostCaptureSurface(session)
         guard result.error.isEmpty else {

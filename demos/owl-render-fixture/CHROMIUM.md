@@ -32,12 +32,12 @@ then Swift hosts the portal id in `CALayerHost`.
 `OwlFreshInput`, `OwlFreshSurfaceTreeHost`, and `OwlFreshNativeSurfaceHost`
 surfaces. `OwlMojoBindingsGenerator` emits
 `Sources/OwlMojoBindingsGenerated/OwlFresh.generated.swift`. `OwlBrowserCore`
-owns the Swift runtime protocol, typed C-ABI symbol-table bridge, session
-events, generated pending-handle bind graph, and typed browser commands before
-calling typed runtime symbols. The verifier imports `OwlBrowserCore`, uses the
-dynamic-library adapter for the current AWS Chromium build, and owns only AppKit
-hosting, screenshots, fixtures, and artifact reporting. The old generic
-`interface + method + JSON` invoke bridge is not used.
+owns the Swift runtime protocol, typed C-ABI symbol-table bridge, direct linked
+runtime entry point, session events, generated pending-handle bind graph, and
+typed browser commands before calling typed runtime symbols. The verifier imports
+`OwlBrowserCore`, owns the dynamic-library adapter for the current AWS Chromium
+build, and owns AppKit hosting, screenshots, fixtures, and artifact reporting.
+The old generic `interface + method + JSON` invoke bridge is not used.
 
 The verified gate now includes input. `run-layer-host-verifier-gui.sh` can run
 the real Chromium compositor input fixtures with `OWL_LAYER_HOST_INPUT_CHECK=1`;
@@ -50,6 +50,12 @@ normally. The gate still rejects DevTools and remote debugging paths.
 The scroll fixture now requires Chromium to land on a specific numbered content
 row, and the text fixture verifies caret editing plus Shift-Arrow selection
 replacement in one rendered page.
+
+The lifecycle fixture now detaches and reattaches the primary Swift
+`CALayerHost`, hides and resurfaces the Swift host window, then samples the
+viewport edge colors to reject blank host gaps. The scale fixture verifies the
+Mojo surface scale is applied to the hosted layer's `contentsScale` and then
+uses the same edge-coverage sampling path.
 
 The AWS build used for the current screenshots was rebuilt with:
 

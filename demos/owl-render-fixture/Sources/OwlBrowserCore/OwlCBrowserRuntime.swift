@@ -1,7 +1,7 @@
 import Foundation
 import OwlMojoBindingsGenerated
 
-public class OwlCBrowserRuntime: OwlBrowserRuntime {
+open class OwlCBrowserRuntime: OwlBrowserRuntime {
     private let globalInit: OwlBrowserRuntimeGlobalInit
     private let sessionCreate: OwlBrowserRuntimeSessionCreate
     private let sessionDestroy: OwlBrowserRuntimeSessionDestroy
@@ -26,6 +26,10 @@ public class OwlCBrowserRuntime: OwlBrowserRuntime {
     private let nativeSurfaceCancelSymbol: OwlBrowserRuntimeBoolOut
     private let eventPoll: OwlBrowserRuntimePollEvents
     private let freeBuffer: OwlBrowserRuntimeFreeBuffer
+
+    open var runtimeDescription: String {
+        "OwlCBrowserRuntime generated Mojo pipe bindings with injected typed C-ABI symbols"
+    }
 
     public init(symbols: OwlBrowserRuntimeSymbols) {
         self.globalInit = symbols.globalInit

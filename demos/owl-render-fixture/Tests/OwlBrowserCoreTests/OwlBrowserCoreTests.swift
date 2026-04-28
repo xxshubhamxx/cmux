@@ -36,6 +36,10 @@ final class OwlBrowserCoreTests: XCTestCase {
     func testCBrowserRuntimeConsumesInjectedSymbolsWithoutDynamicLibrary() async throws {
         FakeRuntimeCABI.reset()
         let runtime = OwlCBrowserRuntime(symbols: FakeRuntimeCABI.symbols())
+        XCTAssertEqual(
+            runtime.runtimeDescription,
+            "OwlCBrowserRuntime generated Mojo pipe bindings with injected typed C-ABI symbols"
+        )
         try runtime.initialize()
         let events = OwlBrowserSessionEvents()
         let session = try runtime.createSession(

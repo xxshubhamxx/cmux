@@ -8,7 +8,7 @@ OUT_ROOT="${OWL_LAYER_HOST_FOCUSED_OUT:-$ROOT_DIR/artifacts/layer-host-focused-g
 RUN_SCRIPT="$SCRIPT_DIR/run-layer-host-verifier-gui.sh"
 
 if [ "$#" -eq 0 ]; then
-  suites=(render input resize scroll-text)
+  suites=(render input resize lifecycle scale scroll-text)
 else
   suites=("$@")
 fi
@@ -16,7 +16,7 @@ fi
 expanded_suites=()
 for suite in "${suites[@]}"; do
   if [ "$suite" = "all" ]; then
-    expanded_suites+=(render input resize scroll-text widgets google)
+    expanded_suites+=(render input resize lifecycle scale scroll-text widgets google)
   else
     expanded_suites+=("$suite")
   fi
@@ -51,6 +51,22 @@ run_suite() {
       OWL_LAYER_HOST_ONLY_TARGETS="resize-small-fixture,resize-roundtrip-fixture" \
         "$RUN_SCRIPT"
       ;;
+    lifecycle)
+      OWL_LAYER_HOST_RENDER_OUT="$out_dir" \
+      OWL_LAYER_HOST_INPUT_CHECK=1 \
+      OWL_LAYER_HOST_INPUT_DIAGNOSTIC_CAPTURE=1 \
+      OWL_LAYER_HOST_LIFECYCLE_CHECK=1 \
+      OWL_LAYER_HOST_ONLY_TARGETS="lifecycle-fixture" \
+        "$RUN_SCRIPT"
+      ;;
+    scale)
+      OWL_LAYER_HOST_RENDER_OUT="$out_dir" \
+      OWL_LAYER_HOST_INPUT_CHECK=1 \
+      OWL_LAYER_HOST_INPUT_DIAGNOSTIC_CAPTURE=1 \
+      OWL_LAYER_HOST_SCALE_CHECK=1 \
+      OWL_LAYER_HOST_ONLY_TARGETS="scale-fixture" \
+        "$RUN_SCRIPT"
+      ;;
     scroll-text)
       OWL_LAYER_HOST_RENDER_OUT="$out_dir" \
       OWL_LAYER_HOST_INPUT_CHECK=1 \
@@ -76,7 +92,7 @@ run_suite() {
       ;;
     *)
       echo "unknown focused suite: $suite" >&2
-      echo "usage: $0 [all|render|input|resize|scroll-text|widgets|google ...]" >&2
+      echo "usage: $0 [all|render|input|resize|lifecycle|scale|scroll-text|widgets|google ...]" >&2
       exit 2
       ;;
   esac

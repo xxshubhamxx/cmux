@@ -1,10 +1,15 @@
 import Darwin
 import Foundation
+import OwlBrowserCore
 
-public final class OwlDynamicLibraryBrowserRuntime: OwlCBrowserRuntime {
+final class DynamicLibraryBrowserRuntime: OwlCBrowserRuntime {
     private let handle: UnsafeMutableRawPointer
 
-    public init(path: String) throws {
+    override public var runtimeDescription: String {
+        "DynamicLibraryBrowserRuntime verifier adapter over OwlCBrowserRuntime generated Mojo pipe bindings"
+    }
+
+    init(path: String) throws {
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             throw OwlBrowserError.bridge("dlopen failed for \(path): \(dlerrorString())")
         }

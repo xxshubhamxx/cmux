@@ -22,9 +22,47 @@ fi
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
+args=(
+  --chromium-host "$HOST"
+  --mojo-runtime "$RUNTIME"
+  --output-dir "$OUT_DIR"
+)
+
+if [ "${OWL_LAYER_HOST_SKIP_EXAMPLE:-}" = "1" ]; then
+  args+=(--skip-example)
+fi
+if [ "${OWL_LAYER_HOST_SKIP_CANVAS:-}" = "1" ]; then
+  args+=(--skip-canvas)
+fi
+if [ "${OWL_LAYER_HOST_INPUT_CHECK:-}" = "1" ]; then
+  args+=(--input-check)
+fi
+if [ "${OWL_LAYER_HOST_RESIZE_CHECK:-}" = "1" ]; then
+  args+=(--resize-check)
+fi
+if [ "${OWL_LAYER_HOST_LIFECYCLE_CHECK:-}" = "1" ]; then
+  args+=(--lifecycle-check)
+fi
+if [ "${OWL_LAYER_HOST_SCALE_CHECK:-}" = "1" ]; then
+  args+=(--scale-check)
+fi
+if [ "${OWL_LAYER_HOST_GOOGLE_CHECK:-}" = "1" ]; then
+  args+=(--google-check)
+fi
+if [ "${OWL_LAYER_HOST_WIDGET_CHECK:-}" = "1" ]; then
+  args+=(--widget-check)
+fi
+if [ "${OWL_LAYER_HOST_INPUT_DIAGNOSTIC_CAPTURE:-}" = "1" ]; then
+  args+=(--input-diagnostic-capture)
+fi
+if [ -n "${OWL_LAYER_HOST_ONLY_TARGETS:-}" ]; then
+  IFS=',' read -ra only_targets <<< "$OWL_LAYER_HOST_ONLY_TARGETS"
+  for target in "${only_targets[@]}"; do
+    args+=(--only-target "$target")
+  done
+fi
+
 cd "$ROOT_DIR"
 DYLD_LIBRARY_PATH="$CHROMIUM_OUT${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
   swift run -c release OwlLayerHostVerifier \
-    --chromium-host "$HOST" \
-    --mojo-runtime "$RUNTIME" \
-    --output-dir "$OUT_DIR"
+    "${args[@]}"

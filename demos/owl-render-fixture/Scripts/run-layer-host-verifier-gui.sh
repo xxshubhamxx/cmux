@@ -86,8 +86,10 @@ for env_name in \
   OWL_FRESH_NO_IN_PROCESS_GPU \
   OWL_FRESH_WINDOW_SNAPSHOT \
   OWL_LAYER_HOST_GOOGLE_CHECK \
+  OWL_LAYER_HOST_LIFECYCLE_CHECK \
   OWL_LAYER_HOST_ONLY_TARGETS \
   OWL_LAYER_HOST_RESIZE_CHECK \
+  OWL_LAYER_HOST_SCALE_CHECK \
   OWL_LAYER_HOST_WIDGET_CHECK \
   OWL_LAYER_HOST_KEY_ONLY; do
   env_value="${!env_name:-}"
@@ -144,6 +146,16 @@ fi
 if [ "${OWL_LAYER_HOST_RESIZE_CHECK:-}" = "1" ]; then
   cat >> "$PLIST" <<PLIST
     <string>--resize-check</string>
+PLIST
+fi
+if [ "${OWL_LAYER_HOST_LIFECYCLE_CHECK:-}" = "1" ]; then
+  cat >> "$PLIST" <<PLIST
+    <string>--lifecycle-check</string>
+PLIST
+fi
+if [ "${OWL_LAYER_HOST_SCALE_CHECK:-}" = "1" ]; then
+  cat >> "$PLIST" <<PLIST
+    <string>--scale-check</string>
 PLIST
 fi
 if [ "${OWL_LAYER_HOST_INPUT_DIAGNOSTIC_CAPTURE:-}" = "1" ]; then
