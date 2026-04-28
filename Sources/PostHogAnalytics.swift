@@ -1,6 +1,24 @@
 import AppKit
 import Foundation
+#if !PRIVACY_MODE
 import PostHog
+#endif
+
+#if PRIVACY_MODE
+
+final class PostHogAnalytics {
+    static let shared = PostHogAnalytics()
+
+    private init() {}
+
+    func startIfNeeded() {}
+    func trackActive(reason _: String) {}
+    func trackDailyActive(reason _: String) {}
+    func trackHourlyActive(reason _: String) {}
+    func flush() {}
+}
+
+#else
 
 final class PostHogAnalytics {
     static let shared = PostHogAnalytics()
@@ -267,3 +285,5 @@ final class PostHogAnalytics {
         return properties
     }
 }
+
+#endif

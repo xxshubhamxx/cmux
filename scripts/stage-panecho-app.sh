@@ -40,6 +40,11 @@ set_plist_value() {
     }
 }
 
+delete_plist_key() {
+  local key_path="$1"
+  "$PLIST_BUDDY" -c "Delete :$key_path" "$INFO_PLIST" >/dev/null 2>&1 || true
+}
+
 set_plist_value "CFBundleName" string "$PANECHO_PRODUCT_NAME"
 set_plist_value "CFBundleDisplayName" string "$PANECHO_PRODUCT_NAME"
 set_plist_value "CFBundleIdentifier" string "$PANECHO_BUNDLE_IDENTIFIER"
@@ -52,5 +57,12 @@ set_plist_value "NSBluetoothAlwaysUsageDescription" string "A program running wi
 set_plist_value "NSAppleEventsUsageDescription" string "A program running within $PANECHO_PRODUCT_NAME would like to use AppleScript."
 set_plist_value "NSServices:0:NSMenuItem:default" string "New $PANECHO_PRODUCT_NAME Workspace Here"
 set_plist_value "NSServices:1:NSMenuItem:default" string "New $PANECHO_PRODUCT_NAME Window Here"
+set_plist_value "UTExportedTypeDeclarations:1:UTTypeDescription" string "$PANECHO_PRODUCT_NAME Sidebar Tab Reorder"
+set_plist_value "SUAutomaticallyUpdate" bool false
+set_plist_value "SUEnableAutomaticChecks" bool false
+set_plist_value "SUScheduledCheckInterval" integer 0
+set_plist_value "SUSendProfileInfo" bool false
+delete_plist_key "SUFeedURL"
+delete_plist_key "SUPublicEDKey"
 
 echo "Staged $PANECHO_PRODUCT_NAME at $DEST_APP"

@@ -220,7 +220,7 @@ struct cmuxApp: App {
             }
 
             CommandGroup(replacing: .appInfo) {
-                Button(String(localized: "menu.app.about", defaultValue: "About cmux")) {
+                Button(privacyModeBranded("About Panecho", stable: String(localized: "menu.app.about", defaultValue: "About cmux"))) {
                     showAboutPanel()
                 }
                 Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
@@ -230,7 +230,10 @@ struct cmuxApp: App {
             }
 
             CommandGroup(replacing: .appTermination) {
-                splitCommandButton(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), shortcut: menuShortcut(for: .quit)) {
+                splitCommandButton(
+                    title: privacyModeBranded("Quit Panecho", stable: String(localized: "menu.quitCmux", defaultValue: "Quit cmux")),
+                    shortcut: menuShortcut(for: .quit)
+                ) {
                     NSApp.terminate(nil)
                 }
             }
@@ -1133,7 +1136,7 @@ private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {
         case .settings:
             return "Settings"
         case .about:
-            return "About cmux"
+            return privacyModeBranded("About Panecho", stable: "About cmux")
         }
     }
 
@@ -1246,7 +1249,7 @@ private struct SettingsAboutTitlebarDebugOptions: Equatable {
         case .about:
             return SettingsAboutTitlebarDebugOptions(
                 overridesEnabled: false,
-                windowTitle: "About cmux",
+                windowTitle: privacyModeBranded("About Panecho", stable: "About cmux"),
                 titleVisibility: .hidden,
                 titlebarAppearsTransparent: true,
                 movableByWindowBackground: false,
@@ -2783,7 +2786,7 @@ private struct AboutPanelView: View {
 
             VStack(alignment: .center, spacing: 32) {
                 VStack(alignment: .center, spacing: 8) {
-                    Text(String(localized: "about.appName", defaultValue: "cmux"))
+                    Text(privacyModeBranded("Panecho", stable: String(localized: "about.appName", defaultValue: "cmux")))
                         .bold()
                         .font(.title)
                     Text(String(localized: "about.description", defaultValue: "A Ghostty-based terminal with vertical tabs\nand a notification panel for macOS."))
@@ -5043,6 +5046,14 @@ enum PrivacyMode {
     }
 }
 
+@inline(__always)
+func privacyModeBranded(
+    _ panechoValue: @autoclosure () -> String,
+    stable stableValue: @autoclosure () -> String
+) -> String {
+    PrivacyMode.isEnabled ? panechoValue() : stableValue()
+}
+
 enum TelemetrySettings {
     static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
     static let defaultSendAnonymousTelemetry = !PrivacyMode.isEnabled
@@ -5471,14 +5482,20 @@ struct SettingsView: View {
 
     private var paneFirstClickFocusSubtitle: String {
         if paneFirstClickFocusEnabled {
-            return String(
-                localized: "settings.app.paneFirstClickFocus.subtitleOn",
-                defaultValue: "When cmux is inactive, clicking a pane activates the window and focuses that pane in one click."
+            return privacyModeBranded(
+                "When Panecho is inactive, clicking a pane activates the window and focuses that pane in one click.",
+                stable: String(
+                    localized: "settings.app.paneFirstClickFocus.subtitleOn",
+                    defaultValue: "When cmux is inactive, clicking a pane activates the window and focuses that pane in one click."
+                )
             )
         }
-        return String(
-            localized: "settings.app.paneFirstClickFocus.subtitleOff",
-            defaultValue: "When cmux is inactive, the first click only activates the window. Click again to focus the pane."
+        return privacyModeBranded(
+            "When Panecho is inactive, the first click only activates the window. Click again to focus the pane.",
+            stable: String(
+                localized: "settings.app.paneFirstClickFocus.subtitleOff",
+                defaultValue: "When cmux is inactive, the first click only activates the window. Click again to focus the pane."
+            )
         )
     }
 
@@ -5935,7 +5952,7 @@ struct SettingsView: View {
                             configurationReview: .json("app.language"),
                             String(localized: "settings.app.language", defaultValue: "Language"),
                             subtitle: appLanguage != LanguageSettings.languageAtLaunch.rawValue
-                                ? String(localized: "settings.app.language.restartSubtitle", defaultValue: "Restart cmux to apply")
+                                ? privacyModeBranded("Restart Panecho to apply", stable: String(localized: "settings.app.language.restartSubtitle", defaultValue: "Restart cmux to apply"))
                                 : nil,
                             controlWidth: pickerColumnWidth
                         ) {
@@ -6059,9 +6076,12 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .action,
                             String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"),
-                            subtitle: String(
-                                localized: "settings.app.configWindow.subtitle",
-                                defaultValue: "Open the cmux config, standalone Ghostty config, and merged preview in one utility window."
+                            subtitle: privacyModeBranded(
+                                "Open the Panecho config, standalone Ghostty config, and merged preview in one utility window.",
+                                stable: String(
+                                    localized: "settings.app.configWindow.subtitle",
+                                    defaultValue: "Open the cmux config, standalone Ghostty config, and merged preview in one utility window."
+                                )
                             )
                         ) {
                             Button(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config Window")) {
@@ -6075,14 +6095,17 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             configurationReview: .json("app.openMarkdownInCmuxViewer"),
-                            String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"),
-                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "Cmd-clicking .md/.markdown/.mkd/.mdx files opens the cmux markdown viewer panel instead of the preferred editor.")
+                            privacyModeBranded("Open Markdown in Panecho Viewer", stable: String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer")),
+                            subtitle: privacyModeBranded(
+                                "Cmd-clicking .md/.markdown/.mkd/.mdx files opens the Panecho markdown viewer panel instead of the preferred editor.",
+                                stable: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "Cmd-clicking .md/.markdown/.mkd/.mdx files opens the cmux markdown viewer panel instead of the preferred editor.")
+                            )
                         ) {
                             Toggle("", isOn: $openMarkdownInCmuxViewer)
                                 .labelsHidden()
                                 .controlSize(.small)
                                 .accessibilityLabel(
-                                    String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer")
+                                    privacyModeBranded("Open Markdown in Panecho Viewer", stable: String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"))
                                 )
                         }
 
@@ -6115,7 +6138,10 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("app.menuBarOnly"),
                             String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"),
-                            subtitle: String(localized: "settings.app.menuBarOnly.subtitle", defaultValue: "Hide the Dock icon and Cmd+Tab entry. Use the menu bar item to show cmux.")
+                            subtitle: privacyModeBranded(
+                                "Hide the Dock icon and Cmd+Tab entry. Use the menu bar item to show Panecho.",
+                                stable: String(localized: "settings.app.menuBarOnly.subtitle", defaultValue: "Hide the Dock icon and Cmd+Tab entry. Use the menu bar item to show cmux.")
+                            )
                         ) {
                             Toggle("", isOn: menuBarOnlyBinding)
                                 .labelsHidden()
@@ -6131,7 +6157,10 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("notifications.showInMenuBar"),
                             String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"),
-                            subtitle: String(localized: "settings.app.showInMenuBar.subtitle", defaultValue: "Keep cmux in the menu bar for unread notifications and quick actions.")
+                            subtitle: privacyModeBranded(
+                                "Keep Panecho in the menu bar for unread notifications and quick actions.",
+                                stable: String(localized: "settings.app.showInMenuBar.subtitle", defaultValue: "Keep cmux in the menu bar for unread notifications and quick actions.")
+                            )
                         ) {
                             Toggle("", isOn: showMenuBarExtraBinding)
                                 .labelsHidden()
@@ -6162,7 +6191,10 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("notifications.paneFlash"),
                             String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"),
-                            subtitle: String(localized: "settings.notifications.paneFlash.subtitle", defaultValue: "Briefly flash a blue outline when cmux highlights a pane.")
+                            subtitle: privacyModeBranded(
+                                "Briefly flash a blue outline when Panecho highlights a pane.",
+                                stable: String(localized: "settings.notifications.paneFlash.subtitle", defaultValue: "Briefly flash a blue outline when cmux highlights a pane.")
+                            )
                         ) {
                             Toggle("", isOn: $notificationPaneFlashEnabled)
                                 .labelsHidden()
@@ -6285,7 +6317,10 @@ struct SettingsView: View {
                             String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"),
                             subtitle: sendAnonymousTelemetry != telemetryValueAtLaunch
                                 ? String(localized: "settings.app.telemetry.subtitleChanged", defaultValue: "Change takes effect on next launch.")
-                                : String(localized: "settings.app.telemetry.subtitle", defaultValue: "Share anonymized crash and usage data to help improve cmux.")
+                                : privacyModeBranded(
+                                    "Share anonymized crash and usage data to help improve Panecho.",
+                                    stable: String(localized: "settings.app.telemetry.subtitle", defaultValue: "Share anonymized crash and usage data to help improve cmux.")
+                                )
                         ) {
                             Toggle("", isOn: $sendAnonymousTelemetry)
                                 .labelsHidden()
@@ -6411,9 +6446,9 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             configurationReview: .json("sidebar.openPullRequestLinksInCmuxBrowser"),
-                            String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),
+                            privacyModeBranded("Open Sidebar PR Links in Panecho Browser", stable: String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser")),
                             subtitle: openSidebarPullRequestLinksInCmuxBrowser
-                                ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.")
+                                ? privacyModeBranded("Clicks open inside Panecho browser.", stable: String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser."))
                                 : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")
                         ) {
                             Toggle("", isOn: $openSidebarPullRequestLinksInCmuxBrowser)
@@ -6426,9 +6461,9 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             configurationReview: .json("sidebar.openPortLinksInCmuxBrowser"),
-                            String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"),
+                            privacyModeBranded("Open Sidebar Port Links in Panecho Browser", stable: String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser")),
                             subtitle: openSidebarPortLinksInCmuxBrowser
-                                ? String(localized: "settings.app.openSidebarPortLinks.subtitleOn", defaultValue: "Port clicks open inside cmux browser.")
+                                ? privacyModeBranded("Port clicks open inside Panecho browser.", stable: String(localized: "settings.app.openSidebarPortLinks.subtitleOn", defaultValue: "Port clicks open inside cmux browser."))
                                 : String(localized: "settings.app.openSidebarPortLinks.subtitleOff", defaultValue: "Port clicks open in your default browser.")
                         ) {
                             Toggle("", isOn: $openSidebarPortLinksInCmuxBrowser)
@@ -6508,7 +6543,10 @@ struct SettingsView: View {
                             configurationReview: .json("terminal.showScrollBar"),
                             String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
                             subtitle: showTerminalScrollBar
-                                ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
+                                ? privacyModeBranded(
+                                    "Shows the right-edge terminal scroll bar in shell scrollback. Panecho hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.",
+                                    stable: String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
+                                )
                                 : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
                         ) {
                             Toggle("", isOn: showTerminalScrollBarBinding)
@@ -6836,7 +6874,7 @@ struct SettingsView: View {
                             String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"),
                             subtitle: claudeCodeHooksEnabled
                                 ? String(localized: "settings.automation.claudeCode.subtitleOn", defaultValue: "Sidebar shows Claude session status and notifications.")
-                                : String(localized: "settings.automation.claudeCode.subtitleOff", defaultValue: "Claude Code runs without cmux integration.")
+                                : privacyModeBranded("Claude Code runs without Panecho integration.", stable: String(localized: "settings.automation.claudeCode.subtitleOff", defaultValue: "Claude Code runs without cmux integration."))
                         ) {
                             Toggle("", isOn: $claudeCodeHooksEnabled)
                                 .labelsHidden()
@@ -6846,7 +6884,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
+                        SettingsCardNote(privacyModeBranded("When enabled, Panecho wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself.", stable: String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself.")))
                     }
 
                     SettingsCard {
@@ -6870,7 +6908,7 @@ struct SettingsView: View {
                             String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"),
                             subtitle: cursorHooksEnabled
                                 ? String(localized: "settings.automation.cursor.subtitleOn", defaultValue: "Sidebar shows Cursor agent status and notifications.")
-                                : String(localized: "settings.automation.cursor.subtitleOff", defaultValue: "Cursor runs without cmux integration.")
+                                : privacyModeBranded("Cursor runs without Panecho integration.", stable: String(localized: "settings.automation.cursor.subtitleOff", defaultValue: "Cursor runs without cmux integration."))
                         ) {
                             Toggle("", isOn: $cursorHooksEnabled)
                                 .labelsHidden()
@@ -6880,7 +6918,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote(String(localized: "settings.automation.cursor.note", defaultValue: "Hooks must be installed with `cmux cursor install-hooks`. They no-op outside cmux terminals."))
+                        SettingsCardNote(privacyModeBranded("Hooks must be installed with `cmux cursor install-hooks`. They no-op outside Panecho terminals.", stable: String(localized: "settings.automation.cursor.note", defaultValue: "Hooks must be installed with `cmux cursor install-hooks`. They no-op outside cmux terminals.")))
                     }
 
                     SettingsCard {
@@ -6889,7 +6927,7 @@ struct SettingsView: View {
                             String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"),
                             subtitle: geminiHooksEnabled
                                 ? String(localized: "settings.automation.gemini.subtitleOn", defaultValue: "Sidebar shows Gemini session status and notifications.")
-                                : String(localized: "settings.automation.gemini.subtitleOff", defaultValue: "Gemini runs without cmux integration.")
+                                : privacyModeBranded("Gemini runs without Panecho integration.", stable: String(localized: "settings.automation.gemini.subtitleOff", defaultValue: "Gemini runs without cmux integration."))
                         ) {
                             Toggle("", isOn: $geminiHooksEnabled)
                                 .labelsHidden()
@@ -6899,7 +6937,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote(String(localized: "settings.automation.gemini.note", defaultValue: "Hooks must be installed with `cmux gemini install-hooks`. They no-op outside cmux terminals."))
+                        SettingsCardNote(privacyModeBranded("Hooks must be installed with `cmux gemini install-hooks`. They no-op outside Panecho terminals.", stable: String(localized: "settings.automation.gemini.note", defaultValue: "Hooks must be installed with `cmux gemini install-hooks`. They no-op outside cmux terminals.")))
                     }
 
                     SettingsCard {
@@ -6966,7 +7004,7 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             configurationReview: .json("browser.openTerminalLinksInCmuxBrowser"),
-                            String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"),
+                            privacyModeBranded("Open Terminal Links in Panecho Browser", stable: String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser")),
                             subtitle: String(localized: "settings.browser.openTerminalLinks.subtitle", defaultValue: "When off, links clicked in terminal output open in your default browser.")
                         ) {
                             Toggle("", isOn: $openTerminalLinksInCmuxBrowser)
@@ -6993,7 +7031,10 @@ struct SettingsView: View {
                                 SettingsCardRow(
                                     configurationReview: .json("browser.hostsToOpenInEmbeddedBrowser"),
                                     String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"),
-                                    subtitle: String(localized: "settings.browser.hostWhitelist.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in cmux. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux.")
+                                    subtitle: privacyModeBranded(
+                                        "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in Panecho. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in Panecho.",
+                                        stable: String(localized: "settings.browser.hostWhitelist.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in cmux. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux.")
+                                    )
                                 ) {
                                     EmptyView()
                                 }
@@ -7046,7 +7087,7 @@ struct SettingsView: View {
                             Text(String(localized: "settings.browser.httpAllowlist", defaultValue: "HTTP Hosts Allowed in Embedded Browser"))
                                 .font(.system(size: 13, weight: .semibold))
 
-                            Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."))
+                            Text(privacyModeBranded("Controls which HTTP (non-HTTPS) hosts can open in Panecho without a warning prompt. Defaults include localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me.", stable: String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me.")))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
@@ -7709,7 +7750,7 @@ private struct AuthSettingsRow: View {
         }
         return String(
             localized: "settings.account.signedOut.subtitle",
-            defaultValue: "Sign in with your cmux account to enable sync across devices."
+            defaultValue: PrivacyMode.isEnabled ? "Sign in with your Panecho account to enable sync across devices." : "Sign in with your cmux account to enable sync across devices."
         )
     }
 
@@ -8362,14 +8403,20 @@ private struct GlobalHotkeySection: View {
 
     private var enableSubtitle: String {
         if isEnabled {
-            return String(
-                localized: "settings.globalHotkey.enable.subtitleOn",
-                defaultValue: "Press the shortcut from any app to show or hide all cmux windows."
+            return privacyModeBranded(
+                "Press the shortcut from any app to show or hide all Panecho windows.",
+                stable: String(
+                    localized: "settings.globalHotkey.enable.subtitleOn",
+                    defaultValue: "Press the shortcut from any app to show or hide all cmux windows."
+                )
             )
         }
-        return String(
-            localized: "settings.globalHotkey.enable.subtitleOff",
-            defaultValue: "Turn this on to show or hide all cmux windows from any app."
+        return privacyModeBranded(
+            "Turn this on to show or hide all Panecho windows from any app.",
+            stable: String(
+                localized: "settings.globalHotkey.enable.subtitleOff",
+                defaultValue: "Turn this on to show or hide all cmux windows from any app."
+            )
         )
     }
 

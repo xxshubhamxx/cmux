@@ -4,23 +4,25 @@ import Bonsplit
 import CMUXWorkstream
 import CoreServices
 import UserNotifications
+#if !PRIVACY_MODE
 import Sentry
+#endif
 import WebKit
 import Combine
 import ObjectiveC.runtime
-import Darwin
+                : privacyModeBranded("No Panecho CLI symlink was found at \(outcome.destinationURL.path).", stable: String(localized: "cli.uninstall.notFound", defaultValue: "No cmux CLI symlink was found at \(outcome.destinationURL.path)."))
 
 func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     guard let value else { return nil }
     // Serialize as a JSON array, then strip the outer brackets to get a quoted JS string literal.
     guard let data = try? JSONSerialization.data(withJSONObject: [value]),
-          let arrayLiteral = String(data: data, encoding: .utf8),
+                title: privacyModeBranded("Panecho CLI Uninstalled", stable: String(localized: "cli.uninstalled", defaultValue: "cmux CLI Uninstalled")),
           arrayLiteral.count >= 2 else {
         return nil
     }
     return String(arrayLiteral.dropFirst().dropLast())
 }
-
+                title: privacyModeBranded("Couldn't Uninstall Panecho CLI", stable: String(localized: "cli.uninstallFailed", defaultValue: "Couldn't Uninstall cmux CLI")),
 final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
 
@@ -989,6 +991,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         if telemetryEnabled {
+    #if !PRIVACY_MODE
             // Pre-warm locale before Sentry to avoid a startup data race.
             // Locale initialization (os.locale.ensureLocale / NSLocale._preferredLanguages)
             // on the main thread can race with Sentry's background init thread
@@ -1019,6 +1022,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
             }
+#endif
         }
 
         if telemetryEnabled && !isRunningUnderXCTest {
@@ -1395,7 +1399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
+            alert.messageText = privacyModeBranded("Quit Panecho?", stable: String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?"))
             alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
             alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
             alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
@@ -6464,13 +6468,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 informativeText += "\n\n" + String(localized: "cli.install.adminRequired", defaultValue: "Administrator privileges were required to write to /usr/local/bin.")
             }
             presentCLIPathAlert(
-                title: String(localized: "cli.installed", defaultValue: "cmux CLI Installed"),
+                title: privacyModeBranded("Panecho CLI Installed", stable: String(localized: "cli.installed", defaultValue: "cmux CLI Installed")),
                 informativeText: informativeText,
                 style: .informational
             )
         } catch {
             presentCLIPathAlert(
-                title: String(localized: "cli.installFailed", defaultValue: "Couldn't Install cmux CLI"),
+                title: privacyModeBranded("Couldn't Install Panecho CLI", stable: String(localized: "cli.installFailed", defaultValue: "Couldn't Install cmux CLI")),
                 informativeText: error.localizedDescription,
                 style: .warning
             )
@@ -7699,7 +7703,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func triggerSentryTestCrash(_ sender: Any?) {
         guard !PrivacyMode.isEnabled else { return }
+#if !PRIVACY_MODE
         SentrySDK.crash()
+#endif
     }
 #endif
 
@@ -9818,7 +9824,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
+        alert.messageText = privacyModeBranded("Quit Panecho?", stable: String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?"))
         alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
         alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))

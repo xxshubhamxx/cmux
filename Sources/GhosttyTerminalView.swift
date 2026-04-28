@@ -7,7 +7,6 @@ import Combine
 import CoreText
 import Darwin
 import Carbon.HIToolbox
-import Sentry
 import Bonsplit
 import IOSurface
 import UniformTypeIdentifiers
@@ -1724,15 +1723,17 @@ class GhosttyApp {
                 cooldown: scrollLagReportCooldownSeconds
             ) {
                 if !PrivacyMode.isEnabled && TelemetrySettings.enabledForCurrentLaunch {
-                    SentrySDK.capture(message: "Scroll lag detected") { scope in
-                        scope.setLevel(.warning)
-                        scope.setContext(value: [
+                    sentryCaptureWarning(
+                        "Scroll lag detected",
+                        category: "scroll",
+                        data: [
                             "samples": samples,
                             "avg_ms": String(format: "%.2f", avgLag),
                             "max_ms": String(format: "%.2f", maxLag),
                             "threshold_ms": threshold
-                        ], key: "scroll_lag")
-                    }
+                        ],
+                        contextKey: "scroll_lag"
+                    )
                 }
                 lastScrollLagReportUptime = nowUptime
             }

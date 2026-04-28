@@ -6810,7 +6810,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.installCLI",
-                title: constant(String(localized: "command.installCLI.title", defaultValue: "Shell Command: Install 'cmux' in PATH")),
+                title: constant(privacyModeBranded("Shell Command: Install Panecho CLI in PATH", stable: String(localized: "command.installCLI.title", defaultValue: "Shell Command: Install 'cmux' in PATH"))),
                 subtitle: constant(String(localized: "command.installCLI.subtitle", defaultValue: "CLI")),
                 keywords: ["install", "cli", "path", "shell", "command", "symlink"],
                 when: { !$0.bool(CommandPaletteContextKeys.cliInstalledInPATH) }
@@ -6819,7 +6819,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.uninstallCLI",
-                title: constant(String(localized: "command.uninstallCLI.title", defaultValue: "Shell Command: Uninstall 'cmux' from PATH")),
+                title: constant(privacyModeBranded("Shell Command: Uninstall Panecho CLI from PATH", stable: String(localized: "command.uninstallCLI.title", defaultValue: "Shell Command: Uninstall 'cmux' from PATH"))),
                 subtitle: constant(String(localized: "command.uninstallCLI.subtitle", defaultValue: "CLI")),
                 keywords: ["uninstall", "remove", "cli", "path", "shell", "command", "symlink"],
                 when: { $0.bool(CommandPaletteContextKeys.cliInstalledInPATH) }
@@ -11706,7 +11706,7 @@ private struct SidebarHelpMenuButton: View {
     private var helpPopover: some View {
         VStack(alignment: .leading, spacing: 2) {
             helpOptionButton(
-                title: String(localized: "sidebar.help.welcome", defaultValue: "Welcome to cmux!"),
+                title: privacyModeBranded("Welcome to Panecho!", stable: String(localized: "sidebar.help.welcome", defaultValue: "Welcome to cmux!")),
                 action: .welcome,
                 accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
                 isExternalLink: false

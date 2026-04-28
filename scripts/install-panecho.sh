@@ -19,11 +19,9 @@ Options:
 
 Without --build-from-source, the installer tries this order:
   1. --source / PANECHO_APP_SOURCE
-  2. an existing local Panecho.app build
-  3. a release asset discovered from PANECHO_DOWNLOAD_URL
-  4. the current repo's panecho-nightly prerelease asset
-  5. the current repo's latest full release asset
-  6. a local source build, but only if xcodebuild is already usable
+  2. the fork's latest Panecho release asset
+  3. the fork's panecho-nightly prerelease asset
+  4. a local source build, but only if --build-from-source is explicit
 EOF
 }
 
@@ -386,6 +384,31 @@ main() {
     return
   fi
 
+  if [[ -z "$EXPLICIT_SOURCE" && -z "${PANECHO_APP_SOURCE:-}" ]]; then
+    local prebuilt_args=()
+    if [[ -n "${PANECHO_ZIP_SOURCE:-${PANECHO_ZIP_URL:-}}" ]]; then
+      prebuilt_args+=(--zip "${PANECHO_ZIP_SOURCE:-${PANECHO_ZIP_URL:-}}")
+    fi
+    if [[ -n "${PANECHO_RELEASE_REPO:-}" ]]; then
+      prebuilt_args+=(--repo "${PANECHO_RELEASE_REPO}")
+    fi
+    if [[ -n "${PANECHO_RELEASE_TAG:-}" ]]; then
+      prebuilt_args+=(--tag "${PANECHO_RELEASE_TAG}")
+    fi
+    if [[ -n "${PANECHO_ASSET_NAME:-}" ]]; then
+      prebuilt_args+=(--asset "${PANECHO_ASSET_NAME}")
+    fi
+    if [[ -n "${PANECHO_INSTALL_DIR:-}" ]]; then
+      prebuilt_args+=(--install-dir "${PANECHO_INSTALL_DIR}")
+    fi
+    if [[ "${PANECHO_SKIP_OPEN:-0}" == "1" ]]; then
+      prebuilt_args+=(--no-open)
+    fi
+
+    "$ROOT_DIR/scripts/install-panecho-prebuilt.sh" "${prebuilt_args[@]}"
+    return
+  fi
+
   local install_source
   install_source="$(resolve_install_source)"
   if [[ -n "$install_source" ]]; then
@@ -395,23 +418,14 @@ main() {
     return
   fi
 
-  if usable_xcodebuild; then
-    build_and_install_from_source
-    return
-  fi
-
   cat >&2 <<'EOF'
 error: no prebuilt Panecho app was found to install.
 
 Tried:
   - PANECHO_APP_SOURCE / --source
-  - an existing local Panecho.app build
-  - a Panecho .dmg/.zip release asset from PANECHO_DOWNLOAD_URL
-  - the current GitHub repo's panecho-nightly prerelease asset
-  - the current GitHub repo's latest full release asset
+  - a local Panecho.app/.dmg/.zip or direct download URL
 
 Next steps:
-  - publish a Panecho .dmg or .zip and set PANECHO_DOWNLOAD_URL, or
   - run ./scripts/install-panecho.sh --build-from-source on a machine with full Xcode
 EOF
   exit 1
