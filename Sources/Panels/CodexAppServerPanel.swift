@@ -1471,6 +1471,10 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         if let resumedCwd = snapshot.cwd, !resumedCwd.isEmpty {
             cwd = resumedCwd
         }
+        if let resumedModel = Self.stringValue(named: "model", in: response),
+           !resumedModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            selectedModelId = resumedModel
+        }
 
         activeAssistantItemId = nil
 
