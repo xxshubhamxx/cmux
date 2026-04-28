@@ -185,7 +185,8 @@ def _open_two_pane_browser_workspace(client: cmux) -> tuple[str, str, str]:
     client.select_workspace(workspace_id)
     time.sleep(0.2)
 
-    browser_surface_id = client.new_pane(direction="right", panel_type="browser", url=_test_page())
+    browser_surface_id = client.new_pane(direction="right", panel_type="browser", url="about:blank")
+    client.navigate(browser_surface_id, _test_page())
     client._call("browser.wait", {"surface_id": browser_surface_id, "selector": "#search", "timeout_ms": 5000})
     _focus_browser_input(client, browser_surface_id)
 
