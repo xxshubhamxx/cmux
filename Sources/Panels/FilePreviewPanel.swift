@@ -166,7 +166,7 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
                 id: dragId,
                 title: displayTitle,
                 hasCustomTitle: false,
-                icon: FilePreviewKindResolver.tabIconName(for: URL(fileURLWithPath: filePath)),
+                icon: FilePreviewKindResolver.initialTabIconName(for: URL(fileURLWithPath: filePath)),
                 iconImageData: nil,
                 kind: "filePreview",
                 isDirty: false,
@@ -224,6 +224,11 @@ enum FilePreviewMode: Equatable {
 }
 
 enum FilePreviewKindResolver {
+    enum Resolution: Sendable {
+        case resolved(FilePreviewMode)
+        case needsSniff
+    }
+
     private static let textFilenames: Set<String> = [
         ".env",
         ".gitignore",
@@ -245,43 +250,87 @@ enum FilePreviewKindResolver {
     ]
 
     static func mode(for url: URL) -> FilePreviewMode {
-        if let mode = mediaMode(for: url) {
+        switch resolvedResolution(for: url) {
+        case .resolved(let mode):
             return mode
+        case .needsSniff:
+            return sniffLooksLikeText(url: url) ? .text : .quickLook
         }
-        if isTextFile(url: url) {
-            return .text
+    }
+
+    static func initialMode(for url: URL) -> FilePreviewMode {
+        switch initialResolution(for: url) {
+        case .resolved(let mode):
+            return mode
+        case .needsSniff:
+            return .quickLook
         }
-        return .quickLook
+    }
+
+    static func resolveMode(url: URL) async -> FilePreviewMode {
+        await Task.detached(priority: .userInitiated) {
+            mode(for: url)
+        }.value
     }
 
     static func tabIconName(for url: URL) -> String {
-        for type in contentTypes(for: url) {
-            if type.conforms(to: .pdf) {
-                return "doc.richtext"
-            }
-            if type.conforms(to: .image) {
-                return "photo"
-            }
-            if type.conforms(to: .movie) || type.conforms(to: .audiovisualContent) {
-                return "play.rectangle"
-            }
-            if type.conforms(to: .audio) {
-                return "waveform"
-            }
-        }
-        if isTextFile(url: url) {
-            return "doc.text"
-        }
-        return "doc.viewfinder"
+        iconName(for: mode(for: url))
     }
 
-    private static func mediaMode(for url: URL) -> FilePreviewMode? {
+    static func initialTabIconName(for url: URL) -> String {
+        iconName(for: initialMode(for: url))
+    }
+
+    static func iconName(for mode: FilePreviewMode) -> String {
+        switch mode {
+        case .text:
+            return "doc.text"
+        case .pdf:
+            return "doc.richtext"
+        case .image:
+            return "photo"
+        case .media:
+            return "play.rectangle"
+        case .quickLook:
+            return "doc.viewfinder"
+        }
+    }
+
+    private static func initialResolution(for url: URL) -> Resolution {
+        let ext = url.pathExtension.lowercased()
+        if let type = UTType(filenameExtension: ext),
+           let mediaMode = mediaMode(for: type) {
+            return .resolved(mediaMode)
+        }
+
+        if ext == "plist" {
+            return .needsSniff
+        }
+
+        if knownTextFile(url: url, includeResourceContentType: false) {
+            return .resolved(.text)
+        }
+
+        return .needsSniff
+    }
+
+    private static func resolvedResolution(for url: URL) -> Resolution {
+        let ext = url.pathExtension.lowercased()
+        if ext == "plist", looksLikeBinaryPropertyList(url: url) {
+            return .resolved(.quickLook)
+        }
+
         for type in contentTypes(for: url) {
-            if let mode = mediaMode(for: type) {
-                return mode
+            if let mediaMode = mediaMode(for: type) {
+                return .resolved(mediaMode)
             }
         }
-        return nil
+
+        if knownTextFile(url: url, includeResourceContentType: true) {
+            return .resolved(.text)
+        }
+
+        return .needsSniff
     }
 
     private static func mediaMode(for type: UTType) -> FilePreviewMode? {
@@ -312,19 +361,17 @@ enum FilePreviewKindResolver {
         return types
     }
 
-    private static func isTextFile(url: URL) -> Bool {
+    private static func knownTextFile(url: URL, includeResourceContentType: Bool) -> Bool {
         let filename = url.lastPathComponent.lowercased()
         if textFilenames.contains(filename) {
             return true
         }
         let ext = url.pathExtension.lowercased()
-        if ext == "plist", looksLikeBinaryPropertyList(url: url) {
-            return false
-        }
         if textExtensions.contains(ext) {
             return true
         }
-        if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType,
+        if includeResourceContentType,
+           let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType,
            type.conforms(to: .text) || type.conforms(to: .sourceCode) {
             return true
         }
@@ -332,7 +379,7 @@ enum FilePreviewKindResolver {
            type.conforms(to: .text) || type.conforms(to: .sourceCode) {
             return true
         }
-        return sniffLooksLikeText(url: url)
+        return false
     }
 
     private static func looksLikeBinaryPropertyList(url: URL) -> Bool {
@@ -437,18 +484,18 @@ final class FilePreviewPanel: Panel, ObservableObject {
     let panelType: PanelType = .filePreview
     let filePath: String
     private(set) var workspaceId: UUID
-    let displayIcon: String?
-
     @Published private(set) var displayTitle: String
+    @Published private(set) var displayIcon: String?
     @Published private(set) var isFileUnavailable = false
     @Published private(set) var textContent = ""
     @Published private(set) var isDirty = false
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
+    @Published private(set) var previewMode: FilePreviewMode
 
-    let previewMode: FilePreviewMode
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
+    private var previewModeGeneration = 0
     private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
@@ -465,17 +512,15 @@ final class FilePreviewPanel: Panel, ObservableObject {
         self.filePath = filePath
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         let fileURL = URL(fileURLWithPath: filePath)
-        self.previewMode = FilePreviewKindResolver.mode(for: fileURL)
-        self.displayIcon = FilePreviewKindResolver.tabIconName(for: fileURL)
+        let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
+        self.previewMode = initialPreviewMode
+        self.displayIcon = FilePreviewKindResolver.iconName(for: initialPreviewMode)
         self.focusCoordinator = FilePreviewFocusCoordinator(
-            preferredIntent: Self.defaultFocusIntent(for: previewMode)
+            preferredIntent: Self.defaultFocusIntent(for: initialPreviewMode)
         )
 
-        if previewMode == .text {
-            loadTextContent(replacingDirtyContent: false)
-        } else {
-            isFileUnavailable = !FileManager.default.fileExists(atPath: filePath)
-        }
+        prepareContentForPreviewMode()
+        resolvePreviewModeIfNeeded(for: fileURL)
     }
 
     func focus() {
@@ -577,6 +622,37 @@ final class FilePreviewPanel: Panel, ObservableObject {
         guard textContent != nextContent else { return }
         textContent = nextContent
         isDirty = nextContent != originalTextContent
+    }
+
+    private func prepareContentForPreviewMode() {
+        if previewMode == .text {
+            loadTextContent(replacingDirtyContent: false)
+        } else {
+            isFileUnavailable = !FileManager.default.fileExists(atPath: filePath)
+        }
+    }
+
+    private func resolvePreviewModeIfNeeded(for fileURL: URL) {
+        let initialMode = previewMode
+        let initialIcon = displayIcon
+        previewModeGeneration += 1
+        let generation = previewModeGeneration
+
+        Task { [weak self, fileURL, initialMode, initialIcon, generation] in
+            let resolvedMode = await FilePreviewKindResolver.resolveMode(url: fileURL)
+            guard let self, self.previewModeGeneration == generation else { return }
+            let resolvedIcon = FilePreviewKindResolver.iconName(for: resolvedMode)
+            guard resolvedMode != initialMode || resolvedIcon != initialIcon else { return }
+            self.applyResolvedPreviewMode(resolvedMode)
+        }
+    }
+
+    private func applyResolvedPreviewMode(_ mode: FilePreviewMode) {
+        guard previewMode != mode else { return }
+        previewMode = mode
+        displayIcon = FilePreviewKindResolver.iconName(for: mode)
+        focusCoordinator.notePreferredIntent(Self.defaultFocusIntent(for: mode))
+        prepareContentForPreviewMode()
     }
 
     @discardableResult

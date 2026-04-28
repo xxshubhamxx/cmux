@@ -8222,15 +8222,20 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installFilePreviewPanelSubscription(_ filePreviewPanel: FilePreviewPanel) {
-        let subscription = Publishers.CombineLatest(
+        let titleAndDirty = Publishers.CombineLatest(
             filePreviewPanel.$displayTitle.removeDuplicates(),
             filePreviewPanel.$isDirty.removeDuplicates()
         )
+        let subscription = Publishers.CombineLatest(
+            titleAndDirty,
+            filePreviewPanel.$displayIcon.removeDuplicates()
+        )
         .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak filePreviewPanel] newTitle, isDirty in
+        .sink { [weak self, weak filePreviewPanel] titleAndDirty, displayIcon in
             guard let self,
                   let filePreviewPanel,
                   let tabId = self.surfaceIdFromPanelId(filePreviewPanel.id) else { return }
+            let (newTitle, isDirty) = titleAndDirty
             guard let existing = self.bonsplitController.tab(tabId) else { return }
 
             if self.panelTitles[filePreviewPanel.id] != newTitle {
@@ -8238,11 +8243,13 @@ final class Workspace: Identifiable, ObservableObject {
             }
             let resolvedTitle = self.resolvedPanelTitle(panelId: filePreviewPanel.id, fallback: newTitle)
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            let iconUpdate: String?? = existing.icon == displayIcon ? nil : .some(displayIcon)
             let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
-            guard titleUpdate != nil || dirtyUpdate != nil else { return }
+            guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else { return }
             self.bonsplitController.updateTab(
                 tabId,
                 title: titleUpdate,
+                icon: iconUpdate,
                 hasCustomTitle: self.panelCustomTitles[filePreviewPanel.id] != nil,
                 isDirty: dirtyUpdate
             )

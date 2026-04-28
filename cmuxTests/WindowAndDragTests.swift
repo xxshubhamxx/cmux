@@ -1621,6 +1621,22 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.tabIconName(for: url), "doc.text")
     }
 
+    func testExtensionlessTextFileResolvesToTextAfterFastInitialClassification() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try "extensionless text".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await waitForPanelPreviewMode(panel, .text)
+        await waitForPanelTextContent(panel, "extensionless text")
+
+        XCTAssertEqual(panel.displayIcon, "doc.text")
+    }
+
     func testBinaryPlistDoesNotOpenAsEditableText() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -1628,6 +1644,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("bplist00".utf8).write(to: url)
 
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
         XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
@@ -1651,6 +1668,36 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             await Task.yield()
         }
         XCTFail("Timed out waiting for file preview save", file: file, line: line)
+    }
+
+    private func waitForPanelPreviewMode(
+        _ panel: FilePreviewPanel,
+        _ mode: FilePreviewMode,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<1000 {
+            if panel.previewMode == mode {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for file preview mode", file: file, line: line)
+    }
+
+    private func waitForPanelTextContent(
+        _ panel: FilePreviewPanel,
+        _ content: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<1000 {
+            if panel.textContent == content {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for file preview text content", file: file, line: line)
     }
 
     private func windowHosting(_ textView: NSTextView) -> NSWindow {
