@@ -290,30 +290,45 @@ private struct CodexComposerSurfaceChrome<Content: View>: View {
 
     var body: some View {
         Group {
+            #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
-                GlassEffectContainer(spacing: 0) {
-                    content()
-                        .glassEffect(
-                            .regular
-                                .tint(Color(nsColor: themeBackground).opacity(0.56))
-                                .interactive(),
-                            in: .rect(cornerRadius: metrics.cornerRadius)
-                        )
-                        .overlay(composerStroke)
-                        .shadow(color: .black.opacity(metrics.shadowOpacity), radius: metrics.shadowRadius, x: 0, y: metrics.shadowY)
-                }
+                glassComposerChrome
             } else {
-                content()
-                    .background {
-                        RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
-                            .fill(.regularMaterial)
-                        RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.62))
-                    }
-                    .overlay(composerStroke)
-                    .shadow(color: .black.opacity(metrics.shadowOpacity - 0.04), radius: metrics.shadowRadius - 2, x: 0, y: metrics.shadowY - 1)
+                fallbackComposerChrome
             }
+            #else
+            fallbackComposerChrome
+            #endif
         }
+    }
+
+    #if compiler(>=6.2)
+    @available(macOS 26.0, *)
+    private var glassComposerChrome: some View {
+        GlassEffectContainer(spacing: 0) {
+            content()
+                .glassEffect(
+                    .regular
+                        .tint(Color(nsColor: themeBackground).opacity(0.56))
+                        .interactive(),
+                    in: .rect(cornerRadius: metrics.cornerRadius)
+                )
+                .overlay(composerStroke)
+                .shadow(color: Color.black.opacity(metrics.shadowOpacity), radius: metrics.shadowRadius, x: 0, y: metrics.shadowY)
+        }
+    }
+    #endif
+
+    private var fallbackComposerChrome: some View {
+        content()
+            .background {
+                RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+                    .fill(.regularMaterial)
+                RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.62))
+            }
+            .overlay(composerStroke)
+            .shadow(color: Color.black.opacity(metrics.shadowOpacity - 0.04), radius: metrics.shadowRadius - 2, x: 0, y: metrics.shadowY - 1)
     }
 
     private var composerStroke: some View {

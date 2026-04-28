@@ -1228,7 +1228,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             appendHookEvent(method: method, params: params)
         case "error":
             appendCodexErrorEvent(params)
-        case "warning":
+        case "warning", "configWarning", "guardianWarning", "deprecationNotice", "windows/worldWritableWarning":
             appendEvent(
                 title: String(localized: "codexAppServer.event.warning", defaultValue: "Warning"),
                 body: CodexAppServerTranscriptPolicy.normalizedWarningMessage(
