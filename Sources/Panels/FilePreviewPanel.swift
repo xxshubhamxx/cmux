@@ -815,7 +815,6 @@ struct FilePreviewPanelView: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(!panel.isDirty || panel.isSaving)
-                .keyboardShortcut("s", modifiers: .command)
                 .help(String(localized: "filePreview.save", defaultValue: "Save"))
                 .accessibilityLabel(String(localized: "filePreview.save", defaultValue: "Save"))
             }

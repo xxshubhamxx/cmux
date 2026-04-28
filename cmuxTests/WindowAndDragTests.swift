@@ -1487,6 +1487,43 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "saved by configured shortcut")
     }
 
+    func testSavingTextViewDoesNotUseDefaultSaveShortcutAfterRemap() async throws {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "u", command: true, shift: false, option: true, control: false),
+            for: .saveFilePreview
+        )
+
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+
+        let textView = SavingTextView()
+        textView.string = "should not save through command s"
+        textView.panel = panel
+        panel.attachTextView(textView)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "s",
+            charactersIgnoringModifiers: "s",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_S)
+        ))
+
+        XCTAssertFalse(textView.performKeyEquivalent(with: event))
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "original")
+    }
+
     func testSaveTextContentPreservesLoadedEncoding() async throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf16)
         defer { try? FileManager.default.removeItem(at: url) }
