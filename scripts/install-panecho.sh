@@ -362,7 +362,11 @@ build_and_install_from_source() {
   ./scripts/setup.sh
 
   echo "==> Building Panecho..."
-  ./scripts/build-panecho.sh "${BUILD_ARGS[@]}"
+  if ((${#BUILD_ARGS[@]})); then
+    ./scripts/build-panecho.sh "${BUILD_ARGS[@]}"
+  else
+    ./scripts/build-panecho.sh
+  fi
 
   local built_app_path
   built_app_path="$(find_local_app_build)"
@@ -405,7 +409,11 @@ main() {
       prebuilt_args+=(--no-open)
     fi
 
+  if ((${#prebuilt_args[@]})); then
     "$ROOT_DIR/scripts/install-panecho-prebuilt.sh" "${prebuilt_args[@]}"
+  else
+    "$ROOT_DIR/scripts/install-panecho-prebuilt.sh"
+  fi
     return
   fi
 
