@@ -9,7 +9,16 @@ import WebKit
 
 enum MinimalModeChromeMetrics {
     static let titlebarHeight: CGFloat = 30
-    static let workspaceTopInset: CGFloat = 0
+}
+
+enum SidebarWorkspaceListMetrics {
+    static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight
+    static let rowVerticalPadding: CGFloat = 8
+    static let topScrimHeight: CGFloat = firstRowTopOffset + 20
+
+    static var scrollTopInset: CGFloat {
+        max(0, firstRowTopOffset - rowVerticalPadding)
+    }
 }
 
 // MARK: - File Drop Overlay
@@ -2495,7 +2504,6 @@ struct ContentView: View {
                     debugSource: "titlebar.hiddenNewWorkspace"
                 )
             },
-            titlebarHeight: titlebarPadding,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
@@ -9604,7 +9612,6 @@ struct VerticalTabsSidebar: View {
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
-    let titlebarHeight: CGFloat
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @Binding var selection: SidebarSelection
@@ -9630,18 +9637,15 @@ struct VerticalTabsSidebar: View {
     private let hiddenTitlebarControlsLeadingInset: CGFloat = 72
 
     private var workspaceScrollTopVisibilityInset: CGFloat {
-        if isMinimalMode {
-            return MinimalModeChromeMetrics.workspaceTopInset
-        }
-        return titlebarHeight + 8
+        SidebarWorkspaceListMetrics.scrollTopInset
     }
 
     private var sidebarTitlebarInteractionHeight: CGFloat {
-        isMinimalMode ? MinimalModeChromeMetrics.titlebarHeight : titlebarHeight
+        SidebarWorkspaceListMetrics.firstRowTopOffset
     }
 
     private var sidebarTopScrimHeight: CGFloat {
-        isMinimalMode ? MinimalModeChromeMetrics.titlebarHeight : titlebarHeight + 20
+        SidebarWorkspaceListMetrics.topScrimHeight
     }
 
     private var isMinimalMode: Bool {
@@ -9927,7 +9931,7 @@ struct VerticalTabsSidebar: View {
                 workspaceRow(tab, renderContext: renderContext)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

@@ -162,39 +162,44 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
-    func testMinimalModeLiftsSidebarRowsIntoCompactTitlebarArea() {
-        let (app, dataPath) = launchConfiguredApp()
+    func testSidebarWorkspaceRowsKeepStableTopInsetAcrossPresentationModes() {
+        let expectedTopInset: CGFloat = 30
 
-        XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for minimal-mode sidebar inset UI test. state=\(app.state.rawValue)"
-        )
-        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
-        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
-            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
-            return
+        for presentationMode in [WorkspacePresentationMode.minimal, .standard] {
+            let (app, dataPath) = launchConfiguredApp(presentationMode: presentationMode)
+            defer { app.terminate() }
+
+            XCTAssertTrue(
+                ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+                "Expected app to launch for \(presentationMode.rawValue)-mode sidebar inset UI test. state=\(app.state.rawValue)"
+            )
+            XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+            guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+                XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+                return
+            }
+
+            if let setupError = ready["setupError"], !setupError.isEmpty {
+                XCTFail("Setup failed: \(setupError)")
+                return
+            }
+
+            let window = app.windows.element(boundBy: 0)
+            XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+
+            let workspaceId = ready["workspaceId"] ?? ""
+            let workspaceRowIdentifier = "sidebarWorkspace.\(workspaceId)"
+            let workspaceRow = app.descendants(matching: .any).matching(identifier: workspaceRowIdentifier).firstMatch
+            XCTAssertTrue(workspaceRow.waitForExistence(timeout: 5.0), "Expected workspace row to exist")
+
+            let topInset = distanceToTopEdge(of: workspaceRow, in: window)
+            XCTAssertEqual(
+                topInset,
+                expectedTopInset,
+                accuracy: 4,
+                "Expected \(presentationMode.rawValue) mode sidebar workspace rows to stay at the same fixed top inset. window=\(window.frame) workspaceRow=\(workspaceRow.frame) topInset=\(topInset)"
+            )
         }
-
-        if let setupError = ready["setupError"], !setupError.isEmpty {
-            XCTFail("Setup failed: \(setupError)")
-            return
-        }
-
-        let window = app.windows.element(boundBy: 0)
-        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
-
-        let workspaceId = ready["workspaceId"] ?? ""
-        let workspaceRowIdentifier = "sidebarWorkspace.\(workspaceId)"
-        let workspaceRow = app.descendants(matching: .any).matching(identifier: workspaceRowIdentifier).firstMatch
-        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 5.0), "Expected workspace row to exist")
-
-        let topInset = distanceToTopEdge(of: workspaceRow, in: window)
-        XCTAssertEqual(
-            topInset,
-            8,
-            accuracy: 4,
-            "Expected minimal mode to lift sidebar workspace rows into the compact 30 px titlebar area. window=\(window.frame) workspaceRow=\(workspaceRow.frame) topInset=\(topInset)"
-        )
     }
 
     func testStandardModeKeepsWorkspaceControlsOutOfSidebar() {
