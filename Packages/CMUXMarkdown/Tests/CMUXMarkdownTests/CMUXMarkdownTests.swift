@@ -111,6 +111,17 @@ final class CMUXMarkdownTests: XCTestCase {
         XCTAssertTrue(parsed.spans.isEmpty)
     }
 
+    func testInlineParserPreservesNestedParenthesesInLinkDestinations() throws {
+        let markdown = "[Wikipedia](https://en.wikipedia.org/wiki/Foo_(bar))"
+
+        let parsed = CMUXMarkdownInlineParser().parse(markdown)
+
+        XCTAssertEqual(parsed.text, "Wikipedia")
+        let span = try XCTUnwrap(parsed.spans.first)
+        XCTAssertTrue(span.styles.contains(.link))
+        XCTAssertEqual(span.linkDestination, "https://en.wikipedia.org/wiki/Foo_(bar)")
+    }
+
     func testParsesPipeTablesAsStructuredBlocks() throws {
         let markdown = """
         | Feature | Status | Notes |

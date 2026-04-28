@@ -669,7 +669,7 @@ public struct CMUXMarkdownInlineParser: Sendable {
                let openParen = source.index(labelEnd, offsetBy: 1, limitedBy: source.endIndex),
                openParen < source.endIndex,
                source[openParen] == "(",
-               let closeParen = find(")", in: source, after: source.index(after: openParen)) {
+               let closeParen = findLinkDestinationCloseParen(in: source, after: source.index(after: openParen)) {
                 let label = String(source[source.index(after: index)..<labelEnd])
                 let destination = String(source[source.index(after: openParen)..<closeParen])
                 appendStyled(label, styles: .link, link: destination)
@@ -690,6 +690,35 @@ public struct CMUXMarkdownInlineParser: Sendable {
 
     private func find(_ marker: String, in source: String, after index: String.Index) -> String.Index? {
         source.range(of: marker, range: index..<source.endIndex)?.lowerBound
+    }
+
+    private func findLinkDestinationCloseParen(in source: String, after index: String.Index) -> String.Index? {
+        var cursor = index
+        var nestedDepth = 0
+        var escaped = false
+        while cursor < source.endIndex {
+            let character = source[cursor]
+            if escaped {
+                escaped = false
+                cursor = source.index(after: cursor)
+                continue
+            }
+            if character == "\\" {
+                escaped = true
+                cursor = source.index(after: cursor)
+                continue
+            }
+            if character == "(" {
+                nestedDepth += 1
+            } else if character == ")" {
+                if nestedDepth == 0 {
+                    return cursor
+                }
+                nestedDepth -= 1
+            }
+            cursor = source.index(after: cursor)
+        }
+        return nil
     }
 
     private func findClosingUnderscoreDelimiter(

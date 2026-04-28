@@ -3683,6 +3683,7 @@ struct CMUXCLI {
         commandName: String,
         allowPositionals: Bool
     ) throws -> CodexSurfaceOptions {
+        try validateCodexSurfaceOptionValues(args, commandName: commandName)
         let focus = !hasFlag(args, name: "--no-focus") && !hasFlag(args, name: "--no-autofocus")
         let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
         let (paneOpt, rem1) = parseOption(rem0, name: "--pane")
@@ -3707,6 +3708,32 @@ struct CMUXCLI {
             focus: focus,
             positionals: remaining
         )
+    }
+
+    private func validateCodexSurfaceOptionValues(_ args: [String], commandName: String) throws {
+        let valueOptions: [String: String] = [
+            "--workspace": "<id|ref>",
+            "--pane": "<id|ref>",
+            "--cwd": "<path>",
+        ]
+        var pastTerminator = false
+        for (index, arg) in args.enumerated() {
+            if arg == "--" {
+                pastTerminator = true
+                continue
+            }
+            guard !pastTerminator,
+                  let valueDescription = valueOptions[arg] else {
+                continue
+            }
+            guard index + 1 < args.count else {
+                throw CLIError(message: "\(commandName): \(arg) requires a value \(valueDescription)")
+            }
+            let value = args[index + 1]
+            guard value != "--", !value.hasPrefix("-") else {
+                throw CLIError(message: "\(commandName): \(arg) requires a value \(valueDescription)")
+            }
+        }
     }
 
     private func codexSurfaceCreateParams(
