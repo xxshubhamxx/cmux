@@ -15013,6 +15013,7 @@ struct CMUXCLI {
             .joined(separator: " ")
             .lowercased()
         guard !requireFailureSignal ||
+              codexErrorInfo != nil ||
               signal.contains("error") ||
               signal.contains("failed") ||
               signal.contains("exception") ||
@@ -16938,6 +16939,11 @@ export default CMUXSessionRestore;
                     guard let cwd, !cwd.isEmpty else { return nil }
                     return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
                 }()
+                var subtitle = codexFailure?.subtitle ?? "Completed"
+                if codexFailure == nil, let projectName, !projectName.isEmpty { subtitle = "Completed in \(projectName)" }
+                let body = codexFailure?.body
+                    ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                    ?? "\(def.displayName) session completed"
 
                 if !sessionId.isEmpty {
                     let launchCommand = agentLaunchCommandFromEnvironment(
@@ -16948,21 +16954,14 @@ export default CMUXSessionRestore;
                     )
                     try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd, pid: pid,
                                       launchCommand: launchCommand,
-                                      lastSubtitle: codexFailure?.subtitle ?? "Completed",
-                                      lastBody: codexFailure?.body ?? lastMsg.map { truncate($0, maxLength: 200) })
+                                      lastSubtitle: subtitle,
+                                      lastBody: body)
                 }
                 if let pid {
                     _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)", client: client)
                 }
 
-                var subtitle = codexFailure?.subtitle ?? "Completed"
-                if codexFailure == nil, let projectName, !projectName.isEmpty { subtitle = "Completed in \(projectName)" }
-                let body = sanitizeNotificationField(
-                    codexFailure?.body
-                        ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
-                        ?? "\(def.displayName) session completed"
-                )
-                let payload = "\(def.displayName)|\(sanitizeNotificationField(subtitle))|\(body)"
+                let payload = "\(def.displayName)|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
                 _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
                 if let codexFailure {
                     _ = try? sendV1Command("set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)", client: client)
