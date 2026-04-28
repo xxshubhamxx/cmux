@@ -7965,10 +7965,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return
             }
-            if let mainWindow = NSApp.windows.first(where: { window in
+            let mainWindow = NSApp.windows.first(where: { window in
                 guard let raw = window.identifier?.rawValue else { return false }
                 return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-            }) {
+            })
+            if let mainWindow {
                 let screenFrame = mainWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
                 if let screenFrame {
                     let targetSize: NSSize
@@ -8021,8 +8022,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.sidebarState?.isVisible = false
             }
             if showRightSidebar {
-                self.fileExplorerState?.mode = .files
-                self.fileExplorerState?.isVisible = true
+                let windowScopedFileExplorerState = mainWindow
+                    .flatMap { self.contextForMainTerminalWindow($0)?.fileExplorerState }
+                let targetFileExplorerState = windowScopedFileExplorerState ?? self.fileExplorerState
+                targetFileExplorerState?.mode = .files
+                targetFileExplorerState?.setVisible(true)
             }
             self.writeBonsplitTabDragUITestData([
                 "ready": "1",
