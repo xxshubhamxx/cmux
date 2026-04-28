@@ -10,19 +10,18 @@ import Sentry
 import WebKit
 import Combine
 import ObjectiveC.runtime
-                : privacyModeBranded("No Panecho CLI symlink was found at \(outcome.destinationURL.path).", stable: String(localized: "cli.uninstall.notFound", defaultValue: "No cmux CLI symlink was found at \(outcome.destinationURL.path)."))
 
 func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     guard let value else { return nil }
     // Serialize as a JSON array, then strip the outer brackets to get a quoted JS string literal.
     guard let data = try? JSONSerialization.data(withJSONObject: [value]),
-                title: privacyModeBranded("Panecho CLI Uninstalled", stable: String(localized: "cli.uninstalled", defaultValue: "cmux CLI Uninstalled")),
+          let arrayLiteral = String(data: data, encoding: .utf8),
           arrayLiteral.count >= 2 else {
         return nil
     }
     return String(arrayLiteral.dropFirst().dropLast())
 }
-                title: privacyModeBranded("Couldn't Uninstall Panecho CLI", stable: String(localized: "cli.uninstallFailed", defaultValue: "Couldn't Uninstall cmux CLI")),
+
 final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
 
@@ -6487,19 +6486,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let outcome = try installer.uninstall()
             let prefix = outcome.removedExistingEntry
                 ? String(localized: "cli.uninstall.removed", defaultValue: "Removed \(outcome.destinationURL.path).")
-                : String(localized: "cli.uninstall.notFound", defaultValue: "No cmux CLI symlink was found at \(outcome.destinationURL.path).")
+                : privacyModeBranded("No Panecho CLI symlink was found at \(outcome.destinationURL.path).", stable: String(localized: "cli.uninstall.notFound", defaultValue: "No cmux CLI symlink was found at \(outcome.destinationURL.path)."))
             var informativeText = prefix
             if outcome.usedAdministratorPrivileges {
                 informativeText += "\n\n" + String(localized: "cli.uninstall.adminRequired", defaultValue: "Administrator privileges were required to modify /usr/local/bin.")
             }
             presentCLIPathAlert(
-                title: String(localized: "cli.uninstalled", defaultValue: "cmux CLI Uninstalled"),
+                title: privacyModeBranded("Panecho CLI Uninstalled", stable: String(localized: "cli.uninstalled", defaultValue: "cmux CLI Uninstalled")),
                 informativeText: informativeText,
                 style: .informational
             )
         } catch {
             presentCLIPathAlert(
-                title: String(localized: "cli.uninstallFailed", defaultValue: "Couldn't Uninstall cmux CLI"),
+                title: privacyModeBranded("Couldn't Uninstall Panecho CLI", stable: String(localized: "cli.uninstallFailed", defaultValue: "Couldn't Uninstall cmux CLI")),
                 informativeText: error.localizedDescription,
                 style: .warning
             )
