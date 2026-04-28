@@ -165,13 +165,18 @@ download_to_temp() {
 find_local_app_build() {
   local configuration="${PANECHO_CONFIGURATION:-Release}"
   local derived_data_path="${PANECHO_DERIVED_DATA_PATH:-$ROOT_DIR/build/panecho-derived-data}"
-  local built_app_path="$derived_data_path/Build/Products/$configuration/Panecho.app"
-  if [[ -d "$built_app_path" ]]; then
-    printf '%s\n' "$built_app_path"
-    return 0
-  fi
+  local built_app_path
+  for built_app_path in \
+    "$derived_data_path/Build/Products/$configuration/Panecho.app" \
+    "$derived_data_path/Build/Products/$configuration/cmux.app"
+  do
+    if [[ -d "$built_app_path" ]]; then
+      printf '%s\n' "$built_app_path"
+      return 0
+    fi
+  done
 
-  find "$ROOT_DIR/build" -type d -name 'Panecho.app' -print -quit 2>/dev/null || true
+  find "$ROOT_DIR/build" \( -type d -name 'Panecho.app' -o -type d -name 'cmux.app' \) -print -quit 2>/dev/null || true
 }
 
 github_repo_from_origin() {

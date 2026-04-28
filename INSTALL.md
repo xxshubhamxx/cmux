@@ -21,6 +21,20 @@ That means once the fork's `panecho-nightly` workflow has published at least one
 ./scripts/install-panecho.sh
 ```
 
+### Verified no-Xcode path for a CLT-only Mac
+
+If `xcode-select -p` points at Command Line Tools instead of full Xcode, use a fork to let GitHub-hosted macOS build the app for you:
+
+1. Push this repo (including `.github/workflows/panecho-nightly.yml`) to your fork's `main` branch.
+2. Wait for the **Panecho prerelease** workflow to publish the rolling `panecho-nightly` asset.
+3. Install from that prerelease without building locally:
+
+```bash
+PANECHO_RELEASE_REPO=YOUR-ORG/YOUR-PANECHO-FORK ./scripts/install-panecho.sh
+```
+
+That path avoids both local full Xcode and a local Go toolchain.
+
 If you want the same experience without cloning the repo first, point the installer at your fork explicitly:
 
 ```bash
