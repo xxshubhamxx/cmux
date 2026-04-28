@@ -1090,408 +1090,1515 @@
         }
       }
     },
-    "debug.menu.pdfPreviewChromeDebug": {
+    "debug.menu.tabBarBackdropLab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF Preview Chrome Debug…"
+            "value": "Tab Bar Backdrop Lab…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFプレビュークロームのデバッグ…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Налагодження хрому PDF-перегляду…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PDF 미리보기 크롬 디버그…"
+            "value": "タブバー背景ラボ…"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.copyConfig": {
+    "debug.splitButtonLayout.liveNote": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy Config"
+            "value": "Changes apply live."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定をコピー"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Копіювати конфігурацію"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "구성 복사"
+            "value": "変更はライブで反映されます。"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.currentFormat": {
+    "debug.splitButtonLayout.option.controlBackground": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Current: %@"
+            "value": "controlBackgroundColor"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在: %@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поточний: %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "현재: %@"
+            "value": "controlBackgroundColor"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.description": {
+    "debug.splitButtonLayout.option.hidden": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose the floating control style used by PDF previews."
+            "value": "Hidden"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFプレビューで使うフローティングコントロールのスタイルを選択します。"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Виберіть стиль плаваючих елементів керування для PDF-переглядів."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PDF 미리보기에 사용할 플로팅 컨트롤 스타일을 선택합니다."
+            "value": "非表示"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.heading": {
+    "debug.splitButtonLayout.option.precompositedBar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF Preview Chrome"
+            "value": "Pre-composited barBackground"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFプレビュークローム"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Хром PDF-перегляду"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PDF 미리보기 크롬"
+            "value": "合成済み barBackground"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.resetToDefault": {
+    "debug.splitButtonLayout.option.precompositedPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reset to Default"
+            "value": "Pre-composited paneBackground"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デフォルトに戻す"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скинути до типового"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기본값으로 재설정"
+            "value": "合成済み paneBackground"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.sampleLabel": {
+    "debug.splitButtonLayout.option.rawBar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sample"
+            "value": "barBackground (tab chrome)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サンプル"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Зразок"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "샘플"
+            "value": "barBackground（タブクローム）"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.noActions": {
+    "debug.splitButtonLayout.option.rawPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No sample actions yet."
+            "value": "Raw paneBackground (opaque)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サンプル操作はまだありません。"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дій зразка ще немає."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "아직 샘플 동작이 없습니다."
+            "value": "未加工 paneBackground（不透明）"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.lastActionFormat": {
+    "debug.splitButtonLayout.option.translucentChrome": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Last action: %@ (%d)"
+            "value": "Translucent chrome"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最後の操作: %@ (%d)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Остання дія: %@ (%d)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "마지막 동작: %@ (%d)"
+            "value": "半透明クローム"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.selected": {
+    "debug.splitButtonLayout.option.windowBackground": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Selected"
+            "value": "windowBackgroundColor"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択中"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вибрано"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "선택됨"
+            "value": "windowBackgroundColor"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.toolbarReference": {
+    "debug.splitButtonLayout.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Native Window Toolbar"
+            "value": "Button Backdrop Color"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ネイティブウィンドウツールバー"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нативна панель вікна"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "네이티브 윈도우 툴바"
+            "value": "ボタン背景色"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.toolbarReferenceDescription": {
+    "debug.tabBarBackdropLab.leftSidebar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use the buttons in this debug window's titlebar toolbar to test real NSToolbar hover and press feedback."
+            "value": "L"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このデバッグウィンドウのタイトルバーツールバーにあるボタンで、実際のNSToolbarのホバーと押下の反応をテストできます。"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Використовуйте кнопки на панелі заголовка цього вікна налагодження, щоб перевірити реальні стани наведення та натискання NSToolbar."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 디버그 윈도우의 제목 표시줄 툴바 버튼으로 실제 NSToolbar의 호버 및 누름 피드백을 테스트합니다."
+            "value": "左"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.use": {
+    "debug.tabBarBackdropLab.candidateEnd": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use"
+            "value": "End opacity"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Використати"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용"
+            "value": "終端不透明度"
           }
         }
       }
     },
-    "debug.pdfPreviewChrome.windowTitle": {
+    "debug.tabBarBackdropLab.candidateFade": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF Preview Chrome"
+            "value": "Candidate fade"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFプレビュークローム"
+            "value": "候補フェード"
           }
-        },
-        "uk": {
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateSolid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Хром PDF-перегляду"
+            "value": "Solid width"
           }
         },
-        "ko": {
+        "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF 미리보기 크롬"
+            "value": "塗りつぶし幅"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateRamp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ramp start"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ランプ開始"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateSoftness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidate softness"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候補の柔らかさ"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateLead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lead opacity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始不透明度"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.maskTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mask tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブをマスク"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.opacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface opacity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス不透明度"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.rightSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "R"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Bonsplit tab bars with overflow tabs under the split buttons. The window background is transparent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ボタンの下にあふれるタブを表示するライブ Bonsplit タブバーです。ウインドウ背景は透明です。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.agentBrowserLogs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-browser logs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-browser ログ"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.backdropCheck": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "split button backdrop check"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ボタン背景チェック"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.hiddenBelowControls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tabs hidden below controls"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロール下に隠れるタブ"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.rightEdgeOverflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right edge overflow sample"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右端オーバーフローのサンプル"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.terminalTransparency": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux terminal transparency"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ターミナル透明度"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.underlayText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "underlay tab text visible here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のタブ文字が見える場所"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.terminal.compare": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "drag / resize / compare the transparent edges"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグ / リサイズ / 透明な端を比較"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.terminal.overflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab titles intentionally overflow under the split buttons"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブタイトルは意図的に分割ボタンの下へあふれます"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.terminal.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lawrence in ~/cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lawrence in ~/cmux"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar Backdrop Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバー背景ラボ"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.titlebarSample": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace@lab:~"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace@lab:~"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候補"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidate.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translucent chrome with tab occlusion."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを隠す半透明クロームです。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateLowContrast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low contrast"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低コントラスト"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateLowContrast.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lower-opacity solid region."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソリッド領域の不透明度を下げます。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateSoftEnd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soft end"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔らかい終端"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateSoftEnd.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same mask with lighter button fill."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じマスクでボタン背景を薄くします。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateTightEdge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tight edge"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強めの端"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateTightEdge.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More coverage at the fade start."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェード開始部分の被覆を強めます。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateWideFade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wide fade"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "広いフェード"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateWideFade.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same model with a softer edge."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じモデルで端をより柔らかくします。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.controlBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4 Control background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4 コントロール背景"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.controlBackground.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses AppKit controlBackgroundColor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit の controlBackgroundColor を使います。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 No backdrop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 背景なし"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.hidden.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control sample. Tabs remain visible below the buttons."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較用サンプルです。ボタンの下にタブが見えたままになります。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.opaqueBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 Raw bar opaque"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 バーをそのまま不透明化"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.opaqueBar.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses the tab chrome color at full opacity."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブクローム色を完全な不透明度で使います。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.opaquePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Raw pane opaque"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 ペインをそのまま不透明化"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.opaquePane.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forces the pane fill to full opacity."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン塗りを完全な不透明度にします。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.precompositedBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 Opaque bar composite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 バー合成の不透明背景"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.precompositedBar.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composites tab chrome over the window background."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブクロームをウインドウ背景の上に合成します。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.precompositedPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0 Opaque pane composite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0 ペイン合成の不透明背景"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.precompositedPane.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Old candidate. Covers too hard."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の候補です。被覆が強すぎます。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.translucentChrome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6 Translucent chrome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6 半透明クローム"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.translucentChrome.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the bleed-through problem."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透けて見える問題を表示します。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.translucentNoFade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No fade"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェードなし"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.translucentNoFade.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hard translucent edge for contrast."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較用の硬い半透明エッジです。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.windowBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 Window background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 ウインドウ背景"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.windowBackground.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses AppKit windowBackgroundColor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit の windowBackgroundColor を使います。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.width": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sample width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンプル幅"
+          }
+        }
+      }
+    },
+    "debug.menu.startupAppearanceDebug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startup Appearance Debug…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動時の外観デバッグ…"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.appearance.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外観"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applied.appearanceLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外観:"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applied.configLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Config:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定:"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applied.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用済み"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applied.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reloads the running app through Ghostty config update, matching startup theme resolution without editing config files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定ファイルを編集せず、Ghostty 設定更新で実行中のアプリを再読み込みし、起動時のテーマ解決を再現します。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applyPreview.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを適用"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.copySelectedConfig.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Selected Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中の設定をコピー"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.mode.dark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Dark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダークを強制"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.mode.light": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Light"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライトを強制"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.mode.stored": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stored App Setting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みのアプリ設定"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.preview.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.freshInstall.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No user theme or terminal colors, so cmux applies its managed default colors."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーのテーマやターミナル色がないため、cmux の管理されたデフォルト色を適用します。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.freshInstall.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fresh Install"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規インストール"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.realUserConfig.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loads your actual Ghostty and cmux config files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際の Ghostty と cmux の設定ファイルを読み込みます。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.realUserConfig.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Real User Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際のユーザー設定"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userExplicitColors.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulates a user with direct terminal color settings and no theme."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマなしでターミナル色を直接設定しているユーザーをシミュレートします。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userExplicitColors.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User Explicit Colors"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザー指定色"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userSingleTheme.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulates a user with one Ghostty theme applied in both appearances."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライトとダークの両方に同じ Ghostty テーマを適用しているユーザーをシミュレートします。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userSingleTheme.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User Single Theme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザー単一テーマ"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userThemePair.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulates a user with an explicit light/dark Ghostty theme."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライトとダークの Ghostty テーマを明示的に設定しているユーザーをシミュレートします。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userThemePair.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User Light/Dark Theme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーのライト/ダークテーマ"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.realConfigFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loads real user config files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際のユーザー設定ファイルを読み込みます。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.restoreRealStartup.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Real Startup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際の起動設定に戻す"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.selectedConfig.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中の設定"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.startupConfig.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startup config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動設定"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.window.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startup Appearance Debug"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動時の外観デバッグ"
           }
         }
       }
@@ -26306,35 +27413,6 @@
         }
       }
     },
-    "commandPalette.kind.filePreview": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "File Preview"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルプレビュー"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перегляд файлу"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "파일 미리보기"
-          }
-        }
-      }
-    },
     "commandPalette.kind.terminal": {
       "extractionState": "manual",
       "localizations": {
@@ -32469,6 +33547,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "SSH 오류 복사"
+          }
+        }
+      }
+    },
+    "contextMenu.copyWorkspaceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Workspace ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースIDをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 ID 복사"
+          }
+        }
+      }
+    },
+    "contextMenu.copyWorkspaceIDs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Workspace IDs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースIDをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 ID 복사"
           }
         }
       }
@@ -48817,6 +49941,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "메뉴 막대에 표시"
+          }
+        }
+      }
+    },
+    "settings.app.menuBarOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu Bar Only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーのみ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅菜单栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅選單列"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 막대 전용"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Menüleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo barra de menús"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre des menus uniquement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo barra dei menu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun menulinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko pasek menu"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только строка меню"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo traka menija"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط القائمة فقط"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun menylinje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apenas barra de menus"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฉพาะแถบเมนู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca menü çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише рядок меню"
+          }
+        }
+      }
+    },
+    "settings.app.menuBarOnly.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide the Dock icon and Cmd+Tab entry. Use the menu bar item to show cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DockアイコンとCmd+Tabの項目を非表示にします。cmuxを表示するにはメニューバー項目を使います。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏 Dock 图标和 Cmd+Tab 条目。使用菜单栏项目显示 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏 Dock 圖示和 Cmd+Tab 項目。使用選單列項目顯示 cmux。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 아이콘과 Cmd+Tab 항목을 숨깁니다. 메뉴 막대 항목으로 cmux를 표시합니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet das Dock-Symbol und den Cmd+Tab-Eintrag aus. Verwende den Menüleisteneintrag, um cmux anzuzeigen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta el ícono del Dock y la entrada de Cmd+Tab. Usa el elemento de la barra de menús para mostrar cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masque l’icône du Dock et l’entrée Cmd+Tab. Utilisez l’élément de barre des menus pour afficher cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasconde l'icona del Dock e la voce Cmd+Tab. Usa l'elemento nella barra dei menu per mostrare cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul Dock-symbolet og Cmd+Tab-posten. Brug menulinjeelementet til at vise cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukrywa ikonę Docka i pozycję Cmd+Tab. Użyj elementu na pasku menu, aby pokazać cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрывает значок Dock и пункт Cmd+Tab. Используйте пункт строки меню, чтобы показать cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakriva Dock ikonu i Cmd+Tab stavku. Koristi stavku trake menija za prikaz cmux-a."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يخفي أيقونة Dock وإدخال Cmd+Tab. استخدم عنصر شريط القائمة لإظهار cmux."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjuler Dock-symbolet og Cmd+Tab-oppføringen. Bruk menylinjeelementet for å vise cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta o ícone no Dock e a entrada Cmd+Tab. Use o item da barra de menus para mostrar o cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนไอคอน Dock และรายการ Cmd+Tab ใช้รายการในแถบเมนูเพื่อแสดง cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock simgesini ve Cmd+Tab girişini gizler. cmux'u göstermek için menü çubuğu öğesini kullan."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приховує іконку Dock і пункт Cmd+Tab. Використовуйте пункт рядка меню, щоб показати cmux."
           }
         }
       }
@@ -72188,6 +73550,159 @@
         }
       }
     },
+    "fileExplorer.search.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type to search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力して検索"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索に失敗しました: %@"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First %d matches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の%d件"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.matches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d matches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d件"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.noMatches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致なし"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを検索"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.rgExited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rg exited with status %d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rg がステータス %d で終了しました"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.searching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d matches, searching"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d件、検索中"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local folders only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルフォルダのみ"
+          }
+        }
+      }
+    },
     "titlebar.fileExplorer.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -76560,6 +78075,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Непрочитаних сповіщень немає"
+          }
+        }
+      }
+    },
+    "statusMenu.showCmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxを表示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示 cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 표시"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض cmux"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'u Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати cmux"
           }
         }
       }
@@ -86856,35 +88490,6 @@
         }
       }
     },
-    "filePreview.fileUnavailable.message": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The file may have been moved or deleted."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルが移動または削除された可能性があります。"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Можливо, файл було переміщено або видалено."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "파일이 이동되었거나 삭제되었을 수 있습니다."
-          }
-        }
-      }
-    },
     "markdown.fileUnavailable.title": {
       "extractionState": "manual",
       "localizations": {
@@ -86910,992 +88515,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "파일을 사용할 수 없음"
-          }
-        }
-      }
-    },
-    "filePreview.fileUnavailable.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "File unavailable"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルを利用できません"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Файл недоступний"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "파일을 사용할 수 없음"
-          }
-        }
-      }
-    },
-    "filePreview.revert": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revert"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "元に戻す"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Відновити"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "되돌리기"
-          }
-        }
-      }
-    },
-    "filePreview.save": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Save"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Зберегти"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "저장"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.previousPage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Previous Page"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前のページ"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Попередня сторінка"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이전 페이지"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.nextPage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next Page"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次のページ"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Наступна сторінка"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다음 페이지"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.zoomOut": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom Out"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ズームアウト"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Зменшити"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "축소"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.zoomIn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom In"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ズームイン"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Збільшити"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "확대"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.zoomControls": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom Controls"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ズームコントロール"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Елементи масштабування"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "확대/축소 컨트롤"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.zoomToFit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom to Fit"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "全体を表示"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Масштабувати до розміру"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "맞춤 확대/축소"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.actualSize": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Actual Size"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実際のサイズ"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фактичний розмір"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "실제 크기"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.rotateLeft": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rotate Left"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "左に回転"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Повернути ліворуч"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "왼쪽으로 회전"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.rotateRight": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rotate Right"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右に回転"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Повернути праворуч"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오른쪽으로 회전"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.sidebarOptions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sidebar Options"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーオプション"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Параметри бічної панелі"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 옵션"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.hideSidebar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hide Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーを隠す"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сховати бічну панель"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 숨기기"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.showSidebar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーを表示"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показати бічну панель"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 보이기"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.thumbnails": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thumbnails"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サムネール"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Мініатюри"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "축소판"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.tableOfContents": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Table of Contents"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "目次"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Зміст"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "목차"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.noTableOfContents": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No table of contents"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "目次はありません"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Зміст відсутній"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "목차 없음"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.continuousScroll": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continuous Scroll"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "連続スクロール"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Безперервне прокручування"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "연속 스크롤"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.singlePage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Single Page"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "単一ページ"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Одна сторінка"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "한 페이지"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.twoPages": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Two Pages"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "見開き"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дві сторінки"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "두 페이지"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.chromeStyle.systemControlGroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A: System Control Group"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A: システムコントロールグループ"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A: Системна група елементів керування"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A: 시스템 컨트롤 그룹"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.chromeStyle.liquidGlass": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "B: Liquid Glass"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "B: リキッドグラス"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "B: Liquid Glass"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "B: 리퀴드 글래스"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.chromeStyle.materialCapsule": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "C: Material Pill"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "C: マテリアルピル"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "C: Матеріальна капсула"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "C: 머티리얼 필"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.chromeStyle.borderedCapsule": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "D: Bordered Controls"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "D: 枠線付きコントロール"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "D: Кнопки з рамкою"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "D: 테두리 컨트롤"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.chromeStyle.thinOutline": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "E: Thin Outline"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "E: 細いアウトライン"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "E: Тонкий контур"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "E: 얇은 외곽선"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.chromeStyle.plainToolbar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "F: Plain Toolbar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "F: プレーンツールバー"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "F: Проста панель"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "F: 일반 툴바"
-          }
-        }
-      }
-    },
-    "filePreview.pdf.pageCount": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Page %d of %d"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d / %d ページ"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сторінка %d з %d"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d/%d페이지"
-          }
-        }
-      }
-    },
-    "filePreview.image.zoomOut": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom Out"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ズームアウト"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Зменшити"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "축소"
-          }
-        }
-      }
-    },
-    "filePreview.image.zoomIn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom In"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ズームイン"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Збільшити"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "확대"
-          }
-        }
-      }
-    },
-    "filePreview.image.zoomToFit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom to Fit"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "全体を表示"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Масштабувати до розміру"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "맞춤 확대/축소"
-          }
-        }
-      }
-    },
-    "filePreview.image.actualSize": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Actual Size"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実際のサイズ"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фактичний розмір"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "실제 크기"
-          }
-        }
-      }
-    },
-    "filePreview.image.rotateLeft": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rotate Left"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "左に回転"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Повернути ліворуч"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "왼쪽으로 회전"
-          }
-        }
-      }
-    },
-    "filePreview.image.rotateRight": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rotate Right"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右に回転"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Повернути праворуч"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오른쪽으로 회전"
           }
         }
       }
@@ -89914,6 +90533,29 @@
         }
       }
     },
+    "terminalContextMenu.copyIdentifiers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy IDs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IDをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID 복사"
+          }
+        }
+      }
+    },
     "terminalContextMenu.paste": {
       "extractionState": "manual",
       "localizations": {
@@ -91521,6 +92163,138 @@
         }
       }
     },
+    "shortcut.focusRightSidebar.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーにフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 사이드바에 포커스"
+          }
+        }
+      }
+    },
+    "shortcut.switchRightSidebarToFiles.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのファイルを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 파일 표시"
+          }
+        }
+      }
+    },
+    "shortcut.switchRightSidebarToFind.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Find"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの検索を表示"
+          }
+        }
+      }
+    },
+    "shortcut.switchRightSidebarToSessions.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのセッションを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 세션 표시"
+          }
+        }
+      }
+    },
+    "shortcut.switchRightSidebarToFeed.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Feed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのフィードを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 피드 표시"
+          }
+        }
+      }
+    },
+    "menu.view.focusRightSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーにフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 사이드바에 포커스"
+          }
+        }
+      }
+    },
     "menu.view.editWorkspaceDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -91915,6 +92689,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ファイル"
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.find": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
           }
         }
       }
@@ -92674,767 +93465,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "계정 액세스 토큰을 사용할 수 없습니다."
-          }
-        }
-      }
-    },
-    "debug.menu.startupAppearanceDebug": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Startup Appearance Debug…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "起動時の外観デバッグ…"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.appearance.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Appearance"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "外観"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.applied.appearanceLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Appearance:"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "外観:"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.applied.configLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Config:"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定:"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.applied.heading": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Applied"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "適用済み"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.applied.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reloads the running app through Ghostty config update, matching startup theme resolution without editing config files."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定ファイルを編集せず、Ghostty 設定更新で実行中のアプリを再読み込みし、起動時のテーマ解決を再現します。"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.applyPreview.button": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apply Preview"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プレビューを適用"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.copySelectedConfig.button": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy Selected Config"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択中の設定をコピー"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.mode.dark": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Force Dark"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ダークを強制"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.mode.light": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Force Light"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ライトを強制"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.mode.stored": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stored App Setting"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存済みのアプリ設定"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.preview.heading": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preview"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プレビュー"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.profile.freshInstall.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No user theme or terminal colors, so cmux applies its managed default colors."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ユーザーのテーマやターミナル色がないため、cmux の管理されたデフォルト色を適用します。"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.profile.freshInstall.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fresh Install"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新規インストール"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.profile.realUserConfig.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loads your actual Ghostty and cmux config files."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実際の Ghostty と cmux の設定ファイルを読み込みます。"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.profile.realUserConfig.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Real User Config"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実際のユーザー設定"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.profile.userExplicitColors.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Simulates a user with direct terminal color settings and no theme."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "テーマなしでターミナル色を直接設定しているユーザーをシミュレートします。"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.profile.userExplicitColors.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "User Explicit Colors"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ユーザー指定色"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.profile.userSingleTheme.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Simulates a user with one Ghostty theme applied in both appearances."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ライトとダークの両方に同じ Ghostty テーマを適用しているユーザーをシミュレートします。"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.profile.userSingleTheme.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "User Single Theme"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ユーザー単一テーマ"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.profile.userThemePair.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Simulates a user with an explicit light/dark Ghostty theme."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ライトとダークの Ghostty テーマを明示的に設定しているユーザーをシミュレートします。"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.profile.userThemePair.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "User Light/Dark Theme"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ユーザーのライト/ダークテーマ"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.realConfigFallback": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loads real user config files."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実際のユーザー設定ファイルを読み込みます。"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.restoreRealStartup.button": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restore Real Startup"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実際の起動設定に戻す"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.selectedConfig.heading": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Selected Config"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択中の設定"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.startupConfig.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Startup config"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "起動設定"
-          }
-        }
-      }
-    },
-    "debug.startupAppearance.window.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Startup Appearance Debug"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "起動時の外観デバッグ"
-          }
-        }
-      }
-    },
-    "fileExplorer.search.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Type to search"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "入力して検索"
-          }
-        }
-      }
-    },
-    "fileExplorer.search.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search failed: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索に失敗しました: %@"
-          }
-        }
-      }
-    },
-    "fileExplorer.search.limit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "First %d matches"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最初の%d件"
-          }
-        }
-      }
-    },
-    "fileExplorer.search.matches": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d matches"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d件"
-          }
-        }
-      }
-    },
-    "fileExplorer.search.noMatches": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No matches"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一致なし"
-          }
-        }
-      }
-    },
-    "fileExplorer.search.placeholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search files"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルを検索"
-          }
-        }
-      }
-    },
-    "fileExplorer.search.rgExited": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "rg exited with status %d"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "rg がステータス %d で終了しました"
-          }
-        }
-      }
-    },
-    "fileExplorer.search.searching": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d matches, searching"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d件、検索中"
-          }
-        }
-      }
-    },
-    "fileExplorer.search.unsupported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Local folders only"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ローカルフォルダのみ"
-          }
-        }
-      }
-    },
-    "shortcut.focusRightSidebar.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Focus Right Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右サイドバーにフォーカス"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오른쪽 사이드바에 포커스"
-          }
-        }
-      }
-    },
-    "shortcut.switchRightSidebarToFiles.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Sidebar Files"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーのファイルを表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 파일 표시"
-          }
-        }
-      }
-    },
-    "shortcut.switchRightSidebarToFind.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Sidebar Find"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーの検索を表示"
-          }
-        }
-      }
-    },
-    "shortcut.switchRightSidebarToSessions.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Sidebar Sessions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーのセッションを表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 세션 표시"
-          }
-        }
-      }
-    },
-    "shortcut.switchRightSidebarToFeed.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Sidebar Feed"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーのフィードを表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 피드 표시"
-          }
-        }
-      }
-    },
-    "menu.view.focusRightSidebar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Focus Right Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右サイドバーにフォーカス"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오른쪽 사이드바에 포커스"
-          }
-        }
-      }
-    },
-    "rightSidebar.mode.find": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Find"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索"
           }
         }
       }
@@ -96614,6 +96644,421 @@
           "stringUnit": {
             "state": "translated",
             "value": "エージェントの判断とTodoリストの更新がここに表示されます。"
+          }
+        }
+      }
+    },
+    "settings.account.error.missingRefreshToken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account refresh token is unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントの更新トークンを取得できません。"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Токен оновлення облікового запису недоступний."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 새로 고침 토큰을 사용할 수 없습니다."
+          }
+        }
+      }
+    },
+    "remote.state.connected.vmNoProxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続済み (VM、プロキシ無効)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        }
+      }
+    },
+    "remote.disconnectBanner.sessionEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート SSH セッションが終了しました: %s"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        }
+      }
+    },
+    "remote.disconnectBanner.reconnectHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ローカルシェルにフォールバックしました。元の cmux ssh または cmux vm attach コマンドで再接続してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        }
+      }
+    },
+    "debug.menu.pdfPreviewChromeDebug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF Preview Chrome Debug…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFプレビュークロームのデバッグ…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налагодження хрому PDF-перегляду…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF 미리보기 크롬 디버그…"
           }
         }
       }

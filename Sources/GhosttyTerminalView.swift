@@ -1798,8 +1798,12 @@ class GhosttyApp {
 
         // Load default config (includes user config). If this fails hard (e.g. due to
         // invalid user config), ghostty_app_new may return nil; we fall back below.
-        loadDefaultConfigFilesWithLegacyFallback(primaryConfig)
-        updateDefaultBackground(from: primaryConfig, source: "initialize.primaryConfig")
+        let primaryRenderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(primaryConfig)
+        updateDefaultBackground(
+            from: primaryConfig,
+            source: "initialize.primaryConfig",
+            forceNotify: primaryRenderingModeChanged
+        )
 
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
@@ -1926,9 +1930,16 @@ class GhosttyApp {
                 prefix: "cmux-shell-integration-override",
                 logLabel: "shell integration override (fallback)"
             )
-            usesHostLayerBackground = true
+            let fallbackRenderingModeChanged = setUsesHostLayerBackground(
+                true,
+                source: "initialize.fallbackConfig"
+            )
             ghostty_config_finalize(fallbackConfig)
-            updateDefaultBackground(from: fallbackConfig, source: "initialize.fallbackConfig")
+            updateDefaultBackground(
+                from: fallbackConfig,
+                source: "initialize.fallbackConfig",
+                forceNotify: fallbackRenderingModeChanged
+            )
 
             guard let created = ghostty_app_new(&runtimeConfig, fallbackConfig) else {
                 #if DEBUG
@@ -2042,7 +2053,7 @@ class GhosttyApp {
         return !String(cString: backgroundImage).isEmpty
     }
 
-    private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
+    private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) -> Bool {
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
         if startupPreviewProfile.loadsRealUserConfig {
@@ -2067,7 +2078,10 @@ class GhosttyApp {
         #endif
         loadCJKFontFallbackIfNeeded(config)
         let useHostLayerBackground = !hasConfiguredBackgroundImage(config)
-        usesHostLayerBackground = useHostLayerBackground
+        let renderingModeChanged = setUsesHostLayerBackground(
+            useHostLayerBackground,
+            source: "loadDefaultConfigFilesWithLegacyFallback"
+        )
         if !useHostLayerBackground {
             // Background images need Ghostty's fullscreen background pass. Force
             // the layer-backed solid-color shortcut back off even if the user
@@ -2114,6 +2128,7 @@ class GhosttyApp {
         )
 
         ghostty_config_finalize(config)
+        return renderingModeChanged
     }
 
     /// When the user has not configured `font-codepoint-map` for CJK ranges
@@ -2907,12 +2922,13 @@ class GhosttyApp {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
             return
         }
-        loadDefaultConfigFilesWithLegacyFallback(newConfig)
+        let renderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(newConfig)
         ghostty_app_update_config(app, newConfig)
         updateDefaultBackground(
             from: newConfig,
             source: "reloadConfiguration(source=\(source))",
-            scope: .unscoped
+            scope: .unscoped,
+            forceNotify: renderingModeChanged
         )
         DispatchQueue.main.async {
             self.applyBackgroundToKeyWindow()
@@ -2995,10 +3011,24 @@ class GhosttyApp {
         }
     }
 
+    @discardableResult
+    private func setUsesHostLayerBackground(_ newValue: Bool, source: String) -> Bool {
+        let previous = usesHostLayerBackground
+        usesHostLayerBackground = newValue
+        let hasChanged = previous != newValue
+        if hasChanged, backgroundLogEnabled {
+            logBackground(
+                "terminal rendering mode changed source=\(source) usesHostLayerBackground=\(newValue) previous=\(previous)"
+            )
+        }
+        return hasChanged
+    }
+
     private func updateDefaultBackground(
         from config: ghostty_config_t?,
         source: String,
-        scope: GhosttyDefaultBackgroundUpdateScope = .unscoped
+        scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
+        forceNotify: Bool = false
     ) {
         guard let config else { return }
 
@@ -3022,7 +3052,8 @@ class GhosttyApp {
             color: resolvedColor,
             opacity: opacity,
             source: source,
-            scope: scope
+            scope: scope,
+            forceNotify: forceNotify
         )
     }
 
@@ -3108,7 +3139,8 @@ class GhosttyApp {
         color: NSColor,
         opacity: Double,
         source: String,
-        scope: GhosttyDefaultBackgroundUpdateScope
+        scope: GhosttyDefaultBackgroundUpdateScope,
+        forceNotify: Bool = false
     ) {
         let previousScope = defaultBackgroundUpdateScope
         let previousScopeSource = defaultBackgroundScopeSource
@@ -3128,14 +3160,15 @@ class GhosttyApp {
         let previousOpacity = defaultBackgroundOpacity
         defaultBackgroundColor = color
         defaultBackgroundOpacity = opacity
-        let hasChanged = previousHex != defaultBackgroundColor.hexString() ||
+        let hasChanged = forceNotify ||
+            previousHex != defaultBackgroundColor.hexString() ||
             abs(previousOpacity - defaultBackgroundOpacity) > 0.0001
         if hasChanged {
             notifyDefaultBackgroundDidChange(source: source)
         }
         if backgroundLogEnabled {
             logBackground(
-                "default background updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousColor=\(previousHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) color=\(defaultBackgroundColor) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) changed=\(hasChanged)"
+                "default background updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousColor=\(previousHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) color=\(defaultBackgroundColor) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) changed=\(hasChanged) forced=\(forceNotify)"
             )
         }
     }
@@ -5826,8 +5859,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func applySurfaceBackground() {
-        let useHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
-        let color = useHostLayerBackground ? effectiveBackgroundColor() : .clear
+        let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
+            usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
+        )
+        let sharesWindowBackdrop = Workspace.usesSharedSurfaceBackdrop()
+        let usesBonsplitPaneBackdrop = Workspace.usesBonsplitPaneTerminalBackdrop(
+            renderingMode: renderingMode,
+            sharesWindowBackdrop: sharesWindowBackdrop
+        )
+        // Window/Bonsplit backdrops are the single surface fill for solid-color
+        // terminal backgrounds. Painting the terminal host layer too
+        // double-composites it against the surrounding chrome.
+        let usesHostLayerFill = renderingMode.usesHostLayerFill &&
+            !sharesWindowBackdrop &&
+            !usesBonsplitPaneBackdrop
+        let color = usesHostLayerFill
+            ? effectiveBackgroundColor()
+            : .clear
         if let layer {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -5839,15 +5887,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         terminalSurface?.hostedView.setBackgroundColor(color)
         if GhosttyApp.shared.backgroundLogEnabled {
-            let signature = "\(useHostLayerBackground ? color.hexString() : "ghostty-native"):\(String(format: "%.3f", color.alphaComponent))"
+            let signature = "\(usesHostLayerFill ? color.hexString() : "transparent-host"):\(String(format: "%.3f", color.alphaComponent)):\(sharesWindowBackdrop ? "shared" : (usesBonsplitPaneBackdrop ? "bonsplit-pane" : "terminal"))"
             if signature != lastLoggedSurfaceBackgroundSignature {
                 lastLoggedSurfaceBackgroundSignature = signature
                 let hasOverride = backgroundColor != nil
                 let overrideHex = backgroundColor?.hexString() ?? "nil"
                 let defaultHex = GhosttyApp.shared.defaultBackgroundColor.hexString()
-                let source = useHostLayerBackground ? (hasOverride ? "surfaceOverride" : "defaultBackground") : "ghosttyNativeBackground"
+                let source = usesHostLayerFill
+                    ? (hasOverride ? "surfaceOverride" : "defaultBackground")
+                    : (
+                        sharesWindowBackdrop
+                            ? "sharedWindowBackdrop"
+                            : (usesBonsplitPaneBackdrop ? "bonsplitPaneBackdrop" : "ghosttyNativeBackground")
+                    )
                 GhosttyApp.shared.logBackground(
-                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
+                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) sharedWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) bonsplitPaneBackdrop=\(usesBonsplitPaneBackdrop ? 1 : 0) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
                 )
             }
         }
@@ -6555,6 +6609,29 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("copy_to_clipboard")
     }
 
+    @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
+        guard let terminalSurface else { return }
+        let paneId = terminalSurface.owningWorkspace()?.paneId(forPanelId: terminalSurface.id)?.id
+        let refs = TerminalController.shared.v2WorkspacePaneAndSurfaceRefs(
+            workspaceId: terminalSurface.tabId,
+            paneId: paneId,
+            surfaceId: terminalSurface.id
+        )
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(
+            WorkspaceSurfaceIdentifierClipboardText.make(
+                workspaceId: terminalSurface.tabId,
+                paneId: paneId,
+                surfaceId: terminalSurface.id,
+                workspaceRef: refs.workspaceRef,
+                paneRef: refs.paneRef,
+                surfaceRef: refs.surfaceRef
+            ),
+            forType: .string
+        )
+    }
+
     // MARK: - Clipboard paste
 
     @IBAction func paste(_ sender: Any?) {
@@ -6580,6 +6657,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
             return canSplitCurrentSurface()
+        case #selector(copyWorkspaceAndSurfaceIdentifiers(_:)):
+            return terminalSurface != nil
         default:
             return true
         }
@@ -8592,6 +8671,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "arrow.trianglehead.2.clockwise",
             accessibilityDescription: nil
         )
+        if terminalSurface != nil {
+            menu.addItem(.separator())
+            let identifiersItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.copyIdentifiers", defaultValue: "Copy IDs"),
+                action: #selector(copyWorkspaceAndSurfaceIdentifiers(_:)),
+                keyEquivalent: ""
+            )
+            identifiersItem.target = self
+        }
         return menu
     }
 
