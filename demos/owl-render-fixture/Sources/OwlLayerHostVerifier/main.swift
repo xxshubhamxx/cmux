@@ -57,6 +57,7 @@ private enum InputAction {
     case waitForJavaScript(label: String, script: String, expectations: [JavaScriptExpectation])
     case waitForSurfaceTree(label: String, expectations: [SurfaceTreeExpectation])
     case captureWindow(name: String, expected: Set<ExpectedPixel>)
+    case verifyWindowEdgeCoverage(name: String)
     case captureNativeMenu(label: String, name: String, expected: Set<ExpectedPixel>, response: NativeMenuResponse)
     case acceptActivePopupMenuItem(UInt32)
     case cancelActivePopup
@@ -525,6 +526,7 @@ private final class LayerHostRunner {
                         preInputExpected: [.blue, .dark, .light],
                         inputActions: [
                             .resize(OwlFreshWebViewResizeRequest(width: 720, height: 480, scale: 1.0), waitForMode: "small"),
+                            .verifyWindowEdgeCoverage(name: "resize-small-edge-coverage.png"),
                         ],
                         postInputDiagnosticScript: """
                         ({
@@ -548,7 +550,9 @@ private final class LayerHostRunner {
                         preInputExpected: [.blue, .dark, .light],
                         inputActions: [
                             .resize(OwlFreshWebViewResizeRequest(width: 720, height: 480, scale: 1.0), waitForMode: "small"),
+                            .verifyWindowEdgeCoverage(name: "resize-roundtrip-small-edge-coverage.png"),
                             .resize(OwlFreshWebViewResizeRequest(width: 960, height: 640, scale: 1.0), waitForMode: "restored"),
+                            .verifyWindowEdgeCoverage(name: "resize-roundtrip-restored-edge-coverage.png"),
                         ],
                         postInputDiagnosticScript: """
                         ({
@@ -1408,6 +1412,21 @@ private final class LayerHostRunner {
                 guard expected.isSatisfied(by: stats) else {
                     throw VerifierError.pixelCheck("\(target.name) \(name) pixels did not match \(expected): \(stats)")
                 }
+            case .verifyWindowEdgeCoverage(let name):
+                window.update(surfaceTree: try hostController.getSurfaceTree())
+                window.flushHostedLayer()
+                pumpApp(app, for: 0.05)
+                guard let windowID = swiftHostWindowID(title: window.title, minimumSize: currentSize) else {
+                    throw VerifierError.capture("Swift LayerHost window was not visible for \(name)")
+                }
+                let captureURL = options.outputDirectory.appendingPathComponent(name)
+                let capture = try captureWindow(windowID: windowID, to: captureURL)
+                try verifyResizeEdgeCoverage(
+                    image: capture.image,
+                    contentSize: currentSize,
+                    targetName: target.name,
+                    artifactName: name
+                )
             case .captureNativeMenu(let label, let name, let expected, let response):
                 let tree = try hostController.getSurfaceTree()
                 window.update(surfaceTree: tree)
@@ -2341,6 +2360,93 @@ private func pngData(from image: CGImage) throws -> Data {
     return data as Data
 }
 
+private struct RGBPixel: CustomStringConvertible {
+    let r: Int
+    let g: Int
+    let b: Int
+
+    var description: String {
+        "rgb(\(r),\(g),\(b))"
+    }
+}
+
+private struct ImagePixels {
+    let width: Int
+    let height: Int
+    let bytes: [UInt8]
+
+    func colorAt(x: Int, y: Int) throws -> RGBPixel {
+        guard x >= 0, x < width, y >= 0, y < height else {
+            throw VerifierError.pixelCheck("pixel sample out of bounds x=\(x) y=\(y) image=\(width)x\(height)")
+        }
+        let offset = ((y * width) + x) * 4
+        return RGBPixel(
+            r: Int(bytes[offset]),
+            g: Int(bytes[offset + 1]),
+            b: Int(bytes[offset + 2])
+        )
+    }
+}
+
+private enum ResizeEdgeColor: String {
+    case redTop
+    case greenRight
+    case blueBottom
+    case yellowLeft
+
+    func matches(_ pixel: RGBPixel) -> Bool {
+        switch self {
+        case .redTop:
+            pixel.r >= 220 && pixel.g <= 80 && pixel.b <= 80
+        case .greenRight:
+            pixel.r <= 90 && pixel.g >= 150 && pixel.b <= 120
+        case .blueBottom:
+            pixel.r <= 90 && pixel.g <= 140 && pixel.b >= 180
+        case .yellowLeft:
+            pixel.r >= 220 && pixel.g >= 180 && pixel.b <= 90
+        }
+    }
+}
+
+private func verifyResizeEdgeCoverage(
+    image: CGImage,
+    contentSize: CGSize,
+    targetName: String,
+    artifactName: String
+) throws {
+    let pixels = renderPixels(from: image)
+    let expectedWidth = Int(contentSize.width.rounded())
+    let expectedContentHeight = Int(contentSize.height.rounded())
+    guard pixels.width == expectedWidth else {
+        throw VerifierError.pixelCheck(
+            "\(targetName) \(artifactName) expected captured window width \(expectedWidth), got \(pixels.width)"
+        )
+    }
+    let titlebarHeight = pixels.height - expectedContentHeight
+    guard titlebarHeight >= 0, titlebarHeight <= 80 else {
+        throw VerifierError.pixelCheck(
+            "\(targetName) \(artifactName) expected content height \(expectedContentHeight) inside captured window \(pixels.width)x\(pixels.height), got titlebar delta \(titlebarHeight)"
+        )
+    }
+
+    let centerX = pixels.width / 2
+    let centerY = titlebarHeight + expectedContentHeight / 2
+    let samples: [(String, ResizeEdgeColor, Int, Int)] = [
+        ("top", .redTop, centerX, titlebarHeight + 8),
+        ("right", .greenRight, pixels.width - 8, centerY),
+        ("bottom", .blueBottom, centerX, pixels.height - 8),
+        ("left", .yellowLeft, 8, centerY),
+    ]
+    for (edge, expected, x, y) in samples {
+        let pixel = try pixels.colorAt(x: x, y: y)
+        guard expected.matches(pixel) else {
+            throw VerifierError.pixelCheck(
+                "\(targetName) \(artifactName) expected \(expected.rawValue) on \(edge) edge at x=\(x) y=\(y), got \(pixel). This indicates the Chromium surface did not cover the Swift host edge."
+            )
+        }
+    }
+}
+
 private enum ExpectedPixel: Hashable {
     case red
     case green
@@ -2374,7 +2480,7 @@ private extension Set where Element == ExpectedPixel {
     }
 }
 
-private func analyze(image: CGImage) -> PixelStats {
+private func renderPixels(from image: CGImage) -> ImagePixels {
     let width = image.width
     let height = image.height
     let bytesPerPixel = 4
@@ -2398,6 +2504,13 @@ private func analyze(image: CGImage) -> PixelStats {
         }
     }
 
+    return ImagePixels(width: width, height: height, bytes: pixels)
+}
+
+private func analyze(image: CGImage) -> PixelStats {
+    let bytesPerPixel = 4
+    let rendered = renderPixels(from: image)
+
     var red = 0
     var green = 0
     var blue = 0
@@ -2406,10 +2519,10 @@ private func analyze(image: CGImage) -> PixelStats {
     var light = 0
     var nonWhite = 0
 
-    for offset in stride(from: 0, to: pixels.count, by: bytesPerPixel) {
-        let r = Int(pixels[offset])
-        let g = Int(pixels[offset + 1])
-        let b = Int(pixels[offset + 2])
+    for offset in stride(from: 0, to: rendered.bytes.count, by: bytesPerPixel) {
+        let r = Int(rendered.bytes[offset])
+        let g = Int(rendered.bytes[offset + 1])
+        let b = Int(rendered.bytes[offset + 2])
 
         if r >= 220, g <= 70, b <= 70 {
             red += 1
@@ -2435,8 +2548,8 @@ private func analyze(image: CGImage) -> PixelStats {
     }
 
     return PixelStats(
-        width: width,
-        height: height,
+        width: rendered.width,
+        height: rendered.height,
         redPixels: red,
         greenPixels: green,
         bluePixels: blue,
@@ -3008,6 +3121,39 @@ private enum Fixtures {
       <style>
         html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: rgb(248,248,248); }
         body { font: 30px -apple-system, BlinkMacSystemFont, sans-serif; color: rgb(20,20,20); }
+        .edge {
+          position: fixed;
+          z-index: 9999;
+          pointer-events: none;
+        }
+        #edgeTop {
+          left: 0;
+          top: 0;
+          right: 0;
+          height: 18px;
+          background: rgb(255, 0, 0);
+        }
+        #edgeRight {
+          right: 0;
+          top: 0;
+          bottom: 0;
+          width: 18px;
+          background: rgb(0, 204, 82);
+        }
+        #edgeBottom {
+          left: 0;
+          right: 0;
+          bottom: 0;
+          height: 18px;
+          background: rgb(0, 89, 255);
+        }
+        #edgeLeft {
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: 18px;
+          background: rgb(255, 210, 0);
+        }
         #frame {
           position: absolute;
           left: 32px;
@@ -3093,6 +3239,10 @@ private enum Fixtures {
       </style>
     </head>
     <body>
+      <div id="edgeTop" class="edge"></div>
+      <div id="edgeRight" class="edge"></div>
+      <div id="edgeBottom" class="edge"></div>
+      <div id="edgeLeft" class="edge"></div>
       <div id="frame"></div>
       <div id="banner">OWL_RESIZE_READY</div>
       <div id="size">0 x 0</div>
