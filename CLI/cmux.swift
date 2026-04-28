@@ -9594,11 +9594,11 @@ struct CMUXCLI {
               viewport <width> <height>
               geolocation|geo <latitude> <longitude>
               offline <true|false>
-              trace <start|stop> [path]
+              trace <start|stop> [path] (Chromium-only — not on WKWebView)
               network <route|unroute|requests> ...
                 route <pattern> [--abort] [--body <text>]
                 unroute <pattern>
-              screencast <start|stop>
+              screencast <start|stop> (Chromium-only — not on WKWebView)
               input <mouse|keyboard|touch> [args...]
               input_mouse | input_keyboard | input_touch
               identify [--surface <id|ref|index>]
