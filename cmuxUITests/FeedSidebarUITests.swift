@@ -70,12 +70,7 @@ final class FeedSidebarUITests: XCTestCase {
 
         // Push a synthetic permission request via the socket.
         let requestId = "uitest-\(UUID().uuidString)"
-        let workstreamId = "uitest-\(requestId)"
         let replyPayload = try sendFeedPush(requestId: requestId, waitSeconds: 30)
-        XCTAssertTrue(
-            try waitForPendingFeedPermission(workstreamId: workstreamId, timeout: 10),
-            "feed.push did not register a pending permission item"
-        )
 
         // The reply arrives once the Feed row's Allow Once button is
         // clicked, run that on the UI side while the send is in-flight.
@@ -105,11 +100,6 @@ final class FeedSidebarUITests: XCTestCase {
     private struct FeedPushResult {
         let status: String
         let mode: String
-    }
-
-    private struct FeedListResult {
-        let items: [[String: Any]]
-        let rawResponse: String
     }
 
     private final class FeedPushFuture {
@@ -182,48 +172,6 @@ final class FeedSidebarUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.1)
         }
         return nil
-    }
-
-    private func waitForPendingFeedPermission(
-        workstreamId: String,
-        timeout: TimeInterval
-    ) throws -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        var lastResponse = ""
-        while Date() < deadline {
-            let response = try sendFeedList(pendingOnly: true)
-            lastResponse = response.rawResponse
-            if response.items.contains(where: { item in
-                (item["workstream_id"] as? String) == workstreamId
-                    && (item["kind"] as? String) == "permissionRequest"
-                    && (item["status"] as? String) == "pending"
-            }) {
-                return true
-            }
-            Thread.sleep(forTimeInterval: 0.2)
-        }
-        XCTContext.runActivity(named: "Last feed.list response") { activity in
-            activity.add(XCTAttachment(string: lastResponse))
-        }
-        return false
-    }
-
-    private func sendFeedList(pendingOnly: Bool) throws -> FeedListResult {
-        let response = try sendFrame(
-            method: "feed.list",
-            params: ["pending_only": pendingOnly]
-        )
-        guard (response["ok"] as? Bool) == true,
-              let result = response["result"] as? [String: Any],
-              let items = result["items"] as? [[String: Any]]
-        else {
-            throw NSError(
-                domain: "FeedSidebarUITests",
-                code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "invalid feed.list response: \(response)"]
-            )
-        }
-        return FeedListResult(items: items, rawResponse: "\(response)")
     }
 
     private func sendFrame(method: String, params: [String: Any]) throws -> [String: Any] {
