@@ -3,6 +3,10 @@ import Combine
 import CryptoKit
 import Foundation
 
+extension CodingUserInfoKey {
+    static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
+}
+
 struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
     var ui: CmuxConfigUIDefinition?
@@ -1589,40 +1593,6 @@ enum CmuxRestartBehavior: String, Codable, Sendable {
     case confirm
 }
 
-struct CmuxWorkspaceDefinition: Codable, Sendable {
-    var name: String?
-    var cwd: String?
-    var color: String?
-    var layout: CmuxLayoutNode?
-
-    init(name: String? = nil, cwd: String? = nil, color: String? = nil, layout: CmuxLayoutNode? = nil) {
-        self.name = name
-        self.cwd = cwd
-        self.color = color
-        self.layout = layout
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        name = try container.decodeIfPresent(String.self, forKey: .name)
-        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
-        layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
-
-        if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {
-            guard let normalized = WorkspaceTabColorSettings.normalizedHex(rawColor) else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .color,
-                    in: container,
-                    debugDescription: "Invalid color \"\(rawColor)\". Expected 6-digit hex format: #RRGGBB"
-                )
-            }
-            color = normalized
-        } else {
-            color = nil
-        }
-    }
-}
-
 indirect enum CmuxLayoutNode: Codable, Sendable {
     case pane(CmuxPaneDefinition)
     case split(CmuxSplitDefinition)
@@ -1861,6 +1831,7 @@ final class CmuxConfigStore: ObservableObject {
     private struct ParsedConfigCacheEntry {
         let fileSize: UInt64
         let modificationDate: Date?
+        let workspaceColorPaletteFingerprint: String
         let config: CmuxConfigFile?
         let issue: CmuxConfigIssue?
     }
@@ -2518,10 +2489,12 @@ final class CmuxConfigStore: ObservableObject {
         let attributes = try? fileManager.attributesOfItem(atPath: path)
         let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
         let modificationDate = attributes?[.modificationDate] as? Date
+        let paletteFingerprint = WorkspaceTabColorSettings.paletteCacheFingerprint()
 
         if let cached = parsedConfigCache[path],
            cached.fileSize == fileSize,
-           cached.modificationDate == modificationDate {
+           cached.modificationDate == modificationDate,
+           cached.workspaceColorPaletteFingerprint == paletteFingerprint {
             return ParsedConfigResult(config: cached.config, issue: cached.issue)
         }
 
@@ -2537,6 +2510,7 @@ final class CmuxConfigStore: ObservableObject {
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: nil,
                 issue: issue
             )
@@ -2547,6 +2521,7 @@ final class CmuxConfigStore: ObservableObject {
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: config,
                 issue: nil
             )
@@ -2556,6 +2531,7 @@ final class CmuxConfigStore: ObservableObject {
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: nil,
                 issue: issue
             )
