@@ -29,8 +29,8 @@ final class FeedSidebarUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launch()
         XCTAssertTrue(
-            app.wait(for: .runningForeground, timeout: 15),
-            "cmux failed to launch for Feed UI test"
+            ensureForegroundAfterLaunch(app, timeout: 15),
+            "cmux failed to launch for Feed UI test. state=\(app.state.rawValue)"
         )
 
         // Wait for the socket to come up.
@@ -83,6 +83,17 @@ final class FeedSidebarUITests: XCTestCase {
     }
 
     // MARK: - Socket helpers
+
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        if app.state == .runningBackground {
+            app.activate()
+            return app.wait(for: .runningForeground, timeout: 6)
+        }
+        return false
+    }
 
     private struct FeedPushResult {
         let status: String
