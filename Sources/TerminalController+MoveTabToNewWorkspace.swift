@@ -19,13 +19,13 @@ extension TerminalController {
             return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
         }
 
-        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
         guard let result = app.moveSurfaceToNewWorkspace(
             panelId: surfaceId,
             destinationManager: tabManager,
             title: v2String(params, "title"),
             focus: focus,
-            focusWindow: focus
+            focusWindow: false
         ) else {
             return .err(code: "internal_error", message: "Failed to move tab to new workspace", data: nil)
         }

@@ -53,7 +53,7 @@ extension CMUXCLI {
       --surface <id|ref|index>     Alias for --tab
       --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
       --title <text>               Optional title for the new workspace
-      --focus <true|false>         Focus the new workspace when supported
+      --focus <true|false>         Focus the new workspace when supported (default: false)
 
     Example:
       cmux move-tab-to-new-workspace --tab tab:2
