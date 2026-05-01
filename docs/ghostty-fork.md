@@ -13,7 +13,7 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `1eafdc6a3`, based on `495316732`, with the
+Current cmux pinned fork head: `22fa801f8`, based on `495316732`, with the
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53.
 This head keeps the cmux theme picker hooks and exposes the manual surface IO
 needed by libghostty iOS clients.
