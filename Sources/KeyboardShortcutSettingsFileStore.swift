@@ -35,6 +35,7 @@ final class CmuxSettingsFileStore {
         "app.focusPaneOnFirstClick",
         "app.preferredEditor",
         "app.openMarkdownInCmuxViewer",
+        "app.iMessageMode",
         "app.reorderOnNotification",
         "app.warnBeforeQuit",
         "app.renameSelectsExistingName",
@@ -423,6 +424,9 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["reorderOnNotification"]) {
             snapshot.managedUserDefaults[WorkspaceAutoReorderSettings.key] = .bool(value)
+        }
+        if let value = jsonBool(section["iMessageMode"]) {
+            snapshot.managedUserDefaults[IMessageModeSettings.key] = .bool(value)
         }
         if let value = jsonBool(section["warnBeforeQuit"]) {
             snapshot.managedUserDefaults[QuitWarningSettings.warnBeforeQuitKey] = .bool(value)
@@ -829,14 +833,12 @@ final class CmuxSettingsFileStore {
         _ rawValue: Any,
         action: KeyboardShortcutSettings.Action
     ) -> StoredShortcut? {
-        let shortcut: StoredShortcut?
-        if let stroke = jsonString(rawValue) {
-            shortcut = StoredShortcut.parseConfig(stroke)
-        } else if let strokes = jsonStringArray(rawValue) {
-            shortcut = StoredShortcut.parseConfig(strokes: strokes)
-        } else {
-            shortcut = nil
-        }
+        let shortcut: StoredShortcut? = {
+            if rawValue is NSNull { return .unbound }
+            if let stroke = jsonString(rawValue) { return StoredShortcut.parseConfig(stroke) }
+            if let strokes = jsonStringArray(rawValue) { return StoredShortcut.parseConfig(strokes: strokes) }
+            return nil
+        }()
 
         guard let shortcut else { return nil }
         if let normalized = action.normalizedRecordedShortcut(shortcut) {
@@ -1223,6 +1225,7 @@ final class CmuxSettingsFileStore {
                     "preferredEditor": "",
                     "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
+                    "iMessageMode": IMessageModeSettings.defaultValue,
                     "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,
                     "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
                     "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
@@ -1267,7 +1270,7 @@ final class CmuxSettingsFileStore {
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(
                         uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
-                    ),
+                    )
                 ],
             ],
             [

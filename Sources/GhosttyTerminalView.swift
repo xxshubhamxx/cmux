@@ -165,11 +165,30 @@ func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
     )
 }
 
-func cmuxShouldUseClearWindowBackground(for opacity: Double) -> Bool {
-    cmuxShouldUseTransparentBackgroundWindow() || opacity < 0.999
+func cmuxShouldUseClearWindowBackground(for opacity: Double, usesGhosttyGlassStyle: Bool = false) -> Bool {
+    cmuxShouldUseTransparentBackgroundWindow() || usesGhosttyGlassStyle || opacity < 0.999
 }
 
-private func cmuxTransparentWindowBaseColor() -> NSColor {
+@_silgen_name("CGSDefaultConnectionForThread")
+private func cmuxCGSDefaultConnectionForThread() -> UnsafeMutableRawPointer?
+
+@_silgen_name("CGSSetWindowBackgroundBlurRadius")
+@discardableResult
+private func cmuxCGSSetWindowBackgroundBlurRadius(
+    _ connection: UnsafeMutableRawPointer?,
+    _ windowNumber: UInt,
+    _ radius: Int32
+) -> Int32
+
+func cmuxResetCompositorBackgroundBlur(on window: NSWindow) {
+    _ = cmuxCGSSetWindowBackgroundBlurRadius(
+        cmuxCGSDefaultConnectionForThread(),
+        UInt(window.windowNumber),
+        0
+    )
+}
+
+func cmuxTransparentWindowBaseColor() -> NSColor {
     // A tiny non-zero alpha matches Ghostty's window compositing behavior on macOS and
     // avoids visual artifacts that can happen with a fully clear window background.
     NSColor.white.withAlphaComponent(0.001)
@@ -1503,6 +1522,7 @@ class GhosttyApp {
     private let _tickLock = NSLock()
     private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
+    private(set) var defaultBackgroundBlur: GhosttyBackgroundBlur = .disabled
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
     private static func resolveBackgroundLogURL(
@@ -1937,6 +1957,7 @@ class GhosttyApp {
                 prefix: "cmux-shell-integration-override",
                 logLabel: "shell integration override (fallback)"
             )
+            loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
                 true,
                 source: "initialize.fallbackConfig"
@@ -2106,9 +2127,25 @@ class GhosttyApp {
             prefix: "cmux-shell-integration-override",
             logLabel: "shell integration override"
         )
+        loadCmuxOwnedGhosttyKeybindOverrides(config)
 
         ghostty_config_finalize(config)
         return renderingModeChanged
+    }
+
+    private func loadCmuxOwnedGhosttyKeybindOverrides(_ config: ghostty_config_t) {
+        // cmux owns these split shortcuts through KeyboardShortcutSettings.
+        // Remove Ghostty's default fallbacks so remapped or cleared shortcuts
+        // can reach the focused terminal instead of creating a split.
+        loadInlineGhosttyConfig(
+            """
+            keybind = super+d=unbind
+            keybind = super+shift+d=unbind
+            """,
+            into: config,
+            prefix: "cmux-owned-split-keybind-overrides",
+            logLabel: "cmux-owned split keybind overrides"
+        )
     }
 
     /// When the user has not configured `font-codepoint-map` for CJK ranges
@@ -2883,6 +2920,15 @@ class GhosttyApp {
         if reloadSettingsFromFile {
             KeyboardShortcutSettings.settingsFileStore.reload()
         }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                AppDelegate.shared?.reloadCmuxConfigStores(source: source)
+            }
+        } else {
+            DispatchQueue.main.sync {
+                AppDelegate.shared?.reloadCmuxConfigStores(source: source)
+            }
+        }
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
@@ -3030,13 +3076,24 @@ class GhosttyApp {
         let opacityKey = "background-opacity"
         _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
         opacity = min(1.0, max(0.0, opacity))
+        let backgroundBlur = defaultBackgroundBlurValue(from: config)
         applyDefaultBackground(
             color: resolvedColor,
             opacity: opacity,
+            backgroundBlur: backgroundBlur,
             source: source,
             scope: scope,
             forceNotify: forceNotify
         )
+    }
+
+    private func defaultBackgroundBlurValue(from config: ghostty_config_t) -> GhosttyBackgroundBlur {
+        var value: Int16 = 0
+        let key = "background-blur"
+        guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))) else {
+            return .disabled
+        }
+        return GhosttyBackgroundBlur(cValue: value)
     }
 
     func focusFollowsMouseEnabled() -> Bool {
@@ -3120,6 +3177,7 @@ class GhosttyApp {
     private func applyDefaultBackground(
         color: NSColor,
         opacity: Double,
+        backgroundBlur: GhosttyBackgroundBlur,
         source: String,
         scope: GhosttyDefaultBackgroundUpdateScope,
         forceNotify: Bool = false
@@ -3140,17 +3198,20 @@ class GhosttyApp {
 
         let previousHex = defaultBackgroundColor.hexString()
         let previousOpacity = defaultBackgroundOpacity
+        let previousBlur = defaultBackgroundBlur
         defaultBackgroundColor = color
         defaultBackgroundOpacity = opacity
+        defaultBackgroundBlur = backgroundBlur
         let hasChanged = forceNotify ||
             previousHex != defaultBackgroundColor.hexString() ||
-            abs(previousOpacity - defaultBackgroundOpacity) > 0.0001
+            abs(previousOpacity - defaultBackgroundOpacity) > 0.0001 ||
+            previousBlur != defaultBackgroundBlur
         if hasChanged {
             notifyDefaultBackgroundDidChange(source: source)
         }
         if backgroundLogEnabled {
             logBackground(
-                "default background updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousColor=\(previousHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) color=\(defaultBackgroundColor) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) changed=\(hasChanged) forced=\(forceNotify)"
+                "default background updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousColor=\(previousHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) previousBlur=\(previousBlur) color=\(defaultBackgroundColor) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur) changed=\(hasChanged) forced=\(forceNotify)"
             )
         }
     }
@@ -3385,6 +3446,7 @@ class GhosttyApp {
                 applyDefaultBackground(
                     color: resolvedColor,
                     opacity: defaultBackgroundOpacity,
+                    backgroundBlur: defaultBackgroundBlur,
                     source: "action.color_change.app",
                     scope: .app
                 )
@@ -3857,20 +3919,13 @@ class GhosttyApp {
 
     private func applyBackgroundToKeyWindow() {
         guard let window = activeMainWindow() else { return }
-        if cmuxShouldUseClearWindowBackground(for: defaultBackgroundOpacity) {
-            window.backgroundColor = cmuxTransparentWindowBaseColor()
-            window.isOpaque = false
-            applyWindowBlurIfNeeded(window)
-            if backgroundLogEnabled {
-                logBackground("applied transparent window background opacity=\(String(format: "%.3f", defaultBackgroundOpacity))")
-            }
-        } else {
-            let color = defaultBackgroundColor.withAlphaComponent(defaultBackgroundOpacity)
-            window.backgroundColor = color
-            window.isOpaque = color.alphaComponent >= 1.0
-            if backgroundLogEnabled {
-                logBackground("applied default window background color=\(color) opacity=\(String(format: "%.3f", color.alphaComponent))")
-            }
+        let snapshot = WindowAppearanceSnapshot.currentFromUserDefaults(app: self)
+        let plan = snapshot.backdropPlan()
+        _ = WindowBackdropController.apply(plan: plan, to: window)
+        if backgroundLogEnabled {
+            logBackground(
+                "applied window backdrop phase=\(plan.hostingPhase.rawValue) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur)"
+            )
         }
     }
 
@@ -3878,7 +3933,7 @@ class GhosttyApp {
         guard let app = self.app else { return }
         // ghostty_set_window_background_blur reads background-blur and
         // background-opacity from the app config internally and calls
-        // CGSSetWindowBackgroundBlurRadius — a compositor-level setter that is
+        // CGSSetWindowBackgroundBlurRadius, a compositor-level setter that is
         // idempotent.  It is a no-op when opacity >= 1.0 or blur is disabled,
         // so we can call it unconditionally whenever the window is transparent.
         ghostty_set_window_background_blur(app, Unmanaged.passUnretained(window).toOpaque())
@@ -4165,7 +4220,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
                         _ = self?.performBindingAction("search:\(needle)")
                     }
-            } else if oldValue != nil {
+            } else if let oldValue {
+                lastSearchNeedle = oldValue.needle
                 searchNeedleCancellable = nil
 #if DEBUG
                 cmuxDebugLog("find.searchState cleared tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
@@ -4175,9 +4231,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
     @Published private(set) var keyboardCopyModeActive: Bool = false
+    private(set) var lastSearchNeedle = ""
     private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
-
     init(
         tabId: UUID,
         context: ghostty_surface_context_e,
@@ -4211,7 +4267,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         hostedView.attachSurface(self)
         TerminalSurfaceRegistry.shared.register(self)
     }
-
 
     func updateWorkspaceId(_ newTabId: UUID) {
         tabId = newTabId
@@ -4823,8 +4878,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         setManagedEnvironmentValue("CMUX_TAB_ID", tabId.uuidString)
         let socketPath = SocketControlSettings.socketPath()
         setManagedEnvironmentValue("CMUX_SOCKET_PATH", socketPath)
-        // Backward-compatible alias expected by older scripts and third-party integrations.
-        setManagedEnvironmentValue("CMUX_SOCKET", socketPath)
+        env.removeValue(forKey: "CMUX_SOCKET")
         if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
            FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
             setManagedEnvironmentValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)
@@ -4931,6 +4985,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             additionalEnvironment: additionalEnvironment,
             initialEnvironmentOverrides: initialEnvironmentOverrides
         )
+        env.removeValue(forKey: "CMUX_SOCKET")
 
         if !env.isEmpty {
             envVars.reserveCapacity(env.count)
@@ -6023,16 +6078,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         let color = effectiveBackgroundColor()
-        if cmuxShouldUseClearWindowBackground(for: color.alphaComponent) {
-            window.backgroundColor = cmuxTransparentWindowBaseColor()
-            window.isOpaque = false
-            GhosttyApp.shared.applyWindowBlurIfNeeded(window)
-        } else {
-            window.backgroundColor = color
-            window.isOpaque = color.alphaComponent >= 1.0
-        }
+        let snapshot = WindowAppearanceSnapshot
+            .currentFromUserDefaults(app: GhosttyApp.shared)
+            .replacingTerminalBackgroundColor(backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor)
+        let plan = snapshot.backdropPlan()
+        _ = WindowBackdropController.apply(plan: plan, to: window)
         if GhosttyApp.shared.backgroundLogEnabled {
-            let signature = "\(cmuxShouldUseClearWindowBackground(for: color.alphaComponent) ? "transparent" : color.hexString()):\(String(format: "%.3f", color.alphaComponent))"
+            let signature = "\(plan.hostingPhase.rawValue):\(color.hexString()):\(String(format: "%.3f", color.alphaComponent)):\(GhosttyApp.shared.defaultBackgroundBlur)"
             if signature != lastLoggedWindowBackgroundSignature {
                 lastLoggedWindowBackgroundSignature = signature
                 let hasOverride = backgroundColor != nil
@@ -6040,7 +6092,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 let defaultHex = GhosttyApp.shared.defaultBackgroundColor.hexString()
                 let source = hasOverride ? "surfaceOverride" : "defaultBackground"
                 GhosttyApp.shared.logBackground(
-                    "window background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) transparent=\(cmuxShouldUseClearWindowBackground(for: color.alphaComponent)) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
+                    "window background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) phase=\(plan.hostingPhase.rawValue) transparent=\(plan.usesTransparentWindow) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent)) blur=\(GhosttyApp.shared.defaultBackgroundBlur)"
                 )
             }
         }
@@ -6715,6 +6767,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("paste_from_clipboard")
     }
 
+    private func applyConfiguredMenuShortcut(_ shortcut: StoredShortcut, to item: NSMenuItem) {
+        guard let keyEquivalent = shortcut.menuItemKeyEquivalent else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+
+        item.keyEquivalent = keyEquivalent
+        item.keyEquivalentModifierMask = shortcut.modifierFlags
+    }
+
     /// Validates whether edit menu items (copy, paste, split) should be enabled.
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
@@ -7227,8 +7290,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             dismissNotificationMs = (ProcessInfo.processInfo.systemUptime - dismissNotificationStart) * 1000.0
 #endif
         }
-        if event.keyCode != 53 { endFindEscapeSuppression() }
+        let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        if !cmuxFindEventIsPlainEscape(event) { endFindEscapeSuppression() }
         if shouldConsumeSuppressedFindEscape(event) { return }
+        if cmuxFindEventIsPlainEscape(event), !hasMarkedText(), let terminalSurface, terminalSurface.searchState != nil {
+            terminalSurface.searchState = nil
+            beginFindEscapeSuppression(); return
+        }
 #if DEBUG
         let keyboardCopyModeStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -7264,7 +7332,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // These keys are terminal control input, not text composition, so we bypass
         // AppKit text interpretation and send a single deterministic Ghostty key event.
         // This avoids intermittent drops after rapid split close/reparent transitions.
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
             terminalSurface?.recordExternalFocusState(true)
             ghostty_surface_set_focus(surface, true)
@@ -7788,10 +7855,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func shouldConsumeSuppressedFindEscape(_ event: NSEvent) -> Bool {
-        guard event.keyCode == 53 else { return false }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.isEmpty else { return false }
-        return isFindEscapeSuppressionArmed
+        isFindEscapeSuppressionArmed && cmuxFindEventIsPlainEscape(event)
     }
 
     /// Get the characters for a key event with control character handling.
@@ -8714,10 +8778,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let splitHorizontallyItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.splitHorizontally", defaultValue: "Split Horizontally"),
             action: #selector(splitHorizontally(_:)),
-            keyEquivalent: "d"
+            keyEquivalent: ""
         )
         splitHorizontallyItem.target = self
-        splitHorizontallyItem.keyEquivalentModifierMask = [.command, .shift]
+        applyConfiguredMenuShortcut(KeyboardShortcutSettings.shortcut(for: .splitDown), to: splitHorizontallyItem)
         splitHorizontallyItem.image = NSImage(
             systemSymbolName: "rectangle.bottomhalf.inset.filled",
             accessibilityDescription: nil
@@ -8726,15 +8790,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let splitVerticallyItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.splitVertically", defaultValue: "Split Vertically"),
             action: #selector(splitVertically(_:)),
-            keyEquivalent: "d"
+            keyEquivalent: ""
         )
         splitVerticallyItem.target = self
-        splitVerticallyItem.keyEquivalentModifierMask = [.command]
+        applyConfiguredMenuShortcut(KeyboardShortcutSettings.shortcut(for: .splitRight), to: splitVerticallyItem)
         splitVerticallyItem.image = NSImage(
             systemSymbolName: "rectangle.righthalf.inset.filled",
             accessibilityDescription: nil
         )
-        menu.addItem(.separator())
+        appendMoveCurrentSurfaceToNewWorkspaceMenuItem(to: menu); menu.addItem(.separator())
         let resetTerminalItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal"),
             action: #selector(resetTerminal(_:)),
@@ -9334,36 +9398,6 @@ private final class GhosttyFlashOverlayView: NSView {
     }
 }
 
-private final class GhosttyPassthroughVisualEffectView: NSVisualEffectView {
-    override var acceptsFirstResponder: Bool { false }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-}
-
-func shouldAllowEnsureFocusWindowActivation(
-    activeTabManager: TabManager?,
-    targetTabManager: TabManager,
-    keyWindow: NSWindow?,
-    mainWindow: NSWindow?,
-    targetWindow: NSWindow
-) -> Bool {
-    guard activeTabManager === targetTabManager || (keyWindow == nil && mainWindow == nil) else {
-        return false
-    }
-
-    if let keyWindow {
-        return keyWindow === targetWindow
-    }
-
-    if let mainWindow {
-        return mainWindow === targetWindow
-    }
-
-    return true
-}
-
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -9400,6 +9434,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let surfaceView: GhosttyNSView
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
+    private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
     private let notificationRingOverlayView: GhosttyFlashOverlayView
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
@@ -9672,6 +9707,8 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = false
         addSubview(backgroundView)
         addSubview(scrollView)
+        paneDropTargetView.hostedView = self
+        addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
         inactiveOverlayView.wantsLayer = true
         inactiveOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
@@ -10013,6 +10050,8 @@ final class GhosttySurfaceScrollView: NSView {
     override func layout() {
         super.layout()
         synchronizeGeometryAndContent()
+        _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
+        bringPaneDropTargetToFrontIfNeeded()
     }
 
     override func viewDidMoveToSuperview() {
@@ -10074,6 +10113,7 @@ final class GhosttySurfaceScrollView: NSView {
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
+        _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         if let zone = activeDropZone {
             attachDropZoneOverlayIfNeeded()
             _ = setFrameIfNeeded(
@@ -10098,6 +10138,7 @@ final class GhosttySurfaceScrollView: NSView {
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: bounds)
         }
+        bringPaneDropTargetToFrontIfNeeded()
         // NSScrollView can defer clip-view/content-size updates until its own layout pass,
         // which makes interactive width changes arrive a queue turn late on Sequoia.
         if didScrollbarAppearanceChange {
@@ -10130,6 +10171,12 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func dropZoneOverlayContainerView() -> NSView {
         superview ?? self
+    }
+
+    private func bringPaneDropTargetToFrontIfNeeded() {
+        if paneDropTargetView.superview !== self || subviews.last !== paneDropTargetView {
+            addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
+        }
     }
 
     private func attachDropZoneOverlayIfNeeded() {
@@ -10471,10 +10518,6 @@ final class GhosttySurfaceScrollView: NSView {
             searchState: searchState,
             canApplyFocusRequest: { [weak self] in
                 self?.canApplyMountedSearchFieldFocusRequest() ?? false
-            },
-            onMoveFocusToTerminal: { [weak self] in
-                self?.searchFocusTarget = .terminal
-                self?.moveFocus()
             },
             onNavigateSearch: { [weak terminalSurface] action in
                 _ = terminalSurface?.performBindingAction(action)
@@ -10861,6 +10904,13 @@ final class GhosttySurfaceScrollView: NSView {
                 self.logDropZoneOverlay(event: "hideComplete", zone: nil, frame: nil)
 #endif
             }
+        }
+    }
+
+    func setPaneDropContext(_ context: TerminalPaneDropContext?) {
+        paneDropTargetView.dropContext = context
+        if context == nil {
+            paneDropTargetView.draggingExited(nil)
         }
     }
 
@@ -11826,7 +11876,7 @@ final class GhosttySurfaceScrollView: NSView {
               ownedPanelFocusIntent(for: firstResponder) == intent else {
             return false
         }
-
+        if intent == .findField { _ = cmuxRememberFindSelection(in: searchOverlayHostingView) }
         surfaceView.terminalSurface?.setFocus(false)
         resignOwnedFirstResponderIfNeeded(reason: "yieldPanelFocusIntent")
 #if DEBUG
@@ -13109,6 +13159,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
         if hostOwnsPortalNow {
+            hostedView.setPaneDropContext(TerminalPaneDropContext(
+                workspaceId: terminalSurface.tabId,
+                panelId: terminalSurface.id,
+                paneId: paneId
+            ))
             hostedView.setInactiveOverlay(
                 color: inactiveOverlayColor,
                 opacity: CGFloat(inactiveOverlayOpacity),
