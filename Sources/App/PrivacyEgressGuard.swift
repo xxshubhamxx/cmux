@@ -42,7 +42,7 @@ enum PrivacyEgressGuard {
     }
 }
 
-private final class PrivacyModeURLProtocol: URLProtocol {
+final class PrivacyModeURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool {
         guard PrivacyMode.isEnabled else { return false }
         guard let url = request.url else { return false }

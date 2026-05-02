@@ -827,7 +827,7 @@ struct cmuxApp: App {
         SocketControlSettings.migrateMode(socketControlMode)
     }
 
-    private func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
+    func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.shortcut(for: action)
     }
@@ -1064,7 +1064,7 @@ struct cmuxApp: App {
     }
 
     @ViewBuilder
-    private func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
+    func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
         if let key = shortcut.keyEquivalent {
             Button(title, action: action)
                 .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
@@ -7426,7 +7426,6 @@ struct SettingsView: View {
             Button(String(localized: "common.ok", defaultValue: "OK"), role: .cancel) {}
         } message: {
             Text(notificationCustomSoundErrorAlertMessage)
-        }
         }
     }
 

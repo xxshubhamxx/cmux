@@ -1458,7 +1458,7 @@ private enum BackupValue: Codable, Equatable {
     }
 }
 
-private enum JSONCParser {
+private enum LegacyJSONCParser {
     static func preprocess(data: Data) throws -> Data {
         guard let source = String(data: data, encoding: .utf8) else {
             throw JSONCError.invalidUTF8
